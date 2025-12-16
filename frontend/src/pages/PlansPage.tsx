@@ -16,7 +16,6 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import Grid from '@mui/material/Grid'
 import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 import dayjs, { Dayjs } from 'dayjs'
 import { useEffect, useState } from 'react'
@@ -91,8 +90,8 @@ const PlansPage = () => {
           </Typography>
         </Box>
 
-        <Grid container spacing={2}>
-          <Grid item xs={12} md={5}>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+          <Box flex={1} minWidth={0}>
             <Card elevation={0}>
               <CardHeader title="Crear plan" subheader="Necesita una evaluacion guardada" />
               <CardContent>
@@ -140,9 +139,9 @@ const PlansPage = () => {
                 </Stack>
               </CardContent>
             </Card>
-          </Grid>
+          </Box>
 
-          <Grid item xs={12} md={7}>
+          <Box flex={1} minWidth={0}>
             <Stack spacing={2}>
               <Typography variant="h6" fontWeight={700}>
                 Tus planes
@@ -175,8 +174,8 @@ const PlansPage = () => {
                 </Card>
               ))}
             </Stack>
-          </Grid>
-        </Grid>
+          </Box>
+        </Stack>
       </Stack>
 
       <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>

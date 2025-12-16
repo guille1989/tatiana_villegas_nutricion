@@ -28,6 +28,9 @@ const trainingMetMap: Record<(typeof trainingOptions)[number]['value'], number> 
   {} as Record<string, number>,
 )
 
+const isTrainingValue = (value: unknown): value is (typeof trainingOptions)[number]['value'] =>
+  typeof value === 'string' && value in trainingMetMap
+
 const roundInt = (value: number) => Math.round(value)
 const round1 = (value: number) => Math.round(value * 10) / 10
 
@@ -125,7 +128,7 @@ export const calculateDayFromBase = (
       merged.trainingMet = baseInputs.trainingMet ?? undefined
     } else {
       if (training.type !== undefined) {
-        merged.trainingType = training.type ?? undefined
+        merged.trainingType = training.type && isTrainingValue(training.type) ? training.type : undefined
       }
       if (training.durationMin !== undefined) {
         merged.duration = training.durationMin ?? undefined

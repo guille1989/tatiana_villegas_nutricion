@@ -1,14 +1,4 @@
-import {
-  Box,
-  Button,
-  Card,
-  CardContent,
-  CardHeader,
-  Chip,
-  Grid,
-  Stack,
-  Typography,
-} from '@mui/material'
+import { Box, Button, Card, CardContent, CardHeader, Chip, Stack, Typography } from '@mui/material'
 import dayjs from 'dayjs'
 import type { CalculationOutputs } from '../types'
 
@@ -42,8 +32,8 @@ const DayCard = ({ date, outputs, dayType, hasOverride, note, onEdit }: Props) =
         }
       />
       <CardContent>
-        <Grid container spacing={2}>
-          <Grid item xs={12} sm={6}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+          <Box flex={1}>
             <Typography variant="body2" color="text.secondary">
               Kcal objetivo
             </Typography>
@@ -53,8 +43,8 @@ const DayCard = ({ date, outputs, dayType, hasOverride, note, onEdit }: Props) =
             <Typography variant="body2" color="text.secondary">
               EEE: {outputs.eee} kcal
             </Typography>
-          </Grid>
-          <Grid item xs={12} sm={6}>
+          </Box>
+          <Box flex={1}>
             <Stack spacing={0.5}>
               <Typography variant="body2" color="text.secondary">
                 Proteina
@@ -69,8 +59,8 @@ const DayCard = ({ date, outputs, dayType, hasOverride, note, onEdit }: Props) =
                 Grasas ajustadas: {outputs.fatsAdjusted} g
               </Typography>
             </Stack>
-          </Grid>
-        </Grid>
+          </Box>
+        </Stack>
 
         <Box mt={2}>
           <Button variant="outlined" onClick={onEdit} fullWidth>
