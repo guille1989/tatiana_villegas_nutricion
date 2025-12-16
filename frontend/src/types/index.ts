@@ -36,11 +36,13 @@ export type Plan = {
   status?: 'draft' | 'active' | 'archived'
 }
 
-export type TrainingOverride = {
-  type?: string | null
-  met?: number | null
-  durationMin?: number | null
-} | null
+export type TrainingOverride =
+  | {
+      type?: string
+      met?: number
+      durationMin?: number
+    }
+  | null
 
 export type DayOverrideInputs = {
   activityLevel?: WizardFormData['activityLevel'] | null

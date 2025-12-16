@@ -17,7 +17,7 @@ import {
 } from '@mui/material'
 import dayjs from 'dayjs'
 import { useEffect, useMemo } from 'react'
-import { Controller, useForm, useWatch } from 'react-hook-form'
+import { Controller, useForm, useWatch, type SubmitHandler } from 'react-hook-form'
 import { z } from 'zod'
 import { deleteOverride, upsertOverride } from '../lib/api'
 import {
@@ -94,15 +94,18 @@ const DayEditDialog = ({
     trainingOptions.find((opt) => opt.value === baseInputs.trainingType)?.met ??
     undefined
 
-  const defaultTraining = useMemo(
-    () =>
-      existingOverride?.overrides.training ?? {
-        type: baseInputs.trainingType ?? '',
-        met: baseTrainingMet,
-        durationMin: baseInputs.duration ?? undefined,
-      },
-    [baseInputs.duration, baseInputs.trainingType, baseTrainingMet, existingOverride?.overrides.training],
-  )
+const defaultTraining = useMemo(
+  () =>
+    existingOverride?.overrides.training ??
+    (baseInputs.trainingType
+      ? {
+          type: baseInputs.trainingType,
+          met: baseTrainingMet,
+          durationMin: baseInputs.duration ?? undefined,
+        }
+      : undefined),
+  [baseInputs.duration, baseInputs.trainingType, baseTrainingMet, existingOverride?.overrides.training],
+)
 
   const {
     handleSubmit,
@@ -142,7 +145,7 @@ const DayEditDialog = ({
     }
   }, [open, defaultActivity, defaultDayType, defaultTraining, existingOverride?.note, reset])
 
-  const onSubmit = async (values: FormValues) => {
+  const onSubmit: SubmitHandler<FormValues> = async (values) => {
     const activityLevel =
       values.activityLevel === '' || values.activityLevel === undefined
         ? undefined
@@ -155,9 +158,9 @@ const DayEditDialog = ({
 
     if (values.dayType === 'training') {
       overrides.training = {
-        type: values.training?.type ?? null,
-        durationMin: values.training?.durationMin ?? null,
-        met: values.training?.met ?? null,
+        type: values.training?.type ?? undefined,
+        durationMin: values.training?.durationMin ?? undefined,
+        met: values.training?.met ?? undefined,
       }
     } else {
       overrides.training = null

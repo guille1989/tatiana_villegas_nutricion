@@ -10,13 +10,13 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  Grid,
   MenuItem,
   Snackbar,
   Stack,
   TextField,
   Typography,
 } from '@mui/material'
+import Grid from '@mui/material/Grid'
 import { DatePicker } from '@mui/x-date-pickers/DatePicker'
 import dayjs, { Dayjs } from 'dayjs'
 import { useEffect, useState } from 'react'

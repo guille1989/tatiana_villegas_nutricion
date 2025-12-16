@@ -68,11 +68,11 @@ export const calculateInitials = (inputs: WizardInputs): CalculationResult => {
 
   const carbs = Math.max(0, (kcalObjectiveBase - (protein * 4 + fats * 9)) / 4)
 
-  const trainingMet =
-    inputs.trainingMet ?? (inputs.trainingType ? trainingMetMap[inputs.trainingType] : undefined)
+  const trainingTypeKey = inputs.trainingType as keyof typeof trainingMetMap | undefined
+  const trainingMet = inputs.trainingMet ?? (trainingTypeKey ? trainingMetMap[trainingTypeKey] : undefined)
 
   const eee =
-    inputs.dayType === 'training' && inputs.trainingType && inputs.duration && trainingMet
+    inputs.dayType === 'training' && trainingTypeKey && inputs.duration && trainingMet
       ? ((inputs.weight * trainingMet * 3.5) / 200) * inputs.duration
       : 0
 
