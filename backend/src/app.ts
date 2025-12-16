@@ -5,12 +5,23 @@ import routes from './routes'
 import { errorHandler } from './middleware/errorHandler'
 import { env } from './config/env'
 
+const parseOrigins = (value: string) =>
+  value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+
 export const createApp = () => {
   const app = express()
+  const allowedOrigins = parseOrigins(env.clientUrl)
 
   app.use(
     cors({
-      origin: env.clientUrl,
+      origin: (origin, callback) => {
+        if (!origin) return callback(null, true)
+        if (allowedOrigins.includes(origin)) return callback(null, true)
+        return callback(new Error('Not allowed by CORS'))
+      },
       credentials: true,
     }),
   )
