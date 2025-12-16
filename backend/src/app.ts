@@ -9,6 +9,7 @@ export const createApp = () => {
   const allowedOrigins = [
     "https://tatiana-villegas-nutricion.vercel.app", // frontend prod
     "http://localhost:5173", // desarrollo
+    "https://tatiana-villegas-nutricion-fsew.vercel.app"
   ];
 
   app.use(
