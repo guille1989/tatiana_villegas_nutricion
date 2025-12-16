@@ -3,17 +3,13 @@ import express from "express";
 import morgan from "morgan";
 import routes from "./routes";
 import { errorHandler } from "./middleware/errorHandler";
-import { env } from "./config/env";
-
-const parseOrigins = (value: string) =>
-  value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
 
 export const createApp = () => {
   const app = express();
-  const allowedOrigins = parseOrigins(env.clientUrl);
+  const allowedOrigins = [
+    "https://tatiana-villegas-nutricion.vercel.app", // frontend prod
+    "http://localhost:5173", // desarrollo
+  ];
 
   app.use(
     cors({
