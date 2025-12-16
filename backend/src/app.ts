@@ -7,25 +7,54 @@ import { errorHandler } from "./middleware/errorHandler";
 export const createApp = () => {
   const app = express();
   const allowedOrigins = new Set([
-    "https://tatiana-villegas-nutricion.vercel.app",
-    "https://tatiana-villegas-nutricion-fsew.vercel.app",
-    "http://localhost:5173",
+    "https://tatiana-villegas-nutricion.vercel.app", // frontend prod
+    "https://tatiana-villegas-nutricion-fsew.vercel.app", // (si hace fetch desde aquí)
+    "http://localhost:5173", // dev
   ]);
 
-  const corsConfig: cors.CorsOptions = {
-    origin: (origin, cb) => {
-      if (!origin || allowedOrigins.has(origin)) return cb(null, true);
-      cb(new Error("Not allowed by CORS"));
-    },
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true,
-    optionsSuccessStatus: 204,
-  };
+  // Middleware manual para preflight y logging
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    console.log(
+      "CORS origin:",
+      origin,
+      "method:",
+      req.method,
+      "path:",
+      req.path
+    );
 
-  app.use(cors(corsConfig));
-  app.options("*", cors(corsConfig)); // maneja preflight
-  
+    if (origin && allowedOrigins.has(origin)) {
+      res.header("Access-Control-Allow-Origin", origin);
+      res.header("Vary", "Origin");
+      res.header("Access-Control-Allow-Credentials", "true");
+      res.header(
+        "Access-Control-Allow-Headers",
+        "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+      );
+      res.header(
+        "Access-Control-Allow-Methods",
+        "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+      );
+    }
+
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(204);
+    }
+    next();
+  });
+
+  // CORS estándar (por si acaso en peticiones normales)
+  app.use(
+    cors({
+      origin: (origin, cb) => {
+        if (!origin || allowedOrigins.has(origin)) return cb(null, true);
+        cb(new Error("Not allowed by CORS"));
+      },
+      credentials: true,
+    })
+  );
+
   app.use(express.json());
   app.use(morgan("dev"));
   app.use("/api", routes);
