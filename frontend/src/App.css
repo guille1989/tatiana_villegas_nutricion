@@ -1,0 +1,19 @@
+.app-shell {
+  min-height: 100vh;
+  position: relative;
+}
+
+.step-card {
+  animation: fadeSlide 0.35s ease;
+}
+
+@keyframes fadeSlide {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
