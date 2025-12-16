@@ -6,25 +6,29 @@ import { errorHandler } from "./middleware/errorHandler";
 
 export const createApp = () => {
   const app = express();
+
+  const envOrigins =
+    process.env.CLIENT_URL?.split(",").map((o) => o.trim()).filter(Boolean) ||
+    [];
+
   const allowedOrigins = new Set([
-    "https://tatiana-villegas-nutricion.vercel.app", // frontend prod
-    "https://tatiana-villegas-nutricion-fsew.vercel.app", // (si hace fetch desde aquí)
-    "http://localhost:5173", // dev
+    "https://tatiana-villegas-nutricion.vercel.app",
+    "https://tatiana-villegas-nutricion-fsew.vercel.app",
+    "http://localhost:5173",
+    ...envOrigins,
   ]);
 
-  // Middleware manual para preflight y logging
+  const isAllowed = (origin?: string) => {
+    if (!origin) return true;
+    if (allowedOrigins.has("*")) return true;
+    return allowedOrigins.has(origin);
+  };
+
+  // Preflight + headers manual
   app.use((req, res, next) => {
     const origin = req.headers.origin;
-    console.log(
-      "CORS origin:",
-      origin,
-      "method:",
-      req.method,
-      "path:",
-      req.path
-    );
 
-    if (origin && allowedOrigins.has(origin)) {
+    if (origin && isAllowed(origin)) {
       res.header("Access-Control-Allow-Origin", origin);
       res.header("Vary", "Origin");
       res.header("Access-Control-Allow-Credentials", "true");
@@ -39,17 +43,20 @@ export const createApp = () => {
     }
 
     if (req.method === "OPTIONS") {
+      if (origin && !isAllowed(origin)) {
+        return res.status(403).send("CORS not allowed");
+      }
       return res.sendStatus(204);
     }
     next();
   });
 
-  // CORS estándar (por si acaso en peticiones normales)
+  // CORS estándar
   app.use(
     cors({
       origin: (origin, cb) => {
-        if (!origin || allowedOrigins.has(origin)) return cb(null, true);
-        cb(new Error("Not allowed by CORS"));
+        if (isAllowed(origin ?? undefined)) return cb(null, true);
+        return cb(null, false);
       },
       credentials: true,
     })
