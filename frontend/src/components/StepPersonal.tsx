@@ -64,12 +64,14 @@ const StepPersonal = () => {
               render={({ field }) => (
                 <TextField
                   {...field}
-                  type="number"
+                  type="text"
                   label="Edad"
                   fullWidth
                   required
-                  inputProps={{ min: 10, max: 90 }}
+                  inputMode="numeric"
+                  inputProps={{ min: 10, max: 90, pattern: '[0-9]*' }}
                   value={field.value ?? ''}
+                  onFocus={(e) => e.target.select()}
                   onChange={(event) =>
                     field.onChange(event.target.value === '' ? undefined : Number(event.target.value))
                   }
