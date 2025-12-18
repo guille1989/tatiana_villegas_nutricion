@@ -15,7 +15,7 @@ const createPlanSchema = z.object({
   userId: z.string().min(1),
   baseAssessmentId: z.string().min(1),
   startDate: z.string().min(1),
-  days: z.union([z.literal(5), z.literal(15), z.literal(30)]),
+  days: z.union([z.literal(5), z.literal(7), z.literal(15), z.literal(30)]),
   title: z.string().optional(),
 })
 

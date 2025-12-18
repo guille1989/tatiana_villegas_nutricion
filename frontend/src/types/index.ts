@@ -31,7 +31,7 @@ export type Plan = {
   createdAt: string
   baseAssessmentId: string
   startDate: string
-  days: 5 | 15 | 30
+  days: 5 | 7 | 15 | 30
   title?: string
   status?: 'draft' | 'active' | 'archived'
 }

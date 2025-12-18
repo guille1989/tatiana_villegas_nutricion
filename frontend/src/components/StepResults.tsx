@@ -1,9 +1,8 @@
-import { Button, Chip, Card, CardContent, CardHeader, Divider, Stack, Typography } from '@mui/material'
+import { Button, Chip, Card, CardContent, CardHeader, Divider, Grid, Stack, Typography } from '@mui/material'
 import { useMemo } from 'react'
 import { useFormContext, useWatch } from 'react-hook-form'
 import { calculateInitials } from '../lib/calc'
 import { DEFAULT_VALUES, type WizardFormData } from '../lib/schema'
-import Grid from '@mui/material/GridLegacy'
 
 type Props = {
   onReset: () => void

@@ -16,21 +16,17 @@ import { useNavigate } from 'react-router-dom'
 import StepActivity from '../components/StepActivity'
 import StepMeasurements from '../components/StepMeasurements'
 import StepPersonal from '../components/StepPersonal'
-import StepResults from '../components/StepResults'
-import StepTraining from '../components/StepTraining'
 import { createAssessment, getLatestAssessment } from '../lib/api'
 import { DEFAULT_VALUES, wizardSchema, type WizardFormData } from '../lib/schema'
 import { clearFormData, loadFormData, saveFormData } from '../lib/storage'
 import type { Assessment } from '../types'
 
-const steps = ['Datos personales', 'Medidas', 'Actividad y objetivo', 'Entrenamiento', 'Resultados']
+const steps = ['Datos personales', 'Medidas', 'Actividad y objetivo']
 
 const stepFields: (keyof WizardFormData)[][] = [
   ['name', 'sex', 'age'],
   ['weight', 'height', 'bodyFat', 'profile'],
   ['activityLevel', 'goal', 'dayType'],
-  ['trainingType', 'duration'],
-  [],
 ]
 
 const WizardPage = () => {
@@ -46,16 +42,16 @@ const WizardPage = () => {
   const [snackbar, setSnackbar] = useState<string | null>(null)
   const methods = useForm<WizardFormData>({
     resolver: zodResolver(wizardSchema),
-    defaultValues: { ...DEFAULT_VALUES, ...(stored ?? {}) },
+    defaultValues: { ...DEFAULT_VALUES, ...(stored ?? {}), dayType: 'rest' },
     mode: 'onBlur',
     reValidateMode: 'onChange',
   })
 
   const [activeStep, setActiveStep] = useState(0)
-  const dayType = methods.watch('dayType')
   const lastSavedLabel = savedAssessment?.createdAt
     ? new Date(savedAssessment.createdAt).toLocaleString()
     : null
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/incompatible-library
@@ -72,15 +68,15 @@ const WizardPage = () => {
   const handleNext = async () => {
     const fields = stepFields[activeStep]
 
-    if (activeStep === 3 && dayType !== 'training') {
-      setActiveStep((prev) => Math.min(prev + 1, steps.length - 1))
-      window.scrollTo({ top: 0, behavior: 'smooth' })
-      return
-    }
-
     if (fields.length) {
       const isValid = await methods.trigger(fields, { shouldFocus: true })
       if (!isValid) return
+    }
+
+    const isLast = activeStep === steps.length - 1
+    if (isLast) {
+      await handleFinalize()
+      return
     }
 
     setActiveStep((prev) => Math.min(prev + 1, steps.length - 1))
@@ -99,23 +95,20 @@ const WizardPage = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const handleSaveAssessment = async () => {
+  const handleFinalize = async () => {
     const inputs = methods.getValues()
+    setSaving(true)
     try {
-      const assessment = await createAssessment(inputs)
+      const { assessment, plan } = await createAssessment(inputs)
       setSavedAssessment(assessment)
-      setSnackbar('Evaluacion guardada')
+      setSnackbar('Plan de 7 dias guardado')
+      if (plan) navigate(`/plans/${plan.id}`)
+      else navigate('/plans')
     } catch (err) {
       setSnackbar(err instanceof Error ? err.message : 'No se pudo guardar')
+    } finally {
+      setSaving(false)
     }
-  }
-
-  const handleGoPlans = () => {
-    if (!savedAssessment) {
-      setSnackbar('Guarda la evaluacion antes de crear un plan.')
-      return
-    }
-    navigate('/plans')
   }
 
   const renderStepContent = (stepIndex: number) => {
@@ -124,25 +117,12 @@ const WizardPage = () => {
         return <StepPersonal />
       case 1:
         return <StepMeasurements />
-      case 2:
-        return <StepActivity />
-      case 3:
-        return <StepTraining />
       default:
-        return (
-          <StepResults
-            onReset={handleReset}
-            onSaveAssessment={handleSaveAssessment}
-            onGoPlans={handleGoPlans}
-            hasSavedAssessment={!!savedAssessment}
-            lastSavedAt={lastSavedLabel}
-          />
-        )
+        return <StepActivity />
     }
   }
 
   const isLastStep = activeStep === steps.length - 1
-  const isPenultimate = activeStep === steps.length - 2
 
   return (
     <>
@@ -182,8 +162,13 @@ const WizardPage = () => {
             </Button>
 
             {!isLastStep && (
-              <Button variant="contained" onClick={handleNext} fullWidth>
-                {isPenultimate ? 'Ver resultados' : 'Siguiente'}
+              <Button variant="contained" onClick={handleNext} fullWidth disabled={saving}>
+                {activeStep === steps.length - 2 ? 'Generar plan' : 'Siguiente'}
+              </Button>
+            )}
+            {isLastStep && (
+              <Button variant="contained" onClick={handleNext} fullWidth disabled={saving}>
+                {saving ? 'Guardando...' : 'Generar plan'}
               </Button>
             )}
           </Stack>

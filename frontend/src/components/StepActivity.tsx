@@ -76,7 +76,7 @@ const StepActivity = () => {
               )}
             />
           </Grid>
-          <Grid item xs={12}>
+           {/* <Grid item xs={12}>
             <Controller
               name="dayType"
               control={control}
@@ -102,7 +102,7 @@ const StepActivity = () => {
                 </FormControl>
               )}
             />
-          </Grid>
+          </Grid>*/}
         </Grid>
 
         <Stack spacing={0.5} sx={{ mt: 2 }}>

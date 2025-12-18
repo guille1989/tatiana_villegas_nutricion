@@ -1,10 +1,12 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { AssessmentModel } from '../models/Assessment'
+import { PlanModel } from '../models/Plan'
 import { calculateInitials } from '../modules/calc/calc'
 import { wizardInputsSchema } from '../modules/types'
 import { asyncHandler } from '../utils/asyncHandler'
 import { badRequest, notFound } from '../utils/apiError'
+import { Types } from 'mongoose'
 
 const router = Router()
 
@@ -29,7 +31,30 @@ router.post(
       formulas,
     })
 
-    res.status(201).json({ assessment })
+    // Upsert a 7-day plan for this user based on the latest assessment
+    const startDate = new Date()
+    const existingPlan = await PlanModel.findOne({ userId: parsed.data.userId, days: 7 }).sort({
+      createdAt: -1,
+    })
+
+    const plan =
+      existingPlan ??
+      new PlanModel({
+        userId: parsed.data.userId,
+        baseAssessmentId: new Types.ObjectId(assessment._id),
+        startDate,
+        days: 7,
+        status: 'draft',
+        title: 'Plan 7 dias',
+      })
+
+    plan.baseAssessmentId = new Types.ObjectId(assessment._id)
+    plan.startDate = startDate
+    plan.status = 'active'
+    if (!plan.title) plan.title = 'Plan 7 dias'
+    await plan.save()
+
+    res.status(201).json({ assessment, plan })
   }),
 )
 

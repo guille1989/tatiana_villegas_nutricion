@@ -25,7 +25,7 @@ type PlanDto = {
   createdAt: string
   baseAssessmentId: string | AssessmentDto
   startDate: string
-  days: 5 | 15 | 30
+  days: 5 | 7 | 15 | 30
   title?: string
   status?: Plan['status']
 }
@@ -85,12 +85,15 @@ const mapOverride = (raw: OverrideDto): DayOverride => ({
 })
 
 export const createAssessment = async (inputs: WizardInputs, userId = DEFAULT_USER_ID) => {
-  const { data, error } = await request<{ assessment: AssessmentDto }>('/assessments', {
+  const { data, error } = await request<{ assessment: AssessmentDto; plan?: PlanDto }>('/assessments', {
     method: 'POST',
     body: JSON.stringify({ userId, inputs }),
   })
   if (error) throw new Error(error)
-  return mapAssessment(data.assessment)
+  return {
+    assessment: mapAssessment(data.assessment),
+    plan: data.plan ? mapPlan(data.plan) : undefined,
+  }
 }
 
 export const getLatestAssessment = async (userId = DEFAULT_USER_ID) => {
