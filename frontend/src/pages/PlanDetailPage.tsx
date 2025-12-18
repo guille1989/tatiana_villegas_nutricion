@@ -4,12 +4,9 @@ import {
   Button,
   ButtonBase,
   Card,
-  CardContent,
   Chip,
   Container,
-  Divider,
   Fade,
-  Grid,
   Paper,
   Snackbar,
   Stack,
@@ -416,17 +413,22 @@ const PlanDetailPage = () => {
                       kcal={selectedOutputs.kcalObjectiveDay}
                     />
 
-                    <Grid
-                      container
-                      spacing={1}
+                    <Box
                       sx={{
+                        display: 'grid',
+                        gap: 1,
                         width: '100%',
                         maxWidth: 420,
-                        gridTemplateColumns: { xs: 'repeat(3, 1fr)', sm: 'repeat(3, 1fr)' },
+                        gridTemplateColumns: { xs: 'repeat(3, minmax(0,1fr))' },
                       }}
                     >
-                      <Grid item xs={12} sm={4}>
+                      {[
+                        { label: 'P', value: `${selectedOutputs.protein} g` },
+                        { label: 'C', value: `${selectedOutputs.carbsAdjusted} g` },
+                        { label: 'G', value: `${selectedOutputs.fatsAdjusted} g` },
+                      ].map((macro) => (
                         <Box
+                          key={macro.label}
                           sx={{
                             px: 2,
                             py: 1,
@@ -437,52 +439,14 @@ const PlanDetailPage = () => {
                           }}
                         >
                           <Typography variant="caption" color="text.secondary">
-                            P
+                            {macro.label}
                           </Typography>
                           <Typography variant="body1" fontWeight={700}>
-                            {selectedOutputs.protein} g
+                            {macro.value}
                           </Typography>
                         </Box>
-                      </Grid>
-                      <Grid item xs={12} sm={4}>
-                        <Box
-                          sx={{
-                            px: 2,
-                            py: 1,
-                            borderRadius: 999,
-                            bgcolor: 'grey.100',
-                            border: `1px solid ${theme.palette.divider}`,
-                            textAlign: 'center',
-                          }}
-                        >
-                          <Typography variant="caption" color="text.secondary">
-                            C
-                          </Typography>
-                          <Typography variant="body1" fontWeight={700}>
-                            {selectedOutputs.carbsAdjusted} g
-                          </Typography>
-                        </Box>
-                      </Grid>
-                      <Grid item xs={12} sm={4}>
-                        <Box
-                          sx={{
-                            px: 2,
-                            py: 1,
-                            borderRadius: 999,
-                            bgcolor: 'grey.100',
-                            border: `1px solid ${theme.palette.divider}`,
-                            textAlign: 'center',
-                          }}
-                        >
-                          <Typography variant="caption" color="text.secondary">
-                            G
-                          </Typography>
-                          <Typography variant="body1" fontWeight={700}>
-                            {selectedOutputs.fatsAdjusted} g
-                          </Typography>
-                        </Box>
-                      </Grid>
-                    </Grid>
+                      ))}
+                    </Box>
                   </Stack>
 
                   <Box display="flex" justifyContent="flex-end">

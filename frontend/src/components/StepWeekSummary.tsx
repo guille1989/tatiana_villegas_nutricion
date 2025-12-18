@@ -7,7 +7,6 @@ import {
   CardHeader,
   Chip,
   Divider,
-  Grid,
   Paper,
   Stack,
   Typography,
@@ -178,51 +177,56 @@ const StepWeekSummary = ({
         </Stack>
 
         {isDesktop ? (
-          <Grid container spacing={2}>
-            {week.map((day, idx) => {
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 2,
+              gridTemplateColumns: { md: 'repeat(3, minmax(0,1fr))', sm: 'repeat(2, minmax(0,1fr))' },
+            }}
+          >
+            {week.map((day) => {
               const isTraining = day.status === 'training'
               return (
-                <Grid item xs={12} sm={6} md={4} key={day.key}>
-                  <Card
-                    variant="outlined"
-                    sx={{
-                      height: '100%',
-                      borderColor: isTraining ? 'primary.light' : 'divider',
-                      transition: 'all 0.2s ease',
-                    }}
-                  >
-                    <CardContent>
-                      <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Typography variant="subtitle1" fontWeight={700}>
-                          {day.label}
-                        </Typography>
-                        <Chip
-                          label={isTraining ? `Entreno ${day.sessions}x` : 'Descanso'}
-                          size="small"
-                          color={isTraining ? 'primary' : 'default'}
-                          variant={isTraining ? 'outlined' : 'filled'}
-                        />
-                      </Stack>
-                      <Stack direction="row" alignItems="baseline" spacing={0.5} sx={{ mt: 1 }}>
-                        <Typography variant="h4" fontWeight={800}>
-                          {result.kcalObjectiveDay}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          kcal
-                        </Typography>
-                      </Stack>
-                      <Divider sx={{ my: 1.5 }} />
-                      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                        <Chip label={`Proteina ${result.protein} g`} size="small" variant="outlined" />
-                        <Chip label={`Carbs ${result.carbsAdjusted} g`} size="small" variant="outlined" />
-                        <Chip label={`Grasas ${result.fatsAdjusted} g`} size="small" variant="outlined" />
-                      </Stack>
-                    </CardContent>
-                  </Card>
-                </Grid>
+                <Card
+                  key={day.key}
+                  variant="outlined"
+                  sx={{
+                    height: '100%',
+                    borderColor: isTraining ? 'primary.light' : 'divider',
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  <CardContent>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                      <Typography variant="subtitle1" fontWeight={700}>
+                        {day.label}
+                      </Typography>
+                      <Chip
+                        label={isTraining ? `Entreno ${day.sessions}x` : 'Descanso'}
+                        size="small"
+                        color={isTraining ? 'primary' : 'default'}
+                        variant={isTraining ? 'outlined' : 'filled'}
+                      />
+                    </Stack>
+                    <Stack direction="row" alignItems="baseline" spacing={0.5} sx={{ mt: 1 }}>
+                      <Typography variant="h4" fontWeight={800}>
+                        {result.kcalObjectiveDay}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        kcal
+                      </Typography>
+                    </Stack>
+                    <Divider sx={{ my: 1.5 }} />
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                      <Chip label={`Proteina ${result.protein} g`} size="small" variant="outlined" />
+                      <Chip label={`Carbs ${result.carbsAdjusted} g`} size="small" variant="outlined" />
+                      <Chip label={`Grasas ${result.fatsAdjusted} g`} size="small" variant="outlined" />
+                    </Stack>
+                  </CardContent>
+                </Card>
               )
             })}
-          </Grid>
+          </Box>
         ) : (
           <Stack spacing={2} sx={{ mt: 2 }}>
             <Card

@@ -1,20 +1,6 @@
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  FormControl,
-  FormControlLabel,
-  FormHelperText,
-  FormLabel,
-  MenuItem,
-  Radio,
-  RadioGroup,
-  Stack,
-  TextField,
-} from '@mui/material'
+import { Card, CardContent, CardHeader, FormHelperText, MenuItem, Stack, TextField } from '@mui/material'
 import { Controller, useFormContext } from 'react-hook-form'
-import { activityOptions, dayTypeOptions, goalOptions, type WizardFormData } from '../lib/schema'
-import Grid from '@mui/material/GridLegacy'
+import { activityOptions, goalOptions, type WizardFormData } from '../lib/schema'
 
 const StepActivity = () => {
   const {
@@ -29,81 +15,50 @@ const StepActivity = () => {
         subheader="Necesitamos conocer tu nivel de actividad y hacia donde quieres avanzar."
       />
       <CardContent>
-        <Grid container spacing={2}>
-          <Grid item xs={12} sm={6}>
-            <Controller
-              name="activityLevel"
-              control={control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  select
-                  label="Nivel de actividad"
-                  fullWidth
-                  required
-                  error={!!errors.activityLevel}
-                  helperText={errors.activityLevel?.message}
-                >
-                  {activityOptions.map((option) => (
-                    <MenuItem key={option.value} value={option.value}>
-                      {option.label}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              )}
-            />
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <Controller
-              name="goal"
-              control={control}
-              render={({ field }) => (
-                <TextField
-                  {...field}
-                  select
-                  label="Objetivo"
-                  fullWidth
-                  required
-                  error={!!errors.goal}
-                  helperText={errors.goal?.message}
-                >
-                  {goalOptions.map((option) => (
-                    <MenuItem key={option.value} value={option.value}>
-                      {option.label}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              )}
-            />
-          </Grid>
-           {/* <Grid item xs={12}>
-            <Controller
-              name="dayType"
-              control={control}
-              render={({ field }) => (
-                <FormControl component="fieldset" error={!!errors.dayType}>
-                  <FormLabel component="legend">Tipo de dia</FormLabel>
-                  <RadioGroup
-                    row
-                    {...field}
-                    value={field.value}
-                    onChange={(event) => field.onChange(event.target.value)}
-                  >
-                    {dayTypeOptions.map((option) => (
-                      <FormControlLabel
-                        key={option.value}
-                        value={option.value}
-                        control={<Radio />}
-                        label={option.label}
-                      />
-                    ))}
-                  </RadioGroup>
-                  <FormHelperText>{errors.dayType?.message}</FormHelperText>
-                </FormControl>
-              )}
-            />
-          </Grid>*/}
-        </Grid>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+          <Controller
+            name="activityLevel"
+            control={control}
+            render={({ field }) => (
+              <TextField
+                {...field}
+                select
+                label="Nivel de actividad"
+                fullWidth
+                required
+                error={!!errors.activityLevel}
+                helperText={errors.activityLevel?.message}
+              >
+                {activityOptions.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
+          />
+          <Controller
+            name="goal"
+            control={control}
+            render={({ field }) => (
+              <TextField
+                {...field}
+                select
+                label="Objetivo"
+                fullWidth
+                required
+                error={!!errors.goal}
+                helperText={errors.goal?.message}
+              >
+                {goalOptions.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
+          />
+        </Stack>
 
         <Stack spacing={0.5} sx={{ mt: 2 }}>
           <FormHelperText>

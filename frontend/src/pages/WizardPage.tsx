@@ -16,10 +16,9 @@ import { useNavigate } from 'react-router-dom'
 import StepActivity from '../components/StepActivity'
 import StepMeasurements from '../components/StepMeasurements'
 import StepPersonal from '../components/StepPersonal'
-import { createAssessment, getLatestAssessment } from '../lib/api'
+import { createAssessment } from '../lib/api'
 import { DEFAULT_VALUES, wizardSchema, type WizardFormData } from '../lib/schema'
-import { clearFormData, loadFormData, saveFormData } from '../lib/storage'
-import type { Assessment } from '../types'
+import { loadFormData, saveFormData } from '../lib/storage'
 
 const steps = ['Datos personales', 'Medidas', 'Actividad y objetivo']
 
@@ -38,7 +37,6 @@ const WizardPage = () => {
     return parsed.success ? parsed.data : null
   }, [])
 
-  const [savedAssessment, setSavedAssessment] = useState<Assessment | null>(null)
   const [snackbar, setSnackbar] = useState<string | null>(null)
   const methods = useForm<WizardFormData>({
     resolver: zodResolver(wizardSchema),
@@ -48,9 +46,6 @@ const WizardPage = () => {
   })
 
   const [activeStep, setActiveStep] = useState(0)
-  const lastSavedLabel = savedAssessment?.createdAt
-    ? new Date(savedAssessment.createdAt).toLocaleString()
-    : null
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -58,12 +53,6 @@ const WizardPage = () => {
     const subscription = methods.watch((value) => saveFormData(value as Partial<WizardFormData>))
     return () => subscription.unsubscribe()
   }, [methods])
-
-  useEffect(() => {
-    getLatestAssessment()
-      .then((assessment) => setSavedAssessment(assessment))
-      .catch(() => setSavedAssessment(null))
-  }, [])
 
   const handleNext = async () => {
     const fields = stepFields[activeStep]
@@ -88,19 +77,12 @@ const WizardPage = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const handleReset = () => {
-    clearFormData()
-    methods.reset(DEFAULT_VALUES)
-    setActiveStep(0)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
-
   const handleFinalize = async () => {
     const inputs = methods.getValues()
     setSaving(true)
     try {
       const { assessment, plan } = await createAssessment(inputs)
-      setSavedAssessment(assessment)
+      assessment // keep for potential future use
       setSnackbar('Plan de 7 dias guardado')
       if (plan) navigate(`/plans/${plan.id}`)
       else navigate('/plans')

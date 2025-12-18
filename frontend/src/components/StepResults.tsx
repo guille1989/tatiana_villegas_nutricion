@@ -1,4 +1,4 @@
-import { Button, Chip, Card, CardContent, CardHeader, Divider, Grid, Stack, Typography } from '@mui/material'
+import { Box, Button, Chip, Card, CardContent, CardHeader, Divider, Stack, Typography } from '@mui/material'
 import { useMemo } from 'react'
 import { useFormContext, useWatch } from 'react-hook-form'
 import { calculateInitials } from '../lib/calc'
@@ -57,88 +57,37 @@ const StepResults = ({ onReset, onSaveAssessment, onGoPlans, hasSavedAssessment,
         }
       />
       <CardContent>
-        <Grid container spacing={2}>
-          <Grid item xs={12} sm={4}>
-            <ResultCard title="RMR" value={`${result.rmr} kcal`} subtitle="Metabolismo en reposo" />
-          </Grid>
-          <Grid item xs={12} sm={4}>
-            <ResultCard title="PAL" value={result.pal.toFixed(2)} subtitle="Factor actividad" />
-          </Grid>
-          <Grid item xs={12} sm={4}>
-            <ResultCard title="TDEE" value={`${result.tdee} kcal`} subtitle="Gasto diario estimado" />
-          </Grid>
-
-          <Grid item xs={12} sm={4}>
-            <ResultCard title="Kcal objetivo base" value={`${result.kcalObjectiveBase} kcal`} />
-          </Grid>
-          <Grid item xs={12} sm={4}>
-            <ResultCard
-              title="EEE (si entrenas)"
-              value={`${result.eee} kcal`}
-              subtitle="Gasto de ejercicio"
-            />
-          </Grid>
-          <Grid item xs={12} sm={4}>
-            <ResultCard
-              title="Kcal objetivo del dia"
-              value={`${result.kcalObjectiveDay} kcal`}
-              subtitle="Incluye ejercicio"
-              accent="#2563eb"
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={4}>
-            <ResultCard
-              title="Proteina"
-              value={`${result.protein} g`}
-              subtitle={`~${Math.round(result.protein * 4)} kcal`}
-            />
-          </Grid>
-          <Grid item xs={12} sm={4}>
-            <ResultCard
-              title="Grasas"
-              value={`${result.fats} g`}
-              subtitle={`~${Math.round(result.fats * 9)} kcal`}
-            />
-          </Grid>
-          <Grid item xs={12} sm={4}>
-            <ResultCard
-              title="Carbohidratos"
-              value={`${result.carbs} g`}
-              subtitle={`~${Math.round(result.carbs * 4)} kcal`}
-            />
-          </Grid>
-
-          <Grid item xs={12} sm={6}>
-            <ResultCard
-              title="Carbs ajustados"
-              value={`${result.carbsAdjusted} g`}
-              subtitle={values.dayType === 'training' ? 'Factor 1.2 por entreno' : 'Factor 0.85 por descanso'}
-            />
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <ResultCard
-              title="Grasas ajustadas"
-              value={`${result.fatsAdjusted} g`}
-              subtitle={values.dayType === 'training' ? 'Factor 0.85 por entreno' : 'Factor 1.2 por descanso'}
-            />
-          </Grid>
-
-          {result.ffm !== undefined && (
-            <Grid item xs={12} sm={6}>
-              <ResultCard title="FFM" value={`${result.ffm} kg`} subtitle="Masa libre de grasa" />
-            </Grid>
-          )}
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 2,
+            gridTemplateColumns: { xs: 'repeat(1, minmax(0,1fr))', sm: 'repeat(2, minmax(0,1fr))', md: 'repeat(3, minmax(0,1fr))' },
+          }}
+        >
+          <ResultCard title="RMR" value={`${result.rmr} kcal`} subtitle="Metabolismo en reposo" />
+          <ResultCard title="PAL" value={result.pal.toFixed(2)} subtitle="Factor actividad" />
+          <ResultCard title="TDEE" value={`${result.tdee} kcal`} subtitle="Gasto diario estimado" />
+          <ResultCard title="Kcal objetivo base" value={`${result.kcalObjectiveBase} kcal`} />
+          <ResultCard title="EEE (si entrenas)" value={`${result.eee} kcal`} subtitle="Gasto de ejercicio" />
+          <ResultCard title="Kcal objetivo del dia" value={`${result.kcalObjectiveDay} kcal`} subtitle="Incluye ejercicio" accent="#2563eb" />
+          <ResultCard title="Proteina" value={`${result.protein} g`} subtitle={`~${Math.round(result.protein * 4)} kcal`} />
+          <ResultCard title="Grasas" value={`${result.fats} g`} subtitle={`~${Math.round(result.fats * 9)} kcal`} />
+          <ResultCard title="Carbohidratos" value={`${result.carbs} g`} subtitle={`~${Math.round(result.carbs * 4)} kcal`} />
+          <ResultCard
+            title="Carbs ajustados"
+            value={`${result.carbsAdjusted} g`}
+            subtitle={values.dayType === 'training' ? 'Factor 1.2 por entreno' : 'Factor 0.85 por descanso'}
+          />
+          <ResultCard
+            title="Grasas ajustadas"
+            value={`${result.fatsAdjusted} g`}
+            subtitle={values.dayType === 'training' ? 'Factor 0.85 por entreno' : 'Factor 1.2 por descanso'}
+          />
+          {result.ffm !== undefined && <ResultCard title="FFM" value={`${result.ffm} kg`} subtitle="Masa libre de grasa" />}
           {result.ea !== undefined && (
-            <Grid item xs={12} sm={6}>
-              <ResultCard
-                title="EA (Energy Availability)"
-                value={`${result.ea} kcal/kg FFM`}
-                subtitle="(Kcal - EEE) / FFM"
-              />
-            </Grid>
+            <ResultCard title="EA (Energy Availability)" value={`${result.ea} kcal/kg FFM`} subtitle="(Kcal - EEE) / FFM" />
           )}
-        </Grid>
+        </Box>
 
         <Stack
           direction={{ xs: 'column', sm: 'row' }}
