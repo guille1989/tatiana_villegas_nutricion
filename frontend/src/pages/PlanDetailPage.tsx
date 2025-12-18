@@ -110,6 +110,95 @@ const PlanDetailPage = () => {
     return { outputs, dayType, override }
   }
 
+  const MacroDonut = ({
+    protein,
+    carbs,
+    fats,
+    kcal,
+  }: {
+    protein: number
+    carbs: number
+    fats: number
+    kcal: number
+  }) => {
+    const size = 92
+    const stroke = 12
+    const radius = (size - stroke) / 2
+    const circumference = 2 * Math.PI * radius
+
+    const proteinKcal = protein * 4
+    const carbsKcal = carbs * 4
+    const fatsKcal = fats * 9
+    const total = proteinKcal + carbsKcal + fatsKcal
+
+    const getDash = (val: number) => (total > 0 ? (val / total) * circumference : 0)
+
+    const segments = [
+      { val: proteinKcal, color: theme.palette.primary.main },
+      { val: carbsKcal, color: theme.palette.success.main },
+      { val: fatsKcal, color: theme.palette.warning.main },
+    ]
+
+    let offset = 0
+
+    return (
+      <Box sx={{ position: 'relative', width: size, height: size, minWidth: size }}>
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke={theme.palette.grey[200]}
+            strokeWidth={stroke}
+          />
+          {total === 0 ? (
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              fill="none"
+              stroke={theme.palette.grey[400]}
+              strokeWidth={stroke}
+            />
+          ) : (
+            segments.map((seg, idx) => {
+              const dash = getDash(seg.val)
+              const circle = (
+                <circle
+                  key={idx}
+                  cx={size / 2}
+                  cy={size / 2}
+                  r={radius}
+                  fill="none"
+                  stroke={seg.color}
+                  strokeWidth={stroke}
+                  strokeDasharray={`${dash} ${circumference - dash}`}
+                  strokeDashoffset={-offset}
+                  strokeLinecap="round"
+                />
+              )
+              offset += dash
+              return circle
+            })
+          )}
+        </svg>
+        <Stack
+          alignItems="center"
+          justifyContent="center"
+          sx={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
+        >
+          <Typography variant="h6" fontWeight={800} lineHeight={1}>
+            {kcal}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            kcal
+          </Typography>
+        </Stack>
+      </Box>
+    )
+  }
+
   if (!planId) {
     return (
       <Container maxWidth="md" sx={{ py: 4 }}>
@@ -302,72 +391,103 @@ const PlanDetailPage = () => {
                   borderRadius: 3,
                   borderColor: 'divider',
                   boxShadow: '0 6px 24px rgba(0,0,0,0.06)',
+                  p: { xs: 2, md: 2.5 },
                 }}
               >
-                <CardContent>
-                  <Grid container spacing={3} alignItems="center">
-                    <Grid item xs={12} md={5}>
-                      <Stack spacing={0.5}>
-                        <Typography variant="body2" color="text.secondary">
-                          Kcal objetivo
-                        </Typography>
-                        <Stack direction="row" alignItems="baseline" spacing={0.5}>
-                          <Typography variant={isDesktop ? 'h3' : 'h4'} fontWeight={800}>
-                            {selectedOutputs.kcalObjectiveDay}
+                <Stack spacing={2}>
+                  <Stack spacing={0.25}>
+                    <Typography variant="subtitle1" fontWeight={700}>
+                      Resumen nutricional
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Objetivo del dia
+                    </Typography>
+                  </Stack>
+
+                  <Stack
+                    direction={{ xs: 'column', md: 'row' }}
+                    alignItems={{ xs: 'center', md: 'center' }}
+                    spacing={{ xs: 2, md: 3 }}
+                  >
+                    <MacroDonut
+                      protein={selectedOutputs.protein}
+                      carbs={selectedOutputs.carbsAdjusted}
+                      fats={selectedOutputs.fatsAdjusted}
+                      kcal={selectedOutputs.kcalObjectiveDay}
+                    />
+
+                    <Grid
+                      container
+                      spacing={1}
+                      sx={{
+                        width: '100%',
+                        maxWidth: 420,
+                        gridTemplateColumns: { xs: 'repeat(3, 1fr)', sm: 'repeat(3, 1fr)' },
+                      }}
+                    >
+                      <Grid item xs={12} sm={4}>
+                        <Box
+                          sx={{
+                            px: 2,
+                            py: 1,
+                            borderRadius: 999,
+                            bgcolor: 'grey.100',
+                            border: `1px solid ${theme.palette.divider}`,
+                            textAlign: 'center',
+                          }}
+                        >
+                          <Typography variant="caption" color="text.secondary">
+                            P
                           </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            kcal
+                          <Typography variant="body1" fontWeight={700}>
+                            {selectedOutputs.protein} g
                           </Typography>
-                        </Stack>
-                      </Stack>
-                    </Grid>
-                    <Grid item xs={12} md={7}>
-                      <Grid container spacing={1.5}>
-                        <Grid item xs={12} sm={4}>
-                          <Paper
-                            variant="outlined"
-                            sx={{ p: 1.5, borderRadius: 2, height: '100%' }}
-                          >
-                            <Typography variant="caption" color="text.secondary">
-                              Proteina
-                            </Typography>
-                            <Typography variant="h6" fontWeight={700}>
-                              {selectedOutputs.protein} g
-                            </Typography>
-                          </Paper>
-                        </Grid>
-                        <Grid item xs={12} sm={4}>
-                          <Paper
-                            variant="outlined"
-                            sx={{ p: 1.5, borderRadius: 2, height: '100%' }}
-                          >
-                            <Typography variant="caption" color="text.secondary">
-                              Carbs ajustados
-                            </Typography>
-                            <Typography variant="h6" fontWeight={700}>
-                              {selectedOutputs.carbsAdjusted} g
-                            </Typography>
-                          </Paper>
-                        </Grid>
-                        <Grid item xs={12} sm={4}>
-                          <Paper
-                            variant="outlined"
-                            sx={{ p: 1.5, borderRadius: 2, height: '100%' }}
-                          >
-                            <Typography variant="caption" color="text.secondary">
-                              Grasas ajustadas
-                            </Typography>
-                            <Typography variant="h6" fontWeight={700}>
-                              {selectedOutputs.fatsAdjusted} g
-                            </Typography>
-                          </Paper>
-                        </Grid>
+                        </Box>
+                      </Grid>
+                      <Grid item xs={12} sm={4}>
+                        <Box
+                          sx={{
+                            px: 2,
+                            py: 1,
+                            borderRadius: 999,
+                            bgcolor: 'grey.100',
+                            border: `1px solid ${theme.palette.divider}`,
+                            textAlign: 'center',
+                          }}
+                        >
+                          <Typography variant="caption" color="text.secondary">
+                            C
+                          </Typography>
+                          <Typography variant="body1" fontWeight={700}>
+                            {selectedOutputs.carbsAdjusted} g
+                          </Typography>
+                        </Box>
+                      </Grid>
+                      <Grid item xs={12} sm={4}>
+                        <Box
+                          sx={{
+                            px: 2,
+                            py: 1,
+                            borderRadius: 999,
+                            bgcolor: 'grey.100',
+                            border: `1px solid ${theme.palette.divider}`,
+                            textAlign: 'center',
+                          }}
+                        >
+                          <Typography variant="caption" color="text.secondary">
+                            G
+                          </Typography>
+                          <Typography variant="body1" fontWeight={700}>
+                            {selectedOutputs.fatsAdjusted} g
+                          </Typography>
+                        </Box>
                       </Grid>
                     </Grid>
-                  </Grid>
-                  <Divider sx={{ my: 2 }} />
+                  </Stack>
+
                   <Box display="flex" justifyContent="flex-end">
                     <Button
+                      size="small"
                       variant="contained"
                       onClick={() => selectedDate && setEditingDate(selectedDate)}
                       aria-label="Editar dia"
@@ -375,7 +495,7 @@ const PlanDetailPage = () => {
                       Editar dia
                     </Button>
                   </Box>
-                </CardContent>
+                </Stack>
               </Card>
             )}
           </div>
