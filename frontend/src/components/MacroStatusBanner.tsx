@@ -1,4 +1,5 @@
 import { Alert, Stack, Typography } from "@mui/material";
+import { getMacroState } from "../lib/macroStatus";
 
 type Macros = { protein: number; carbs: number; fat: number };
 
@@ -13,11 +14,16 @@ const MacroStatusBanner = ({ budget, used }: Props) => {
     carbs: budget.carbs - used.carbs,
     fat: budget.fat - used.fat,
   };
-  const excessItems = [
-    remaining.protein < 0 ? `Prote +${Math.abs(remaining.protein).toFixed(1)}` : null,
-    remaining.carbs < 0 ? `Carbs +${Math.abs(remaining.carbs).toFixed(1)}` : null,
-    remaining.fat < 0 ? `Grasas +${Math.abs(remaining.fat).toFixed(1)}` : null,
-  ].filter(Boolean);
+
+  const excessItems = (["protein", "carbs", "fat"] as const)
+    .map((key) => {
+      const state = getMacroState(remaining[key], budget[key]);
+      if (state !== "over") return null;
+      return `${key === "protein" ? "Prote" : key === "carbs" ? "Carbs" : "Grasas"} +${Math.abs(
+        remaining[key]
+      ).toFixed(1)}`;
+    })
+    .filter(Boolean) as string[];
 
   if (excessItems.length === 0) return null;
 

@@ -1,4 +1,5 @@
 import { Card, CardContent, Stack, Typography, Box } from "@mui/material";
+import { getMacroState, macroStateColor } from "../lib/macroStatus";
 
 type Macros = { protein: number; carbs: number; fat: number };
 
@@ -8,9 +9,6 @@ type Props = {
   portionsBudget: Macros;
   portionsUsed: Macros;
 };
-
-const formatRemaining = (remaining: number) =>
-  remaining >= 0 ? { text: `Restan ${remaining.toFixed(1)}`, isExcess: false } : { text: `Exceso ${Math.abs(remaining).toFixed(1)}`, isExcess: true };
 
 const Row = ({
   label,
@@ -25,25 +23,40 @@ const Row = ({
   remaining: number;
   isPortion?: boolean;
 }) => {
-  const status = formatRemaining(remaining);
+  const state = getMacroState(remaining, objective);
+  const isExcess = state === "over";
+  const isOk = state === "ok";
+  const text =
+    state === "over"
+      ? `Exceso ${Math.abs(remaining).toFixed(1)}`
+      : state === "pending"
+      ? `Restan ${remaining.toFixed(1)}`
+      : "Cumplido";
+  const borderColor = macroStateColor[state];
   return (
     <Box
       sx={{
         p: 1,
         borderRadius: 2,
         border: "1px solid",
-        borderColor: status.isExcess ? "error.main" : "divider",
-        bgcolor: status.isExcess ? "error.light" : "grey.50",
+        borderColor,
+        bgcolor: isExcess ? "error.light" : "grey.50",
       }}
     >
       <Typography variant="caption" color="text.secondary">
         {label}
       </Typography>
-      <Typography variant="body2" fontWeight={700} color={status.isExcess ? "error.main" : "text.primary"}>
+      <Typography variant="body2" fontWeight={700} color={borderColor}>
         {isPortion ? `Presupuesto: ${objective.toFixed(1)}` : `Obj: ${objective.toFixed(1)} g`}
       </Typography>
       <Typography variant="caption" color="text.secondary">
-        {isPortion ? `Usadas: ${used.toFixed(1)} · ${status.text}` : `Usado: ${used.toFixed(1)} g · ${status.text}`}
+        {isPortion
+          ? isOk
+            ? "Cumplido"
+            : `Usadas: ${used.toFixed(1)} · ${text}`
+          : isOk
+          ? "Cumplido"
+          : `Usado: ${used.toFixed(1)} g · ${text}`}
       </Typography>
     </Box>
   );

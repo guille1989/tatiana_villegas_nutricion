@@ -22,7 +22,7 @@ import DayEditDialog from "../components/DayEditDialog";
 import { calculateDayFromBase } from "../lib/calc";
 import { getPlan, upsertOverride } from "../lib/api";
 import MealBuilder from "../components/MealBuilder";
-//import MacrosPorcionesCard from "../components/MacrosPorcionesCard";
+import { getMacroState, macroStateColor } from "../lib/macroStatus";
 import type { Assessment, DayOverride, Meal, Plan } from "../types";
 
 const PlanDetailPage = () => {
@@ -197,21 +197,24 @@ const PlanDetailPage = () => {
       { protein: 0, carbs: 0, fat: 0, kcal: 0 },
     );
 
-  const EPS_PORTION = 0.3;
-  type DayStatus = 'pending' | 'ok' | 'over';
-  const getDayStatus = (remaining: { protein: number; carbs: number; fat: number }): DayStatus => {
-    const { protein, carbs, fat } = remaining;
-    const over = protein < -EPS_PORTION || carbs < -EPS_PORTION || fat < -EPS_PORTION;
-    if (over) return 'over';
-    const ok =
-      Math.abs(protein) <= EPS_PORTION && Math.abs(carbs) <= EPS_PORTION && Math.abs(fat) <= EPS_PORTION;
-    return ok ? 'ok' : 'pending';
-  };
+  type DayStatus = "pending" | "ok" | "over";
 
   const statusColorMap: Record<DayStatus, string> = {
-    pending: '#FBC02D', // yellow
-    ok: 'success.main',
-    over: 'error.main',
+    pending: macroStateColor.pending,
+    ok: macroStateColor.ok,
+    over: macroStateColor.over,
+  };
+
+  const getDayStatus = (
+    remaining: { protein: number; carbs: number; fat: number },
+    budget: { protein: number; carbs: number; fat: number }
+  ): DayStatus => {
+    const states: DayStatus[] = (["protein", "carbs", "fat"] as const).map((key) =>
+      getMacroState(remaining[key], budget[key])
+    ) as DayStatus[];
+    if (states.includes("over")) return "over";
+    if (states.every((s) => s === "ok")) return "ok";
+    return "pending";
   };
 
   const getDayMeals = (date: string) =>
@@ -474,6 +477,13 @@ const currentTotals = currentMeals.reduce(
                 : "Descanso";
             const dayMeals = getDayMeals(date);
             const dayTotals = totalsFromMeals(dayMeals);
+            const budgetPortions = outputs
+              ? {
+                  protein: outputs.protein / 10,
+                  carbs: outputs.carbsAdjusted / 15,
+                  fat: outputs.fatsAdjusted / 5,
+                }
+              : { protein: 0, carbs: 0, fat: 0 };
             const remainingPortions = outputs
               ? {
                   protein: outputs.protein / 10 - dayTotals.protein / 10,
@@ -481,7 +491,7 @@ const currentTotals = currentMeals.reduce(
                   fat: outputs.fatsAdjusted / 5 - dayTotals.fat / 5,
                 }
               : { protein: 0, carbs: 0, fat: 0 };
-            const status = getDayStatus(remainingPortions);
+            const status = getDayStatus(remainingPortions, budgetPortions);
             const statusColor = statusColorMap[status];
             const statusLabel =
               status === "ok"
@@ -687,7 +697,10 @@ const currentTotals = currentMeals.reduce(
                               : key === "carbs"
                               ? currentTotals.carbs / 15
                               : currentTotals.fat / 5;
-                          const remaining = budget - used;
+                          const remainingRaw = budget - used;
+                          const EPS = Math.max(1e-6, budget * 0.05);
+                          const remaining =
+                            Math.abs(remainingRaw) < EPS ? 0 : remainingRaw;
                           const percent =
                             budget > 0
                               ? Math.min((used / budget) * 100, 140)
@@ -704,16 +717,36 @@ const currentTotals = currentMeals.reduce(
                               : key === "carbs"
                               ? selectedOutputs.carbsAdjusted
                               : selectedOutputs.fatsAdjusted;
-                          const isExcess = remaining < 0;
+                          const isExcess = remaining < -EPS;
+                          const isPending = remaining > EPS;
+                          const isCompleted = !isExcess && !isPending;
+                          const statusText = isExcess
+                            ? `Exceso ${Math.abs(remaining).toFixed(1)}`
+                            : isPending
+                            ? `Restan ${remaining.toFixed(1)}`
+                            : "Completado";
                           return (
                             <Box
                               key={key}
                               sx={{
                                 p: 1,
                                 borderRadius: 2,
-                                border: "1px solid",
-                                borderColor: isExcess ? "error.main" : "divider",
-                                bgcolor: isExcess ? "error.light" : "grey.50",
+                                borderStyle: "solid",
+                                borderWidth: 2,
+                                borderColor: isExcess
+                                  ? "error.main"
+                                  : isCompleted
+                                  ? "#A5D6A7" // light green border when completed
+                                  : isPending
+                                  ? "#FFF59D" // soft yellow border when pending
+                                  : "divider",
+                                bgcolor: isExcess
+                                  ? "error.light"
+                                  : isCompleted
+                                  ? "#E8F5E9" // very light green background when completed
+                                  : isPending
+                                  ? "#FFFDE7" // very light yellow background when pending
+                                  : "grey.50",
                               }}
                             >
                               <Typography
@@ -735,9 +768,7 @@ const currentTotals = currentMeals.reduce(
                                   fontWeight={700}
                                   color={isExcess ? "error.main" : "text.primary"}
                                 >
-                                  {remaining >= 0
-                                    ? `Restan ${remaining.toFixed(1)}`
-                                    : `Exceso ${Math.abs(remaining).toFixed(1)}`}
+                                  {statusText}
                                 </Typography>
                                 <Chip
                                   size="small"
@@ -756,9 +787,21 @@ const currentTotals = currentMeals.reduce(
                                   width: "100%",
                                   mx: "auto",
                                   marginTop: 1,
-                                  bgcolor: isExcess ? "error.light" : undefined,
+                                  bgcolor: isExcess
+                                    ? "error.light"
+                                    : isCompleted
+                                    ? "#E8F5E9"
+                                    : isPending
+                                    ? "#FFFDE7"
+                                    : undefined,
                                   "& .MuiLinearProgress-bar": {
-                                    bgcolor: isExcess ? "error.main" : undefined,
+                                    bgcolor: isExcess
+                                      ? "error.main"
+                                      : isCompleted
+                                      ? "#66BB6A"
+                                      : isPending
+                                      ? "#FBC02D"
+                                      : undefined,
                                   },
                                 }}
                               />
