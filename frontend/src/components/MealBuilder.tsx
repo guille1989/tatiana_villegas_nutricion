@@ -15,9 +15,10 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import AddIcon from '@mui/icons-material/Add'
 import SearchIcon from '@mui/icons-material/Search'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { calcFoodMacrosFromGrams, gramsFromPortions, searchFoods } from '../lib/foods'
 import type { Food, Meal, MealItem } from '../types'
+import MacroStatusBanner from './MacroStatusBanner'
 
 type Props = {
   meals: Meal[]
@@ -50,11 +51,12 @@ const MealBuilder = ({ meals, onChange, budgetMacros, onError }: Props) => {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [selectedFood, setSelectedFood] = useState<Food | null>(null)
-  const [mode, setMode] = useState<'grams' | 'portions'>('grams')
+  const [mode, setMode] = useState<'grams' | 'portions'>('portions')
   const [amount, setAmount] = useState<number>(0)
 
   const [foods, setFoods] = useState<Food[]>([])
   const [loadingFoods, setLoadingFoods] = useState(false)
+  const [groupFilter, setGroupFilter] = useState<'all' | 'proteinas' | 'carbohidratos' | 'grasas'>('all')
   const [foodError, setFoodError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -76,6 +78,11 @@ const MealBuilder = ({ meals, onChange, budgetMacros, onError }: Props) => {
       active = false
     }
   }, [query])
+
+  const filteredFoods = useMemo(() => {
+    if (groupFilter === 'all') return foods
+    return foods.filter((f) => f.group === groupFilter)
+  }, [foods, groupFilter])
 
   const usedMacros = meals.reduce(
     (acc, meal) => {
@@ -188,31 +195,44 @@ const MealBuilder = ({ meals, onChange, budgetMacros, onError }: Props) => {
             </Stack>
           </AccordionSummary>
           <AccordionDetails sx={{ px: 1.5, pb: 1.5, pt: 0.5 }}>
-            <Stack spacing={1.5}>
-              <TextField
-                size="small"
-                label="Buscar alimento"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
+              <Stack spacing={1.5}>
+              <MacroStatusBanner budget={macroToPortions(budgetMacros)} used={macroToPortions(usedMacros)} />
+                <TextField
+                  size="small"
+                  label="Buscar alimento"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
                 InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
               />
+              <TextField
+                select
+                size="small"
+                label="Filtrar por grupo"
+                value={groupFilter}
+                onChange={(e) => setGroupFilter(e.target.value as typeof groupFilter)}
+              >
+                <MenuItem value="all">Todos</MenuItem>
+                <MenuItem value="proteinas">Proteínas</MenuItem>
+                <MenuItem value="carbohidratos">Carbohidratos</MenuItem>
+                <MenuItem value="grasas">Grasas</MenuItem>
+              </TextField>
               <TextField
                 select
                 size="small"
                 label="Selecciona alimento"
                 value={selectedFood?.id ?? ''}
                 onChange={(e) => {
-                  const food = foods.find((f) => f.id === e.target.value)
+                  const food = filteredFoods.find((f) => f.id === e.target.value)
                   setSelectedFood(food ?? null)
                 }}
                 helperText={loadingFoods ? 'Cargando...' : undefined}
               >
-                {foods.map((food) => (
+                {filteredFoods.map((food) => (
                   <MenuItem key={food.id} value={food.id}>
                     {food.name} · {food.kcal_100g} kcal /100g
                   </MenuItem>
                 ))}
-                {foods.length === 0 && (
+                {filteredFoods.length === 0 && (
                   <MenuItem disabled value="">
                     {loadingFoods ? 'Cargando...' : 'Sin resultados'}
                   </MenuItem>

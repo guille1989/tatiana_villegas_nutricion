@@ -22,6 +22,7 @@ import DayEditDialog from "../components/DayEditDialog";
 import { calculateDayFromBase } from "../lib/calc";
 import { getPlan, upsertOverride } from "../lib/api";
 import MealBuilder from "../components/MealBuilder";
+//import MacrosPorcionesCard from "../components/MacrosPorcionesCard";
 import type { Assessment, DayOverride, Meal, Plan } from "../types";
 
 const PlanDetailPage = () => {
@@ -185,11 +186,20 @@ const PlanDetailPage = () => {
     return defaultMealsTemplate.map((tpl) => map.get(tpl.key) ?? { ...tpl });
   };
 
-  const rawMeals =
-    (selectedDate && mealsByDate[selectedDate]) ||
-    (selectedOverride?.meals as Meal[] | undefined) ||
-    defaultMealsTemplate;
-  const currentMeals = withDefaults(rawMeals);
+const rawMeals =
+  (selectedDate && mealsByDate[selectedDate]) ||
+  (selectedOverride?.meals as Meal[] | undefined) ||
+  defaultMealsTemplate;
+const currentMeals = withDefaults(rawMeals);
+const currentTotals = currentMeals.reduce(
+  (acc, meal) => ({
+    protein: acc.protein + meal.totals.protein,
+    carbs: acc.carbs + meal.totals.carbs,
+    fat: acc.fat + meal.totals.fat,
+    kcal: acc.kcal + meal.totals.kcal,
+  }),
+  { protein: 0, carbs: 0, fat: 0, kcal: 0 }
+);
 
 
   const handleMealsChange = (meals: Meal[]) => {
@@ -590,11 +600,7 @@ const PlanDetailPage = () => {
 
                     <Stack spacing={1} width="100%">
                       <Typography variant="body2" color="text.secondary">
-                        {`Consumidas: ${currentMeals
-                          .reduce((acc, meal) => acc + meal.totals.kcal, 0)
-                          .toFixed(0)} / ${
-                          selectedOutputs.kcalObjectiveDay
-                        } kcal`}
+                        {`Consumidas: ${currentTotals.kcal.toFixed(0)} / ${selectedOutputs.kcalObjectiveDay} kcal`}
                       </Typography>
                       <Box
                         sx={{
@@ -615,23 +621,14 @@ const PlanDetailPage = () => {
                               : selectedOutputs.fatsAdjusted / 5;
                           const used =
                             key === "protein"
-                              ? currentMeals.reduce(
-                                  (acc, m) => acc + m.totals.protein,
-                                  0
-                                ) / 10
+                              ? currentTotals.protein / 10
                               : key === "carbs"
-                              ? currentMeals.reduce(
-                                  (acc, m) => acc + m.totals.carbs,
-                                  0
-                                ) / 15
-                              : currentMeals.reduce(
-                                  (acc, m) => acc + m.totals.fat,
-                                  0
-                                ) / 5;
+                              ? currentTotals.carbs / 15
+                              : currentTotals.fat / 5;
                           const remaining = budget - used;
                           const percent =
                             budget > 0
-                              ? Math.min((used / budget) * 100, 120)
+                              ? Math.min((used / budget) * 100, 140)
                               : 0;
                           const label =
                             key === "protein"
@@ -645,6 +642,7 @@ const PlanDetailPage = () => {
                               : key === "carbs"
                               ? selectedOutputs.carbsAdjusted
                               : selectedOutputs.fatsAdjusted;
+                          const isExcess = remaining < 0;
                           return (
                             <Box
                               key={key}
@@ -652,16 +650,17 @@ const PlanDetailPage = () => {
                                 p: 1,
                                 borderRadius: 2,
                                 border: "1px solid",
-                                borderColor: "divider",
-                                bgcolor: "grey.50",
+                                borderColor: isExcess ? "error.main" : "divider",
+                                bgcolor: isExcess ? "error.light" : "grey.50",
                               }}
                             >
                               <Typography
                                 variant="caption"
                                 color="text.secondary"
-                                fontWeight={500}
+                                fontWeight={700}
+                                fontSize={13}
                               >
-                                {`${label} · Obj: ${objective.toFixed(1)} g / ${budget.toFixed(1)} porciones`}
+                                {`${label} Obj: ${objective.toFixed(1)} g | ${budget.toFixed(1)} porciones`}
                               </Typography>
                               <Stack
                                 direction="row"
@@ -669,12 +668,20 @@ const PlanDetailPage = () => {
                                 alignItems="center"
                                 marginTop={1}
                               >
-                                <Typography variant="body1" fontWeight={700}>
-                                  Restan {remaining.toFixed(1)}
+                                <Typography
+                                  variant="body1"
+                                  fontWeight={700}
+                                  color={isExcess ? "error.main" : "text.primary"}
+                                >
+                                  {remaining >= 0
+                                    ? `Restan ${remaining.toFixed(1)}`
+                                    : `Exceso ${Math.abs(remaining).toFixed(1)}`}
                                 </Typography>
                                 <Chip
                                   size="small"
+                                  color={isExcess ? "error" : "default"}
                                   label={`de ${budget.toFixed(1)} porciones`}
+                                  variant={isExcess ? "filled" : "outlined"}
                                 />
                               </Stack>
                               <LinearProgress
@@ -687,8 +694,17 @@ const PlanDetailPage = () => {
                                   width: "100%",
                                   mx: "auto",
                                   marginTop: 1,
+                                  bgcolor: isExcess ? "error.light" : undefined,
+                                  "& .MuiLinearProgress-bar": {
+                                    bgcolor: isExcess ? "error.main" : undefined,
+                                  },
                                 }}
                               />
+                              {isExcess && (
+                                <Typography variant="caption" color="error.main">
+                                  Te pasaste en {Math.abs(remaining).toFixed(1)} porciones
+                                </Typography>
+                              )}
                             </Box>
                           );
                         })}
@@ -796,6 +812,29 @@ const PlanDetailPage = () => {
                 />
               </Stack>
             </Card>
+            {/* 
+            <MacrosPorcionesCard
+              macrosObjective={{
+                protein: selectedOutputs.protein,
+                carbs: selectedOutputs.carbsAdjusted,
+                fat: selectedOutputs.fatsAdjusted,
+              }}
+              macrosUsed={{
+                protein: currentTotals.protein,
+                carbs: currentTotals.carbs,
+                fat: currentTotals.fat,
+              }}
+              portionsBudget={{
+                protein: selectedOutputs.protein / 10,
+                carbs: selectedOutputs.carbsAdjusted / 15,
+                fat: selectedOutputs.fatsAdjusted / 5,
+              }}
+              portionsUsed={{
+                protein: currentTotals.protein / 10,
+                carbs: currentTotals.carbs / 15,
+                fat: currentTotals.fat / 5,
+              }}
+            />*/}
           </Stack>
         )}
       </Stack>
