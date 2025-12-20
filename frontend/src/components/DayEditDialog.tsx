@@ -6,17 +6,23 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Box,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
   FormControl,
   FormControlLabel,
   FormLabel,
+  IconButton,
   MenuItem,
   Radio,
   RadioGroup,
   Stack,
   TextField,
+  Typography,
 } from '@mui/material'
 import dayjs from 'dayjs'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Controller, useForm, useWatch, type SubmitHandler } from 'react-hook-form'
 import { z } from 'zod'
 import { deleteOverride, upsertOverride } from '../lib/api'
@@ -28,6 +34,9 @@ import {
   type DayType,
 } from '../lib/schema'
 import type { DayOverride, DayOverrideInputs, WizardInputs } from '../types'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import AddIcon from '@mui/icons-material/Add'
 
 type Props = {
   open: boolean
@@ -52,25 +61,30 @@ const formSchema = z
   .object({
     activityLevel: z.union([z.literal(''), z.enum(activityValues)]).optional(),
     dayType: z.enum(['training', 'rest']),
-    training: trainingSchema.partial().nullable().optional(),
+    trainings: z.array(trainingSchema.partial()).optional(),
     note: z.string().max(240, 'Max 240 caracteres').optional().nullable(),
   })
   .superRefine((data, ctx) => {
     if (data.dayType === 'training') {
-      const training = data.training ?? {}
-      if (!training.type) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['training', 'type'], message: 'Requerido' })
+      const trainings = data.trainings ?? []
+      if (trainings.length === 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['trainings'], message: 'Agrega al menos un entreno' })
       }
-      if (training.durationMin === undefined) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['training', 'durationMin'],
-          message: 'Requerido',
-        })
-      }
-      if (training.met === undefined) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['training', 'met'], message: 'Requerido' })
-      }
+      trainings.forEach((training, idx) => {
+        if (!training.type) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['trainings', idx, 'type'], message: 'Requerido' })
+        }
+        if (training.durationMin === undefined) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['trainings', idx, 'durationMin'],
+            message: 'Requerido',
+          })
+        }
+        if (training.met === undefined) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['trainings', idx, 'met'], message: 'Requerido' })
+        }
+      })
     }
   })
 
@@ -94,18 +108,36 @@ const DayEditDialog = ({
     trainingOptions.find((opt) => opt.value === baseInputs.trainingType)?.met ??
     undefined
 
-const defaultTraining = useMemo(
-  () =>
-    existingOverride?.overrides.training ??
-    (baseInputs.trainingType
-      ? {
+  const defaultTrainings = useMemo(() => {
+    if (existingOverride?.overrides?.trainings && existingOverride.overrides.trainings.length > 0) {
+      return existingOverride.overrides.trainings.map((t) => ({
+        type: t?.type ?? undefined,
+        met: t?.met ?? undefined,
+        durationMin: t?.durationMin ?? undefined,
+      }))
+    }
+    const legacyTraining = (existingOverride as any)?.overrides?.training
+    if (legacyTraining) {
+      const t = legacyTraining
+      return [
+        {
+          type: t?.type ?? undefined,
+          met: t?.met ?? undefined,
+          durationMin: t?.durationMin ?? undefined,
+        },
+      ]
+    }
+    if (baseInputs.trainingType && baseInputs.duration) {
+      return [
+        {
           type: baseInputs.trainingType,
           met: baseTrainingMet,
           durationMin: baseInputs.duration ?? undefined,
-        }
-      : undefined),
-  [baseInputs.duration, baseInputs.trainingType, baseTrainingMet, existingOverride?.overrides.training],
-)
+        },
+      ]
+    }
+    return []
+  }, [baseInputs.duration, baseInputs.trainingType, baseTrainingMet, existingOverride?.overrides])
 
   const {
     handleSubmit,
@@ -113,37 +145,53 @@ const defaultTraining = useMemo(
     formState: { errors, dirtyFields },
     setValue,
     reset,
+    watch,
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       activityLevel: defaultActivity ?? '',
       dayType: defaultDayType,
-      training: defaultTraining,
+      trainings: defaultTrainings,
       note: existingOverride?.note ?? '',
     },
   })
 
   const dayType = useWatch({ control, name: 'dayType' }) as DayType
-  const trainingType = useWatch({ control, name: 'training.type' }) as string | undefined
-  const trainingMetDirty = (dirtyFields.training as Record<string, boolean> | undefined)?.met
+  const trainings = watch('trainings') ?? []
+  const [expandedPanels, setExpandedPanels] = useState<number[]>([])
+  const prevLengthRef = useRef(trainings.length)
 
   useEffect(() => {
-    const option = trainingOptions.find((item) => item.value === trainingType)
-    if (option && !trainingMetDirty) {
-      setValue('training.met', option.met, { shouldDirty: false })
-    }
-  }, [setValue, trainingMetDirty, trainingType])
+    // Autofill MET based on type when not dirty
+    trainings.forEach((session, idx) => {
+      const tType = session?.type
+      const metDirty = (dirtyFields.trainings as any)?.[idx]?.met
+      const option = trainingOptions.find((item) => item.value === tType)
+      if (option && !metDirty && session?.met === undefined) {
+        setValue(`trainings.${idx}.met`, option.met, { shouldDirty: false })
+      }
+    })
+  }, [trainings, dirtyFields.trainings, setValue])
 
   useEffect(() => {
     if (!open) {
       reset({
         activityLevel: defaultActivity ?? '',
         dayType: defaultDayType,
-        training: defaultTraining,
+        trainings: defaultTrainings,
         note: existingOverride?.note ?? '',
       })
+      setExpandedPanels([])
     }
-  }, [open, defaultActivity, defaultDayType, defaultTraining, existingOverride?.note, reset])
+  }, [open, defaultActivity, defaultDayType, defaultTrainings, existingOverride?.note, reset])
+
+  useEffect(() => {
+    const len = trainings.length
+    if (len > prevLengthRef.current) {
+      setExpandedPanels((prev) => Array.from(new Set([...prev, len - 1])))
+    }
+    prevLengthRef.current = len
+  }, [trainings.length])
 
   const onSubmit: SubmitHandler<FormValues> = async (values) => {
     const activityLevel =
@@ -157,13 +205,16 @@ const defaultTraining = useMemo(
     }
 
     if (values.dayType === 'training') {
-      overrides.training = {
-        type: values.training?.type ?? undefined,
-        durationMin: values.training?.durationMin ?? undefined,
-        met: values.training?.met ?? undefined,
-      }
+      overrides.trainings =
+        values.trainings
+          ?.map((session) => ({
+            type: session?.type ?? undefined,
+            durationMin: session?.durationMin ?? undefined,
+            met: session?.met ?? undefined,
+          }))
+          .filter((s) => s.type || s.durationMin || s.met) ?? null
     } else {
-      overrides.training = null
+      overrides.trainings = null
     }
 
     try {
@@ -192,67 +243,154 @@ const defaultTraining = useMemo(
 
   const renderTrainingFields = () => {
     if (dayType !== 'training') return null
+
+    const handleAdd = () => {
+      const current = trainings ?? []
+      setValue('trainings', [...current, { type: '', met: undefined, durationMin: undefined }], { shouldDirty: true })
+    }
+
+    const togglePanel = (idx: number) => {
+      setExpandedPanels((prev) => (prev.includes(idx) ? prev.filter((i) => i !== idx) : [...prev, idx]))
+    }
+
+    const handleRemove = (index: number) => {
+      const current = trainings ?? []
+      setValue(
+        'trainings',
+        current.filter((_, idx) => idx !== index),
+        { shouldDirty: true },
+      )
+      setExpandedPanels((prev) => prev.filter((i) => i !== index).map((i) => (i > index ? i - 1 : i)))
+    }
+
     return (
       <Stack spacing={2} mt={2}>
-        <Controller
-          name="training.type"
-          control={control}
-          render={({ field }) => (
-            <TextField
-              {...field}
-              select
-              label="Tipo de entreno"
-              fullWidth
-              required
-              error={!!errors.training?.type}
-              helperText={errors.training?.type?.message}
+        {(trainings ?? []).map((session, idx) => {
+          const trainingType = session?.type ?? ''
+          const option = trainingOptions.find((item) => item.value === trainingType)
+          return (
+            <Accordion
+              key={idx}
+              expanded={expandedPanels.includes(idx)}
+              onChange={() => togglePanel(idx)}
+              disableGutters
+              sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}
             >
-              {trainingOptions.map((option) => (
-                <MenuItem key={option.value} value={option.value}>
-                  {option.label} - MET {option.met}
-                </MenuItem>
-              ))}
-            </TextField>
-          )}
-        />
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-          <Controller
-            name="training.durationMin"
-            control={control}
-            render={({ field }) => (
-              <TextField
-                {...field}
-                type="number"
-                label="Duracion (min)"
-                fullWidth
-                required
-                inputProps={{ min: 10, max: 300, step: 5 }}
-                value={field.value ?? ''}
-                onChange={(event) => field.onChange(event.target.value === '' ? undefined : Number(event.target.value))}
-                error={!!errors.training?.durationMin}
-                helperText={errors.training?.durationMin?.message}
-              />
-            )}
-          />
-          <Controller
-            name="training.met"
-            control={control}
-            render={({ field }) => (
-              <TextField
-                {...field}
-                type="number"
-                label="MET (editable)"
-                fullWidth
-                required
-                inputProps={{ min: 1, max: 30, step: 0.1 }}
-                value={field.value ?? ''}
-                onChange={(event) => field.onChange(event.target.value === '' ? undefined : Number(event.target.value))}
-                error={!!errors.training?.met}
-                helperText={errors.training?.met?.message ?? 'Se precarga segun el tipo elegido'}
-              />
-            )}
-          />
-        </Stack>
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon fontSize="small" />}
+                sx={{
+                  '& .MuiAccordionSummary-content': { margin: 0 },
+                  px: 1.5,
+                  py: 1,
+                  alignItems: 'center',
+                }}
+              >
+                <Stack direction="row" alignItems="center" spacing={1} width="100%">
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography variant="body2" fontWeight={700} noWrap>
+                      Entreno {idx + 1} {option ? `· ${option.label}` : ''}
+                    </Typography>
+                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                      <Typography variant="caption" color="text.secondary">
+                        {session?.durationMin ? `${session.durationMin} min` : 'Sin duracion'}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        ·
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {session?.met ? `MET ${session.met}` : 'MET sin definir'}
+                      </Typography>
+                    </Stack>
+                  </Box>
+                  <IconButton
+                    edge="end"
+                    color="error"
+                    size="small"
+                    aria-label={`Eliminar entreno ${idx + 1}`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleRemove(idx)
+                    }}
+                  >
+                    <DeleteOutlineIcon fontSize="small" />
+                  </IconButton>
+                </Stack>
+              </AccordionSummary>
+
+              <AccordionDetails sx={{ px: 1.5, pb: 1.5, pt: 0.5 }}>
+                <Stack spacing={1.25}>
+                  <TextField
+                    select
+                    label="Tipo de entreno"
+                    fullWidth
+                    size="small"
+                    value={trainingType}
+                    onChange={(event) => setValue(`trainings.${idx}.type`, event.target.value, { shouldDirty: true })}
+                    required
+                    error={!!errors.trainings?.[idx]?.type}
+                    helperText={(errors.trainings?.[idx] as any)?.type?.message}
+                  >
+                    {trainingOptions.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        {option.label} - MET {option.met}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                    <Controller
+                      name={`trainings.${idx}.durationMin`}
+                      control={control}
+                      render={({ field }) => (
+                        <TextField
+                          {...field}
+                          type="number"
+                          label="Duracion (min)"
+                          fullWidth
+                          size="small"
+                          required
+                          inputProps={{ min: 10, max: 300, step: 5 }}
+                          value={field.value ?? ''}
+                          onChange={(event) =>
+                            field.onChange(event.target.value === '' ? undefined : Number(event.target.value))
+                          }
+                          error={!!errors.trainings?.[idx]?.durationMin}
+                          helperText={(errors.trainings?.[idx] as any)?.durationMin?.message}
+                        />
+                      )}
+                    />
+                    <Controller
+                      name={`trainings.${idx}.met`}
+                      control={control}
+                      render={({ field }) => (
+                        <TextField
+                          {...field}
+                          type="number"
+                          label="MET (editable)"
+                          fullWidth
+                          size="small"
+                          required
+                          inputProps={{ min: 1, max: 30, step: 0.1 }}
+                          value={field.value ?? ''}
+                          onChange={(event) =>
+                            field.onChange(event.target.value === '' ? undefined : Number(event.target.value))
+                          }
+                          error={!!errors.trainings?.[idx]?.met}
+                          helperText={
+                            (errors.trainings?.[idx] as any)?.met?.message ?? 'Se precarga segun el tipo elegido'
+                          }
+                        />
+                      )}
+                    />
+                  </Stack>
+                </Stack>
+              </AccordionDetails>
+            </Accordion>
+          )
+        })}
+
+        <Button variant="outlined" onClick={handleAdd} size="small" startIcon={<AddIcon />}>
+          Agregar otro entreno
+        </Button>
       </Stack>
     )
   }

@@ -73,7 +73,14 @@ router.put(
   asyncHandler(async (req, res) => {
     const { planId } = req.params
     if (!Types.ObjectId.isValid(planId)) throw badRequest('planId invalido')
-    const parsed = overrideBodySchema.safeParse(req.body)
+    // Backward compatibility: map single training to trainings array
+    const incoming = { ...req.body }
+    if (incoming.overrides?.training && !incoming.overrides?.trainings) {
+      incoming.overrides.trainings = [incoming.overrides.training]
+      delete incoming.overrides.training
+    }
+
+    const parsed = overrideBodySchema.safeParse(incoming)
     if (!parsed.success) throw badRequest('Validation failed', parsed.error.flatten())
 
     const plan = await PlanModel.findById(planId)

@@ -4,6 +4,42 @@ import type { WizardInputs } from '../types'
 const roundInt = (v: number) => Math.round(v)
 const round1 = (v: number) => Math.round(v * 10) / 10
 
+export const adjustCarbFat = ({
+  protein,
+  fats,
+  carbs,
+  kcalObjectiveDay,
+  dayType,
+}: {
+  protein: number
+  fats: number
+  carbs: number
+  kcalObjectiveDay: number
+  dayType: WizardInputs['dayType']
+}) => {
+  const carbFactor = dayType === 'training' ? 1.2 : 0.85
+  const fatFactor = dayType === 'training' ? 0.85 : 1.2
+
+  const protKcal = protein * 4
+  const remaining = Math.max(kcalObjectiveDay - protKcal, 0)
+
+  const baseCarbKcal = Math.max(carbs, 0) * 4
+  const baseFatKcal = Math.max(fats, 0) * 9
+
+  const targCarb = baseCarbKcal * carbFactor
+  const targFat = baseFatKcal * fatFactor
+  const denom = targCarb + targFat
+
+  if (denom <= 0) {
+    return { carbsAdjusted: 0, fatsAdjusted: 0 }
+  }
+
+  const scale = remaining / denom
+  const carbsAdjusted = round1((targCarb * scale) / 4)
+  const fatsAdjusted = round1((targFat * scale) / 9)
+  return { carbsAdjusted, fatsAdjusted }
+}
+
 export type CalculationOutputs = {
   rmr: number
   pal: number
@@ -75,11 +111,13 @@ export const calculateInitials = (inputs: WizardInputs): { outputs: CalculationO
 
   const kcalObjectiveDay = kcalObjectiveBase + eee
 
-  const carbsFactor = inputs.dayType === 'training' ? 1.2 : 0.85
-  const fatsFactor = inputs.dayType === 'training' ? 0.85 : 1.2
-
-  const carbsAdjusted = carbs * carbsFactor
-  const fatsAdjusted = fats * fatsFactor
+  const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
+    protein,
+    fats,
+    carbs,
+    kcalObjectiveDay: roundInt(kcalObjectiveDay),
+    dayType: inputs.dayType,
+  })
 
   const ea = ffm ? (kcalObjectiveDay - eee) / ffm : undefined
 

@@ -78,7 +78,13 @@ const mapOverride = (raw: OverrideDto): DayOverride => ({
   id: raw._id,
   planId: typeof raw.planId === 'string' ? raw.planId : raw.planId._id,
   date: raw.date,
-  overrides: raw.overrides,
+  overrides: {
+    ...raw.overrides,
+    trainings:
+      raw.overrides.trainings ??
+      // Backward compatibility: map single training
+      ((raw.overrides as any).training ? [(raw.overrides as any).training] : undefined),
+  },
   computed: raw.computed,
   note: raw.note,
   updatedAt: raw.updatedAt,

@@ -96,15 +96,36 @@ const PlanDetailPage = () => {
     return baseOutputs
   }
 
+  const getTrainingCount = (override?: DayOverride) => {
+    const dayType = override?.overrides.dayType ?? baseInputs?.dayType ?? 'rest'
+    if (dayType !== 'training') return 0
+    const sessions =
+      override?.overrides.trainings?.filter((item) => !!item && (item?.type || item?.durationMin)) ??
+      ((override as any)?.overrides?.training ? [override?.overrides.training] : [])
+    if (sessions.length > 0) return sessions.length
+    if (baseInputs?.dayType === 'training' && baseInputs.trainingType) return 1
+    return 0
+  }
+
   const selectedOverride = overrides.find((item) => item.date === selectedDate)
   const selectedOutputs = computeOutputs(selectedOverride)
-  const selectedDayType = selectedOverride?.overrides.dayType ?? baseInputs?.dayType ?? 'rest'
+  const selectedTrainingCount = getTrainingCount(selectedOverride)
+  const selectedDayType =
+    selectedTrainingCount > 0
+      ? 'training'
+      : selectedOverride?.overrides.dayType ?? baseInputs?.dayType ?? 'rest'
+  const selectedTrainingLabel =
+    selectedDayType === 'training'
+      ? selectedTrainingCount > 1
+        ? `Entreno ${selectedTrainingCount}x`
+        : 'Entreno'
+      : 'Descanso'
 
   const getDayData = (date: string) => {
     const override = overrides.find((item) => item.date === date)
     const outputs = computeOutputs(override)
     const dayType = override?.overrides.dayType ?? baseInputs?.dayType ?? 'rest'
-    return { outputs, dayType, override }
+    return { outputs, dayType, override, trainingCount: getTrainingCount(override) }
   }
 
   const MacroDonut = ({
@@ -237,7 +258,7 @@ const PlanDetailPage = () => {
         >
           <Stack spacing={0.5}>
             <Typography variant="h5" fontWeight={800}>
-              Plan 7 dias
+              Plan {plan.days} dias
             </Typography>
             <Typography variant="body2" color="text.secondary">
               Inicio: {dayjs(plan.startDate).format('DD MMM YYYY')} · Duracion: {plan.days} dias
@@ -277,10 +298,13 @@ const PlanDetailPage = () => {
         >
           {dates.map((date) => {
             const day = dayjs(date)
-            const { outputs, dayType } = getDayData(date)
+            const { outputs, dayType, trainingCount } = getDayData(date)
             const isSelected = selectedDate === date
-            const isTraining = dayType === 'training'
+            const isTraining = trainingCount > 0 || dayType === 'training'
             const kcal = outputs?.kcalObjectiveDay
+            const trainingLabel =
+              trainingCount > 1 ? `Entreno ${trainingCount}x` : isTraining ? 'Entreno' : 'Descanso'
+            const circleText = trainingCount > 1 ? `${trainingCount}x` : isTraining ? '✓' : ''
             return (
               <ButtonBase
                 key={date}
@@ -297,7 +321,7 @@ const PlanDetailPage = () => {
                   minWidth: 82,
                   '&:hover': { borderColor: 'primary.light', bgcolor: 'primary.main' + '0A' },
                 }}
-                aria-label={`Seleccionar ${day.format('dddd')} ${isTraining ? 'entreno' : 'descanso'} ${
+                aria-label={`Seleccionar ${day.format('dddd')} ${isTraining ? trainingLabel : 'descanso'} ${
                   kcal ?? ''
                 } kcal`}
               >
@@ -323,11 +347,11 @@ const PlanDetailPage = () => {
                       transition: 'all 0.2s ease',
                     }}
                   >
-                    {isTraining ? '✓' : ''}
+                    {circleText}
                   </Box>
                   <Chip
                     size="small"
-                    label={isTraining ? 'Entreno' : 'Descanso'}
+                    label={isTraining ? trainingLabel : 'Descanso'}
                     color={isTraining ? 'primary' : 'default'}
                     variant={isTraining ? 'outlined' : 'filled'}
                   />
@@ -369,7 +393,7 @@ const PlanDetailPage = () => {
                 </Typography>
               </Box>
               <Chip
-                label={selectedDayType === 'training' ? 'Entreno' : 'Descanso'}
+                label={selectedTrainingLabel}
                 color={selectedDayType === 'training' ? 'primary' : 'default'}
                 variant={selectedDayType === 'training' ? 'outlined' : 'filled'}
                 sx={{ alignSelf: { xs: 'flex-start', sm: 'center' } }}

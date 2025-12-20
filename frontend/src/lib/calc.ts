@@ -34,6 +34,42 @@ const isTrainingValue = (value: unknown): value is (typeof trainingOptions)[numb
 const roundInt = (value: number) => Math.round(value)
 const round1 = (value: number) => Math.round(value * 10) / 10
 
+const adjustCarbFat = ({
+  protein,
+  fats,
+  carbs,
+  kcalObjectiveDay,
+  dayType,
+}: {
+  protein: number
+  fats: number
+  carbs: number
+  kcalObjectiveDay: number
+  dayType: WizardInputs['dayType']
+}) => {
+  const carbFactor = dayType === 'training' ? 1.2 : 0.85
+  const fatFactor = dayType === 'training' ? 0.85 : 1.2
+
+  const protKcal = protein * 4
+  const remaining = Math.max(kcalObjectiveDay - protKcal, 0)
+
+  const baseCarbKcal = Math.max(carbs, 0) * 4
+  const baseFatKcal = Math.max(fats, 0) * 9
+
+  const targCarb = baseCarbKcal * carbFactor
+  const targFat = baseFatKcal * fatFactor
+  const denom = targCarb + targFat
+
+  if (denom <= 0) {
+    return { carbsAdjusted: 0, fatsAdjusted: 0 }
+  }
+
+  const scale = remaining / denom
+  const carbsAdjusted = round1((targCarb * scale) / 4)
+  const fatsAdjusted = round1((targFat * scale) / 9)
+  return { carbsAdjusted, fatsAdjusted }
+}
+
 export type CalculationResult = {
   rmr: number
   pal: number
@@ -80,12 +116,13 @@ export const calculateInitials = (inputs: WizardInputs): CalculationResult => {
       : 0
 
   const kcalObjectiveDay = kcalObjectiveBase + eee
-
-  const carbsFactor = inputs.dayType === 'training' ? 1.2 : 0.85
-  const fatsFactor = inputs.dayType === 'training' ? 0.85 : 1.2
-
-  const carbsAdjusted = carbs * carbsFactor
-  const fatsAdjusted = fats * fatsFactor
+  const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
+    protein,
+    fats,
+    carbs,
+    kcalObjectiveDay: roundInt(kcalObjectiveDay),
+    dayType: inputs.dayType,
+  })
 
   const ea = ffm ? (kcalObjectiveDay - eee) / ffm : undefined
 
@@ -120,40 +157,58 @@ export const calculateDayFromBase = (
     merged.dayType = overrideInputs.dayType ?? baseInputs.dayType
   }
 
-  if (overrideInputs.training !== undefined) {
-    const training = overrideInputs.training
-    if (training === null) {
-      merged.trainingType = baseInputs.trainingType
-      merged.duration = baseInputs.duration
-      merged.trainingMet = baseInputs.trainingMet ?? undefined
-    } else {
-      if (training.type !== undefined) {
-        merged.trainingType = training.type && isTrainingValue(training.type) ? training.type : undefined
-      }
-      if (training.durationMin !== undefined) {
-        merged.duration = training.durationMin ?? undefined
-      }
-      if (training.met !== undefined) {
-        merged.trainingMet = training.met ?? undefined
-      }
-    }
+  const trainings = overrideInputs.trainings ?? (overrideInputs.training ? [overrideInputs.training] : [])
+
+  const normalizedTrainings =
+    merged.dayType === 'training'
+      ? trainings
+          .filter(Boolean)
+          .map((t) => {
+            const type = t?.type && isTrainingValue(t.type) ? t.type : undefined
+            const met = t?.met ?? (type ? trainingMetMap[type] : undefined)
+            const durationMin = t?.durationMin ?? undefined
+            return { type, met, durationMin }
+          })
+      : []
+
+  if (merged.dayType === 'training' && normalizedTrainings.length === 0 && baseInputs.trainingType && baseInputs.duration) {
+    normalizedTrainings.push({
+      type: baseInputs.trainingType,
+      met: baseInputs.trainingMet ?? trainingMetMap[baseInputs.trainingType],
+      durationMin: baseInputs.duration,
+    })
   }
 
-  if (merged.dayType === 'rest') {
-    merged.trainingType = undefined
-    merged.duration = undefined
-    merged.trainingMet = undefined
+  const eeeTotal =
+    merged.dayType === 'training'
+      ? normalizedTrainings.reduce((acc, session) => {
+          if (!session.type || session.met === undefined || !session.durationMin) return acc
+          return acc + ((merged.weight * session.met * 3.5) / 200) * session.durationMin
+        }, 0)
+      : 0
+
+  const baseOutputs = calculateInitials({
+    ...baseInputs,
+    dayType: merged.dayType,
+    trainingType: merged.trainingType,
+    duration: undefined,
+    trainingMet: merged.trainingMet ?? undefined,
+  })
+
+  const outputs = { ...baseOutputs, eee: roundInt(eeeTotal) }
+  outputs.kcalObjectiveDay = outputs.kcalObjectiveBase + outputs.eee
+  const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
+    protein: outputs.protein,
+    fats: outputs.fats,
+    carbs: outputs.carbs,
+    kcalObjectiveDay: outputs.kcalObjectiveDay,
+    dayType: merged.dayType,
+  })
+  outputs.carbsAdjusted = carbsAdjusted
+  outputs.fatsAdjusted = fatsAdjusted
+  if (outputs.ffm !== undefined) {
+    outputs.ea = round1((outputs.kcalObjectiveDay - outputs.eee) / outputs.ffm)
   }
 
-  if (merged.dayType === 'training') {
-    if (!merged.trainingType && baseInputs.trainingType) merged.trainingType = baseInputs.trainingType
-    if (merged.duration === undefined && baseInputs.duration !== undefined) {
-      merged.duration = baseInputs.duration
-    }
-    if (merged.trainingMet === undefined && baseInputs.trainingMet !== undefined) {
-      merged.trainingMet = baseInputs.trainingMet ?? undefined
-    }
-  }
-
-  return calculateInitials(merged)
+  return outputs
 }

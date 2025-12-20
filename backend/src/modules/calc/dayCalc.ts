@@ -1,6 +1,9 @@
-import { calculateInitials } from './calc'
+import { calculateInitials, adjustCarbFat } from './calc'
 import type { DayOverrideInputs, WizardInputs } from '../types'
 import { metMap } from './metMap'
+
+const roundInt = (v: number) => Math.round(v)
+const round1 = (v: number) => Math.round(v * 10) / 10
 
 export const calculateDayFromBase = (baseInputs: WizardInputs, overrides: DayOverrideInputs) => {
   const merged: WizardInputs = { ...baseInputs }
@@ -8,34 +11,69 @@ export const calculateDayFromBase = (baseInputs: WizardInputs, overrides: DayOve
   if (overrides.activityLevel !== undefined) merged.activityLevel = overrides.activityLevel ?? baseInputs.activityLevel
   if (overrides.dayType !== undefined) merged.dayType = overrides.dayType ?? baseInputs.dayType
 
-  if (overrides.training !== undefined) {
-    const training = overrides.training
-    if (training === null) {
-      merged.trainingType = undefined
-      merged.duration = undefined
-      merged.trainingMet = undefined
-    } else {
-      if (training.type !== undefined) merged.trainingType = training.type ?? undefined
-      if (training.durationMin !== undefined) merged.duration = training.durationMin ?? undefined
-      if (training.met !== undefined) merged.trainingMet = training.met ?? undefined
-    }
+  // Normalize trainings array (supports legacy single training)
+  const trainings =
+    overrides.trainings ??
+    (overrides.training
+      ? [overrides.training]
+      : baseInputs.training
+        ? [baseInputs.training]
+        : [])
+
+  const normalizedTrainings =
+    merged.dayType === 'training'
+      ? trainings
+          .filter(Boolean)
+          .map((t) => ({
+            type: t?.type ?? undefined,
+            met: t?.met ?? (t?.type ? metMap[t.type] : undefined),
+            durationMin: t?.durationMin ?? undefined,
+          }))
+      : []
+
+  // If no trainings provided but dayType is training, fallback to base single session
+  if (merged.dayType === 'training' && normalizedTrainings.length === 0 && baseInputs.trainingType && baseInputs.duration) {
+    normalizedTrainings.push({
+      type: baseInputs.trainingType,
+      met: baseInputs.trainingMet ?? metMap[baseInputs.trainingType],
+      durationMin: baseInputs.duration,
+    })
   }
 
-  if (merged.dayType === 'rest') {
-    merged.trainingType = undefined
-    merged.duration = undefined
-    merged.trainingMet = undefined
+  // Compute total EEE from all sessions
+  const eeeTotal =
+    merged.dayType === 'training'
+      ? normalizedTrainings.reduce((acc, session) => {
+          if (!session.type || session.met === undefined || !session.durationMin) return acc
+          return acc + ((merged.weight * session.met * 3.5) / 200) * session.durationMin
+        }, 0)
+      : 0
+
+  // Calculate base outputs without forcing single-session EEE
+  const baseCalc = calculateInitials({
+    ...baseInputs,
+    dayType: merged.dayType,
+    training: undefined,
+    trainingType: merged.trainingType,
+    duration: undefined,
+    trainingMet: merged.trainingMet,
+  })
+
+  const outputs = { ...baseCalc.outputs }
+  outputs.eee = roundInt(eeeTotal)
+  outputs.kcalObjectiveDay = outputs.kcalObjectiveBase + outputs.eee
+  const carbFatAdjusted = adjustCarbFat({
+    protein: outputs.protein,
+    fats: outputs.fats,
+    carbs: outputs.carbs,
+    kcalObjectiveDay: outputs.kcalObjectiveDay,
+    dayType: merged.dayType,
+  })
+  outputs.carbsAdjusted = carbFatAdjusted.carbsAdjusted
+  outputs.fatsAdjusted = carbFatAdjusted.fatsAdjusted
+  if (outputs.ffm !== undefined) {
+    outputs.ea = round1((outputs.kcalObjectiveDay - outputs.eee) / outputs.ffm)
   }
 
-  if (merged.dayType === 'training') {
-    if (!merged.trainingType) merged.trainingType = baseInputs.trainingType
-    if (merged.duration === undefined && baseInputs.duration !== undefined) merged.duration = baseInputs.duration
-    if (merged.trainingMet === undefined && baseInputs.trainingMet !== undefined) merged.trainingMet = baseInputs.trainingMet
-
-    if (!merged.trainingType) throw new Error('Training data required for training day')
-    if (merged.trainingMet === undefined) merged.trainingMet = metMap[merged.trainingType]
-    if (merged.duration === undefined) throw new Error('Training duration required for training day')
-  }
-
-  return calculateInitials(merged)
+  return { outputs }
 }

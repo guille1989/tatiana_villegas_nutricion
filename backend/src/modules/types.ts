@@ -15,6 +15,15 @@ export const trainingSchema = z.object({
   durationMin: z.number().min(10).max(300),
 })
 
+export const trainingsSchema = z
+  .array(
+    z.object({
+      type: trainingTypeEnum.optional().nullable(),
+      met: z.number().min(1).max(30).optional().nullable(),
+      durationMin: z.number().min(10).max(300).optional().nullable(),
+    }),
+  )
+
 export const wizardInputsSchema = z
   .object({
     name: z.string().trim().min(1),
@@ -47,6 +56,8 @@ export const wizardInputsSchema = z
 export const dayOverrideSchema = z.object({
   activityLevel: activityEnum.nullable().optional(),
   dayType: dayTypeEnum.nullable().optional(),
+  trainings: trainingsSchema.nullable().optional(),
+  // Backward compatibility: allow single training object
   training: z
     .object({
       type: trainingTypeEnum.nullable().optional(),
