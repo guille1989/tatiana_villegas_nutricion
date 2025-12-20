@@ -66,6 +66,33 @@ export const dayOverrideSchema = z.object({
     })
     .nullable()
     .optional(),
+  meals: z
+    .array(
+      z.object({
+        key: z.enum(['breakfast', 'lunch', 'snack', 'dinner']),
+        name: z.string(),
+        items: z.array(
+          z.object({
+            foodId: z.string(),
+            nameSnapshot: z.string(),
+            grams: z.number().nonnegative(),
+            macros: z.object({
+              protein: z.number().nonnegative(),
+              carbs: z.number().nonnegative(),
+              fat: z.number().nonnegative(),
+            }),
+            kcal: z.number().nonnegative(),
+          }),
+        ),
+        totals: z.object({
+          protein: z.number().nonnegative(),
+          carbs: z.number().nonnegative(),
+          fat: z.number().nonnegative(),
+          kcal: z.number().nonnegative(),
+        }),
+      }),
+    )
+    .optional(),
 })
 
 export type WizardInputs = z.infer<typeof wizardInputsSchema>

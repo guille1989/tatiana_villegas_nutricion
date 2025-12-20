@@ -1,0 +1,56 @@
+[
+  {
+    "id": "pechuga-pollo",
+    "name": "Pechuga de pollo",
+    "group": "proteinas",
+    "prot_100g": 31,
+    "cho_100g": 0,
+    "fat_100g": 3.6,
+    "kcal_100g": 165
+  },
+  {
+    "id": "atun-agua",
+    "name": "Atún en agua",
+    "group": "proteinas",
+    "prot_100g": 23,
+    "cho_100g": 0,
+    "fat_100g": 1,
+    "kcal_100g": 99
+  },
+  {
+    "id": "arroz-blanco",
+    "name": "Arroz blanco cocido",
+    "group": "carbohidratos",
+    "prot_100g": 2.7,
+    "cho_100g": 28,
+    "fat_100g": 0.3,
+    "kcal_100g": 130
+  },
+  {
+    "id": "avena",
+    "name": "Avena",
+    "group": "carbohidratos",
+    "prot_100g": 13,
+    "cho_100g": 68,
+    "fat_100g": 6.9,
+    "kcal_100g": 389
+  },
+  {
+    "id": "aceite-oliva",
+    "name": "Aceite de oliva",
+    "group": "grasas",
+    "prot_100g": 0,
+    "cho_100g": 0,
+    "fat_100g": 100,
+    "kcal_100g": 884
+  },
+  {
+    "id": "almendra",
+    "name": "Almendra",
+    "group": "grasas",
+    "prot_100g": 21.2,
+    "cho_100g": 21.7,
+    "fat_100g": 49.9,
+    "kcal_100g": 579
+  }
+]

@@ -8,6 +8,7 @@ export type PlanDayOverrideDoc = {
   date: string
   overrides: DayOverrideInputs
   computed: CalculationOutputs
+  meals?: unknown
   note?: string
 } & Document
 
@@ -18,6 +19,7 @@ const overrideSchema = new Schema(
     date: { type: String, required: true },
     overrides: { type: Schema.Types.Mixed, required: true },
     computed: { type: Schema.Types.Mixed, required: true },
+    meals: { type: Schema.Types.Mixed },
     note: { type: String },
   },
   { timestamps: true },

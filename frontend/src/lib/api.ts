@@ -4,6 +4,7 @@ import type {
   DayOverride,
   DayOverrideInputs,
   Plan,
+  Food,
   WizardInputs,
 } from '../types'
 
@@ -36,9 +37,12 @@ type OverrideDto = {
   date: string
   overrides: DayOverrideInputs
   computed: CalculationOutputs
+  meals?: any
   note?: string
   updatedAt: string
 }
+
+type FoodDto = Food & { _id: string }
 
 const request = async <T>(path: string, options?: RequestInit): Promise<ApiResponse<T>> => {
   try {
@@ -85,6 +89,7 @@ const mapOverride = (raw: OverrideDto): DayOverride => ({
       // Backward compatibility: map single training
       ((raw.overrides as any).training ? [(raw.overrides as any).training] : undefined),
   },
+  meals: raw.meals as any,
   computed: raw.computed,
   note: raw.note,
   updatedAt: raw.updatedAt,
@@ -143,6 +148,7 @@ export const upsertOverride = async (payload: {
   date: string
   overrides: DayOverrideInputs
   note?: string
+  meals?: any
   userId?: string
 }) => {
   const { planId, ...body } = payload
@@ -173,4 +179,20 @@ export const getDay = async (planId: string, date: string, userId = DEFAULT_USER
 export const deletePlan = async (planId: string, userId = DEFAULT_USER_ID) => {
   const { error } = await request(`/plans/${planId}?userId=${userId}`, { method: 'DELETE' })
   if (error) throw new Error(error)
+}
+
+export const searchFoodsApi = async (query: string) => {
+  const qParam = query ? `?q=${encodeURIComponent(query)}` : ''
+  const { data, error } = await request<{ foods: FoodDto[] }>(`/foods${qParam}`)
+  if (error) throw new Error(error)
+  return data.foods.map((f) => ({
+    id: f._id ?? f.id,
+    name: f.name,
+    group: f.group,
+    sub_group: (f as any).sub_group,
+    prot_100g: f.prot_100g,
+    cho_100g: f.cho_100g,
+    fat_100g: f.fat_100g,
+    kcal_100g: f.kcal_100g,
+  }))
 }

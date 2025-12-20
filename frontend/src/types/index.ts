@@ -42,6 +42,17 @@ export type TrainingSession = {
   durationMin?: number | null
 } | null
 
+export type Food = {
+  id: string
+  name: string
+  sub_group?: string | null
+  group: 'proteinas' | 'carbohidratos' | 'grasas'
+  prot_100g: number
+  cho_100g: number
+  fat_100g: number
+  kcal_100g: number
+}
+
 export type DayOverrideInputs = {
   activityLevel?: WizardFormData['activityLevel'] | null
   dayType?: WizardFormData['dayType'] | null
@@ -49,6 +60,7 @@ export type DayOverrideInputs = {
   // Legacy support
   training?: TrainingSession
   note?: string | null
+  meals?: Meal[]
 }
 
 export type DayOverride = {
@@ -57,6 +69,22 @@ export type DayOverride = {
   date: string
   overrides: DayOverrideInputs
   computed: CalculationOutputs
+  meals?: Meal[]
   note?: string
   updatedAt: string
+}
+
+export type MealItem = {
+  foodId: string
+  nameSnapshot: string
+  grams: number
+  macros: { protein: number; carbs: number; fat: number }
+  kcal: number
+}
+
+export type Meal = {
+  key: 'breakfast' | 'lunch' | 'snack' | 'dinner' | 'snack2'
+  name: string
+  items: MealItem[]
+  totals: { protein: number; carbs: number; fat: number; kcal: number }
 }

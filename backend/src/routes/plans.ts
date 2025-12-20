@@ -65,6 +65,7 @@ const overrideBodySchema = z.object({
   userId: z.string().min(1),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   overrides: dayOverrideSchema,
+  meals: z.any().optional(),
   note: z.string().max(240).optional(),
 })
 
@@ -100,6 +101,7 @@ router.put(
         date: parsed.data.date,
         overrides: parsed.data.overrides,
         computed: outputs,
+        meals: parsed.data.meals,
         note: parsed.data.note,
       },
       { upsert: true, new: true, setDefaultsOnInsert: true },

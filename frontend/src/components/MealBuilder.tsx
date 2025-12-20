@@ -1,0 +1,311 @@
+import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
+  Box,
+  Button,
+  IconButton,
+  InputAdornment,
+  MenuItem,
+  Stack,
+  TextField,
+  Typography,
+} from '@mui/material'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import AddIcon from '@mui/icons-material/Add'
+import SearchIcon from '@mui/icons-material/Search'
+import { useEffect, useState } from 'react'
+import { calcFoodMacrosFromGrams, gramsFromPortions, searchFoods } from '../lib/foods'
+import type { Food, Meal, MealItem } from '../types'
+
+type Props = {
+  meals: Meal[]
+  onChange: (meals: Meal[]) => void
+  budgetMacros: { protein: number; carbs: number; fat: number }
+  onError: (msg: string) => void
+}
+
+const portionSizes = { protein: 10, carbs: 15, fat: 5 }
+
+const macroToPortions = (macros: { protein: number; carbs: number; fat: number }) => ({
+  protein: macros.protein / portionSizes.protein,
+  carbs: macros.carbs / portionSizes.carbs,
+  fat: macros.fat / portionSizes.fat,
+})
+
+const calcMealTotals = (items: MealItem[]) => {
+  return items.reduce(
+    (acc, item) => ({
+      protein: acc.protein + item.macros.protein,
+      carbs: acc.carbs + item.macros.carbs,
+      fat: acc.fat + item.macros.fat,
+      kcal: acc.kcal + item.kcal,
+    }),
+    { protein: 0, carbs: 0, fat: 0, kcal: 0 },
+  )
+}
+
+const MealBuilder = ({ meals, onChange, budgetMacros, onError }: Props) => {
+  const [expanded, setExpanded] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [selectedFood, setSelectedFood] = useState<Food | null>(null)
+  const [mode, setMode] = useState<'grams' | 'portions'>('grams')
+  const [amount, setAmount] = useState<number>(0)
+
+  const [foods, setFoods] = useState<Food[]>([])
+  const [loadingFoods, setLoadingFoods] = useState(false)
+  const [foodError, setFoodError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    setLoadingFoods(true)
+    setFoodError(null)
+    searchFoods(query)
+      .then((list) => {
+        if (active) setFoods(list)
+      })
+      .catch(() => {
+        if (active) setFoods([])
+        setFoodError('No se pudo cargar el listado de alimentos. Usando lista local.')
+      })
+      .finally(() => {
+        if (active) setLoadingFoods(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [query])
+
+  const usedMacros = meals.reduce(
+    (acc, meal) => {
+      acc.protein += meal.totals.protein
+      acc.carbs += meal.totals.carbs
+      acc.fat += meal.totals.fat
+      return acc
+    },
+    { protein: 0, carbs: 0, fat: 0 },
+  )
+
+  const remainingMacros = {
+    protein: budgetMacros.protein - usedMacros.protein,
+    carbs: budgetMacros.carbs - usedMacros.carbs,
+    fat: budgetMacros.fat - usedMacros.fat,
+  }
+
+  const handleAdd = (mealKey: Meal['key']) => {
+    if (!selectedFood) {
+      onError('Selecciona un alimento')
+      return
+    }
+    let grams = mode === 'grams' ? amount : 0
+    if (mode === 'portions') {
+      const g = gramsFromPortions(selectedFood, amount)
+      if (g === null) {
+        onError('No se puede calcular porciones para este alimento')
+        return
+      }
+      grams = g
+    }
+    if (grams <= 0) {
+      onError('Cantidad inválida')
+      return
+    }
+    const macros = calcFoodMacrosFromGrams(selectedFood, grams)
+    const newItem: MealItem = {
+      foodId: selectedFood.id,
+      nameSnapshot: selectedFood.name,
+      grams,
+      macros: { protein: macros.protein, carbs: macros.carbs, fat: macros.fat },
+      kcal: macros.kcal,
+    }
+
+    const nextMeals = meals.map((meal) =>
+      meal.key === mealKey ? { ...meal, items: [...meal.items, newItem] } : meal,
+    )
+    const updatedMeals = nextMeals.map((meal) =>
+      meal.key === mealKey ? { ...meal, totals: calcMealTotals([...meal.items]) } : meal,
+    )
+    const dayTotals = updatedMeals.reduce(
+      (acc, meal) => ({
+        protein: acc.protein + meal.totals.protein,
+        carbs: acc.carbs + meal.totals.carbs,
+        fat: acc.fat + meal.totals.fat,
+      }),
+      { protein: 0, carbs: 0, fat: 0 },
+    )
+
+    if (dayTotals.protein > budgetMacros.protein || dayTotals.carbs > budgetMacros.carbs || dayTotals.fat > budgetMacros.fat) {
+      onError('Te estás pasando del presupuesto. Ajusta la cantidad.')
+      //return
+    }
+
+    onChange(updatedMeals)
+  }
+
+  const handleRemoveItem = (mealKey: Meal['key'], idx: number) => {
+    const nextMeals = meals.map((meal) =>
+      meal.key === mealKey
+        ? { ...meal, items: meal.items.filter((_, i) => i !== idx) }
+        : meal,
+    )
+    const updatedMeals = nextMeals.map((meal) =>
+      meal.key === mealKey ? { ...meal, totals: calcMealTotals(meal.items) } : meal,
+    )
+    onChange(updatedMeals)
+  }
+
+  const portionString = (macros: { protein: number; carbs: number; fat: number }) => {
+    const portions = macroToPortions(macros)
+    return `P ${portions.protein.toFixed(1)} · C ${portions.carbs.toFixed(1)} · G ${portions.fat.toFixed(1)}`
+  }
+
+  return (
+    <Stack spacing={1.5}>
+      {meals.map((meal) => (
+        <Accordion
+          key={meal.key}
+          expanded={expanded === meal.key}
+          onChange={() => setExpanded(expanded === meal.key ? null : meal.key)}
+          sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}
+        >
+          <AccordionSummary
+            expandIcon={<ExpandMoreIcon />}
+            sx={{ '& .MuiAccordionSummary-content': { m: 0, alignItems: 'center' }, px: 1.5, py: 1 }}
+          >
+            <Stack direction="row" spacing={1} alignItems="center" flex={1} justifyContent="space-between">
+              <Stack spacing={0.25}>
+                <Typography variant="body1" fontWeight={700}>
+                  {meal.name}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {meal.totals.kcal.toFixed(0)} kcal · {portionString(meal.totals)}
+                </Typography>
+              </Stack>
+              <Typography variant="caption" color="text.secondary">
+                {meal.items.length} items
+              </Typography>
+            </Stack>
+          </AccordionSummary>
+          <AccordionDetails sx={{ px: 1.5, pb: 1.5, pt: 0.5 }}>
+            <Stack spacing={1.5}>
+              <TextField
+                size="small"
+                label="Buscar alimento"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
+              />
+              <TextField
+                select
+                size="small"
+                label="Selecciona alimento"
+                value={selectedFood?.id ?? ''}
+                onChange={(e) => {
+                  const food = foods.find((f) => f.id === e.target.value)
+                  setSelectedFood(food ?? null)
+                }}
+                helperText={loadingFoods ? 'Cargando...' : undefined}
+              >
+                {foods.map((food) => (
+                  <MenuItem key={food.id} value={food.id}>
+                    {food.name} · {food.kcal_100g} kcal /100g
+                  </MenuItem>
+                ))}
+                {foods.length === 0 && (
+                  <MenuItem disabled value="">
+                    {loadingFoods ? 'Cargando...' : 'Sin resultados'}
+                  </MenuItem>
+                )}
+              </TextField>
+              {foodError && (
+                <Typography variant="caption" color="error">
+                  {foodError}
+                </Typography>
+              )}
+              <Stack direction="row" spacing={1}>
+                <TextField
+                  select
+                  size="small"
+                  label="Modo"
+                  value={mode}
+                  onChange={(e) => setMode(e.target.value as 'grams' | 'portions')}
+                  sx={{ width: 140 }}
+                >
+                  <MenuItem value="grams">Gramos</MenuItem>
+                  <MenuItem value="portions">Porciones</MenuItem>
+                </TextField>
+                <TextField
+                  size="small"
+                  type="number"
+                  label={mode === 'grams' ? 'Gramos' : 'Porciones'}
+                  value={amount}
+                  onChange={(e) => setAmount(Number(e.target.value))}
+                  fullWidth
+                  inputProps={{ min: 0, step: mode === 'grams' ? 10 : 0.25 }}
+                />
+                <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleAdd(meal.key)}>
+                  Agregar
+                </Button>
+              </Stack>
+
+              <Stack spacing={1}>
+                {meal.items.map((item, idx) => (
+                  <Box
+                    key={idx}
+                    sx={{
+                      p: 1,
+                      borderRadius: 2,
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 1,
+                    }}
+                  >
+                    <Stack spacing={0.25}>
+                      <Typography variant="body2" fontWeight={700}>
+                        {item.nameSnapshot}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {item.grams.toFixed(0)} g · {item.kcal.toFixed(0)} kcal · P {item.macros.protein.toFixed(1)} · C{' '}
+                        {item.macros.carbs.toFixed(1)} · G {item.macros.fat.toFixed(1)}
+                      </Typography>
+                    </Stack>
+                    <IconButton
+                      edge="end"
+                      size="small"
+                      color="error"
+                      aria-label="Eliminar"
+                      onClick={() => handleRemoveItem(meal.key, idx)}
+                    >
+                      <DeleteOutlineIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                ))}
+                {meal.items.length === 0 && (
+                  <Typography variant="caption" color="text.secondary">
+                    No hay items en esta comida.
+                  </Typography>
+                )}
+              </Stack>
+
+              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                <Typography variant="body2" fontWeight={700}>
+                  Totales comida: {meal.totals.kcal.toFixed(0)} kcal · {portionString(meal.totals)}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Saldo día: P {remainingMacros.protein.toFixed(1)} · C {remainingMacros.carbs.toFixed(1)} · G{' '}
+                  {remainingMacros.fat.toFixed(1)}
+                </Typography>
+              </Stack>
+            </Stack>
+          </AccordionDetails>
+        </Accordion>
+      ))}
+    </Stack>
+  )
+}
+
+export default MealBuilder
