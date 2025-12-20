@@ -186,10 +186,41 @@ const PlanDetailPage = () => {
     return defaultMealsTemplate.map((tpl) => map.get(tpl.key) ?? { ...tpl });
   };
 
-const rawMeals =
-  (selectedDate && mealsByDate[selectedDate]) ||
-  (selectedOverride?.meals as Meal[] | undefined) ||
-  defaultMealsTemplate;
+  const totalsFromMeals = (meals: Meal[]) =>
+    meals.reduce(
+      (acc, meal) => ({
+        protein: acc.protein + meal.totals.protein,
+        carbs: acc.carbs + meal.totals.carbs,
+        fat: acc.fat + meal.totals.fat,
+        kcal: acc.kcal + meal.totals.kcal,
+      }),
+      { protein: 0, carbs: 0, fat: 0, kcal: 0 },
+    );
+
+  const EPS_PORTION = 0.3;
+  type DayStatus = 'pending' | 'ok' | 'over';
+  const getDayStatus = (remaining: { protein: number; carbs: number; fat: number }): DayStatus => {
+    const { protein, carbs, fat } = remaining;
+    const over = protein < -EPS_PORTION || carbs < -EPS_PORTION || fat < -EPS_PORTION;
+    if (over) return 'over';
+    const ok =
+      Math.abs(protein) <= EPS_PORTION && Math.abs(carbs) <= EPS_PORTION && Math.abs(fat) <= EPS_PORTION;
+    return ok ? 'ok' : 'pending';
+  };
+
+  const statusColorMap: Record<DayStatus, string> = {
+    pending: '#FBC02D', // yellow
+    ok: 'success.main',
+    over: 'error.main',
+  };
+
+  const getDayMeals = (date: string) =>
+    withDefaults(mealsByDate[date] || (overrides.find((o) => o.date === date)?.meals as Meal[] | undefined));
+
+  const rawMeals =
+    (selectedDate && mealsByDate[selectedDate]) ||
+    (selectedOverride?.meals as Meal[] | undefined) ||
+    defaultMealsTemplate;
 const currentMeals = withDefaults(rawMeals);
 const currentTotals = currentMeals.reduce(
   (acc, meal) => ({
@@ -441,6 +472,23 @@ const currentTotals = currentMeals.reduce(
                 : isTraining
                 ? "Entreno"
                 : "Descanso";
+            const dayMeals = getDayMeals(date);
+            const dayTotals = totalsFromMeals(dayMeals);
+            const remainingPortions = outputs
+              ? {
+                  protein: outputs.protein / 10 - dayTotals.protein / 10,
+                  carbs: outputs.carbsAdjusted / 15 - dayTotals.carbs / 15,
+                  fat: outputs.fatsAdjusted / 5 - dayTotals.fat / 5,
+                }
+              : { protein: 0, carbs: 0, fat: 0 };
+            const status = getDayStatus(remainingPortions);
+            const statusColor = statusColorMap[status];
+            const statusLabel =
+              status === "ok"
+                ? "Cumplido"
+                : status === "over"
+                ? "Excedido"
+                : "Pendiente";
             const circleText =
               trainingCount > 1 ? `${trainingCount}x` : isTraining ? "✓" : "";
             return (
@@ -479,18 +527,32 @@ const currentTotals = currentMeals.reduce(
                       placeItems: "center",
                       bgcolor: isTraining ? "transparent" : "grey.300",
                       color: isTraining ? "primary.main" : "grey.50",
-                      border: isTraining
-                        ? "2px solid"
-                        : "1px solid transparent",
-                      borderColor: isTraining ? "primary.main" : "transparent",
+                      border: `2px solid ${statusColor}`,
                       fontWeight: 700,
                       boxShadow: isSelected
-                        ? `0 0 0 3px ${theme.palette.primary.main}33`
+                        ? `0 0 0 3px ${statusColor}33`
                         : "0 0 0 1px transparent",
                       transition: "all 0.2s ease",
+                      position: "relative",
                     }}
+                    title={`${statusLabel}. P ${remainingPortions.protein.toFixed(
+                      1
+                    )}, C ${remainingPortions.carbs.toFixed(
+                      1
+                    )}, G ${remainingPortions.fat.toFixed(1)}`}
                   >
                     {circleText}
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        top: 4,
+                        right: 4,
+                        width: 8,
+                        height: 8,
+                        borderRadius: "50%",
+                        bgcolor: statusColor,
+                      }}
+                    />
                   </Box>
                   <Chip
                     size="small"
