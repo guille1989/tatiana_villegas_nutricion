@@ -61,6 +61,7 @@ const MealBuilder = ({ meals, onChange, onSave, budgetMacros, onError }: Props) 
   const [inputValue, setInputValue] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [autocompleteOpen, setAutocompleteOpen] = useState(false)
+  const [activeMealKey, setActiveMealKey] = useState<Meal['key'] | null>(null)
   const [selectedFood, setSelectedFood] = useState<Food | null>(null)
   const [mode, setMode] = useState<'grams' | 'portions'>('portions')
   const [amount, setAmount] = useState<number>(0)
@@ -290,7 +291,14 @@ const MealBuilder = ({ meals, onChange, onSave, budgetMacros, onError }: Props) 
         <Accordion
           key={meal.key}
           expanded={expanded === meal.key}
-          onChange={() => setExpanded(expanded === meal.key ? null : meal.key)}
+          onChange={() => {
+            const nextExpanded = expanded === meal.key ? null : meal.key
+            setExpanded(nextExpanded)
+            if (nextExpanded === null && activeMealKey === meal.key) {
+              setAutocompleteOpen(false)
+              setActiveMealKey(null)
+            }
+          }}
           sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}
         >
           <AccordionSummary
@@ -314,34 +322,45 @@ const MealBuilder = ({ meals, onChange, onSave, budgetMacros, onError }: Props) 
           <AccordionDetails sx={{ px: 1.5, pb: 1.5, pt: 0.5 }}>
               <Stack spacing={1.5}>
               <MacroStatusBanner budget={macroToPortions(budgetMacros)} used={macroToPortions(usedMacros)} />
-              <Autocomplete
-                size="small"
-                fullWidth
-                value={selectedFood}
-                inputValue={inputValue}
-                options={foods}
-                loading={loadingFoods}
-                open={autocompleteOpen && inputValue.trim().length >= MIN_SEARCH_LENGTH}
-                onOpen={() => {
-                  if (inputValue.trim().length >= MIN_SEARCH_LENGTH) {
-                    setAutocompleteOpen(true)
+                <Autocomplete
+                  size="small"
+                  fullWidth
+                  value={selectedFood}
+                  inputValue={inputValue}
+                  options={foods}
+                  loading={loadingFoods}
+                  open={
+                    autocompleteOpen &&
+                    activeMealKey === meal.key &&
+                    inputValue.trim().length >= MIN_SEARCH_LENGTH
                   }
-                }}
-                onClose={() => setAutocompleteOpen(false)}
-                openOnFocus
-                autoHighlight
-                filterOptions={(options) => options}
-                getOptionLabel={(option) => option.name}
-                isOptionEqualToValue={(option, value) => option.id === value.id}
+                  onOpen={() => {
+                    setActiveMealKey(meal.key)
+                    if (inputValue.trim().length >= MIN_SEARCH_LENGTH) {
+                      setAutocompleteOpen(true)
+                    }
+                  }}
+                  onClose={() => {
+                    setAutocompleteOpen(false)
+                    if (activeMealKey === meal.key) {
+                      setActiveMealKey(null)
+                    }
+                  }}
+                  openOnFocus
+                  autoHighlight
+                  filterOptions={(options) => options}
+                  getOptionLabel={(option) => option.name}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
                 noOptionsText={inputValue.trim().length < MIN_SEARCH_LENGTH ? 'Escribe al menos 2 caracteres' : 'Sin resultados'}
                 loadingText="Cargando..."
-                onInputChange={(_, newValue, reason) => {
-                  if (reason === 'reset') return
-                  setInputValue(newValue)
-                  if (reason === 'input') {
-                    const trimmed = newValue.trim()
-                    if (trimmed.length < MIN_SEARCH_LENGTH) {
-                      setDebouncedQuery('')
+                  onInputChange={(_, newValue, reason) => {
+                    if (reason === 'reset') return
+                    setActiveMealKey(meal.key)
+                    setInputValue(newValue)
+                    if (reason === 'input') {
+                      const trimmed = newValue.trim()
+                      if (trimmed.length < MIN_SEARCH_LENGTH) {
+                        setDebouncedQuery('')
                       setFoods([])
                       setAutocompleteOpen(false)
                       setSelectedFood(null)
@@ -376,12 +395,13 @@ const MealBuilder = ({ meals, onChange, onSave, budgetMacros, onError }: Props) 
                     </Stack>
                   </li>
                 )}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Buscar alimento"
-                    InputProps={{
-                      ...params.InputProps,
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Buscar alimento"
+                      onFocus={() => setActiveMealKey(meal.key)}
+                      InputProps={{
+                        ...params.InputProps,
                       startAdornment: (
                         <>
                           <InputAdornment position="start">
