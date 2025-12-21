@@ -78,6 +78,8 @@ export type MealItem = {
   foodId: string
   nameSnapshot: string
   grams: number
+  amount?: number
+  mode?: 'grams' | 'portions'
   macros: { protein: number; carbs: number; fat: number }
   kcal: number
 }

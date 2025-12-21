@@ -6,6 +6,10 @@ import {
   Box,
   Button,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   IconButton,
   InputAdornment,
   MenuItem,
@@ -25,6 +29,7 @@ import MacroStatusBanner from './MacroStatusBanner'
 type Props = {
   meals: Meal[]
   onChange: (meals: Meal[]) => void
+  onSave?: (meals: Meal[]) => void
   budgetMacros: { protein: number; carbs: number; fat: number }
   onError: (msg: string) => void
 }
@@ -51,7 +56,7 @@ const calcMealTotals = (items: MealItem[]) => {
   )
 }
 
-const MealBuilder = ({ meals, onChange, budgetMacros, onError }: Props) => {
+const MealBuilder = ({ meals, onChange, onSave, budgetMacros, onError }: Props) => {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [inputValue, setInputValue] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
@@ -60,6 +65,14 @@ const MealBuilder = ({ meals, onChange, budgetMacros, onError }: Props) => {
   const [mode, setMode] = useState<'grams' | 'portions'>('portions')
   const [amount, setAmount] = useState<number>(0)
   const amountInputRef = useRef<HTMLInputElement | null>(null)
+  const [editingItem, setEditingItem] = useState<{
+    mealKey: Meal['key']
+    index: number
+    item: MealItem
+  } | null>(null)
+  const [editAmount, setEditAmount] = useState<number>(0)
+  const [editMode, setEditMode] = useState<'grams' | 'portions'>('grams')
+  const [editError, setEditError] = useState<string | null>(null)
 
   const [foods, setFoods] = useState<Food[]>([])
   const [loadingFoods, setLoadingFoods] = useState(false)
@@ -144,6 +157,8 @@ const MealBuilder = ({ meals, onChange, budgetMacros, onError }: Props) => {
       foodId: selectedFood.id,
       nameSnapshot: selectedFood.name,
       grams,
+      amount,
+      mode,
       macros: { protein: macros.protein, carbs: macros.carbs, fat: macros.fat },
       kcal: macros.kcal,
     }
@@ -169,6 +184,7 @@ const MealBuilder = ({ meals, onChange, budgetMacros, onError }: Props) => {
     }
 
     onChange(updatedMeals)
+    onSave?.(updatedMeals)
   }
 
   const handleRemoveItem = (mealKey: Meal['key'], idx: number) => {
@@ -181,6 +197,7 @@ const MealBuilder = ({ meals, onChange, budgetMacros, onError }: Props) => {
       meal.key === mealKey ? { ...meal, totals: calcMealTotals(meal.items) } : meal,
     )
     onChange(updatedMeals)
+    onSave?.(updatedMeals)
   }
 
   const portionString = (macros: { protein: number; carbs: number; fat: number }) => {
@@ -196,8 +213,79 @@ const MealBuilder = ({ meals, onChange, budgetMacros, onError }: Props) => {
     }
   }
 
+  const resolveItemMode = (item: MealItem): 'grams' | 'portions' => {
+    if (item.mode === 'portions' && item.amount && item.amount > 0) return 'portions'
+    return 'grams'
+  }
+
+  const handleOpenEdit = (mealKey: Meal['key'], index: number, item: MealItem) => {
+    const nextMode = resolveItemMode(item)
+    const nextAmount = nextMode === 'grams' ? item.grams : item.amount ?? 0
+    setEditMode(nextMode)
+    setEditAmount(Number.isFinite(nextAmount) ? nextAmount : 0)
+    setEditError(null)
+    setEditingItem({ mealKey, index, item })
+  }
+
+  const handleCloseEdit = () => {
+    setEditingItem(null)
+    setEditError(null)
+  }
+
+  const handleEditSave = () => {
+    if (!editingItem) return
+    const nextAmount = Number(editAmount)
+    if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+      setEditError('Cantidad invalida')
+      return
+    }
+    const currentItem = editingItem.item
+    let newGrams = nextAmount
+    if (editMode === 'portions') {
+      const baseAmount = currentItem.amount ?? 0
+      if (baseAmount <= 0) {
+        setEditError('No se puede recalcular porciones para este alimento')
+        return
+      }
+      const gramsPerPortion = currentItem.grams / baseAmount
+      newGrams = gramsPerPortion * nextAmount
+    }
+    if (!Number.isFinite(newGrams) || newGrams <= 0 || currentItem.grams <= 0) {
+      setEditError('Cantidad invalida')
+      return
+    }
+
+    const ratio = newGrams / currentItem.grams
+    const updatedItem: MealItem = {
+      ...currentItem,
+      grams: newGrams,
+      amount: editMode === 'grams' ? newGrams : nextAmount,
+      mode: editMode,
+      macros: {
+        protein: currentItem.macros.protein * ratio,
+        carbs: currentItem.macros.carbs * ratio,
+        fat: currentItem.macros.fat * ratio,
+      },
+      kcal: currentItem.kcal * ratio,
+    }
+
+    const nextMeals = meals.map((meal) => {
+      if (meal.key !== editingItem.mealKey) return meal
+      const items = meal.items.map((item, idx) => (idx === editingItem.index ? updatedItem : item))
+      return { ...meal, items, totals: calcMealTotals(items) }
+    })
+
+    onChange(nextMeals)
+    onSave?.(nextMeals)
+    setEditingItem(null)
+  }
+
+  const editModeLabel = editMode === 'grams' ? 'Gramos' : 'Porciones'
+  const editAmountInvalid = !Number.isFinite(editAmount) || editAmount <= 0
+
   return (
-    <Stack spacing={1.5}>
+    <>
+      <Stack spacing={1.5}>
       {meals.map((meal) => (
         <Accordion
           key={meal.key}
@@ -360,6 +448,15 @@ const MealBuilder = ({ meals, onChange, budgetMacros, onError }: Props) => {
                 {meal.items.map((item, idx) => (
                   <Box
                     key={idx}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => handleOpenEdit(meal.key, idx, item)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        handleOpenEdit(meal.key, idx, item)
+                      }
+                    }}
                     sx={{
                       p: 1,
                       borderRadius: 2,
@@ -369,6 +466,9 @@ const MealBuilder = ({ meals, onChange, budgetMacros, onError }: Props) => {
                       alignItems: 'center',
                       justifyContent: 'space-between',
                       gap: 1,
+                      cursor: 'pointer',
+                      transition: 'background-color 0.2s ease',
+                      '&:hover': { bgcolor: 'action.hover' },
                     }}
                   >
                     <Stack spacing={0.25}>
@@ -385,7 +485,10 @@ const MealBuilder = ({ meals, onChange, budgetMacros, onError }: Props) => {
                       size="small"
                       color="error"
                       aria-label="Eliminar"
-                      onClick={() => handleRemoveItem(meal.key, idx)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleRemoveItem(meal.key, idx)
+                      }}
                     >
                       <DeleteOutlineIcon fontSize="small" />
                     </IconButton>
@@ -412,6 +515,36 @@ const MealBuilder = ({ meals, onChange, budgetMacros, onError }: Props) => {
         </Accordion>
       ))}
     </Stack>
+      <Dialog open={!!editingItem} onClose={handleCloseEdit} fullWidth maxWidth="xs">
+        <DialogTitle>Editar alimento</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ mt: 0.5 }}>
+            <Typography variant="subtitle2">{editingItem?.item.nameSnapshot}</Typography>
+            <TextField size="small" label="Modo" value={editModeLabel} disabled />
+            <TextField
+              size="small"
+              type="number"
+              label={editModeLabel}
+              value={editAmount}
+              onChange={(e) => {
+                setEditAmount(Number(e.target.value))
+                setEditError(null)
+              }}
+              error={editAmountInvalid || !!editError}
+              helperText={editError ?? (editAmountInvalid ? 'Cantidad invalida' : ' ')}
+              inputProps={{ min: 0, step: editMode === 'grams' ? 10 : 0.25 }}
+              fullWidth
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseEdit}>Cancelar</Button>
+          <Button variant="contained" onClick={handleEditSave} disabled={editAmountInvalid}>
+            Guardar
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
   )
 }
 

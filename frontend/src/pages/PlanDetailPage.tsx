@@ -246,9 +246,9 @@ const currentTotals = currentMeals.reduce(
     setEditingDate(selectedDate);
   };
 
-  const handleSaveMeals = async () => {
+  const handleSaveMeals = async (mealsOverride?: Meal[] | unknown) => {
     if (!planId || !selectedDate || !baseInputs) return;
-    const mealsToSave = currentMeals;
+    const mealsToSave = Array.isArray(mealsOverride) ? mealsOverride : currentMeals;
     const baseOverride = selectedOverride?.overrides ?? {
       dayType: baseInputs.dayType,
       activityLevel: baseInputs.activityLevel,
@@ -906,7 +906,7 @@ const currentTotals = currentMeals.reduce(
                   <Button
                     variant="contained"
                     size="small"
-                    onClick={handleSaveMeals}
+                    onClick={() => handleSaveMeals()}
                   >
                     Guardar comidas
                   </Button>
@@ -914,6 +914,7 @@ const currentTotals = currentMeals.reduce(
                 <MealBuilder
                   meals={currentMeals}
                   onChange={handleMealsChange}
+                  onSave={handleSaveMeals}
                   budgetMacros={{
                     protein: selectedOutputs.protein,
                     carbs: selectedOutputs.carbsAdjusted,
