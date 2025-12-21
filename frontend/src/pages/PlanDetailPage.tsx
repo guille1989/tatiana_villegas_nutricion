@@ -241,6 +241,11 @@ const currentTotals = currentMeals.reduce(
     setMealsByDate((prev) => ({ ...prev, [selectedDate]: meals }));
   };
 
+  const handleEditSelectedDay = () => {
+    if (!selectedDate) return;
+    setEditingDate(selectedDate);
+  };
+
   const handleSaveMeals = async () => {
     if (!planId || !selectedDate || !baseInputs) return;
     const mealsToSave = currentMeals;
@@ -611,6 +616,9 @@ const currentTotals = currentMeals.reduce(
                 label={selectedTrainingLabel}
                 color={selectedDayType === "training" ? "primary" : "default"}
                 variant={selectedDayType === "training" ? "outlined" : "filled"}
+                onClick={handleEditSelectedDay}
+                clickable
+                aria-label="Editar dia"
                 sx={{ alignSelf: { xs: "flex-start", sm: "center" } }}
               />
             </Stack>
@@ -648,9 +656,7 @@ const currentTotals = currentMeals.reduce(
                     <Button
                       size="small"
                       variant="contained"
-                      onClick={() =>
-                        selectedDate && setEditingDate(selectedDate)
-                      }
+                      onClick={handleEditSelectedDay}
                       aria-label="Editar dia"
                       sx={{ alignSelf: { xs: "stretch", md: "center" } }}
                     >

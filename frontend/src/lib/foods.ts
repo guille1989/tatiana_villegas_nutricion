@@ -7,13 +7,29 @@ const localFoods: Food[] = (foodsLocal as Food[]).map((f) => ({
   sub_group: (f as any).sub_group ?? null,
 }))
 
-export const searchFoods = async (query: string): Promise<Food[]> => {
+type FoodGroupFilter = Food['group'] | 'all'
+
+const applyGroupFilter = (foods: Food[], group?: FoodGroupFilter) => {
+  if (!group || group === 'all') return foods
+  return foods.filter((food) => food.group === group)
+}
+
+export const searchFoods = async (
+  query: string,
+  group?: FoodGroupFilter,
+  signal?: AbortSignal,
+): Promise<Food[]> => {
   try {
-    return await searchFoodsApi(query)
+    const foods = await searchFoodsApi(query, group && group !== 'all' ? group : undefined, signal)
+    return applyGroupFilter(foods, group)
   } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') throw err
     const q = query.trim().toLowerCase()
-    if (!q) return localFoods
-    return localFoods.filter((food) => food.name.toLowerCase().includes(q))
+    let filtered = localFoods
+    if (q) {
+      filtered = filtered.filter((food) => food.name.toLowerCase().includes(q))
+    }
+    return applyGroupFilter(filtered, group)
   }
 }
 

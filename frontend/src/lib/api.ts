@@ -181,9 +181,12 @@ export const deletePlan = async (planId: string, userId = DEFAULT_USER_ID) => {
   if (error) throw new Error(error)
 }
 
-export const searchFoodsApi = async (query: string) => {
-  const qParam = query ? `?q=${encodeURIComponent(query)}` : ''
-  const { data, error } = await request<{ foods: FoodDto[] }>(`/foods${qParam}`)
+export const searchFoodsApi = async (query: string, group?: string, signal?: AbortSignal) => {
+  const params = new URLSearchParams()
+  if (query) params.set('q', query)
+  if (group) params.set('group', group)
+  const qParam = params.toString() ? `?${params.toString()}` : ''
+  const { data, error } = await request<{ foods: FoodDto[] }>(`/foods${qParam}`, { signal })
   if (error) throw new Error(error)
   return data.foods.map((f) => ({
     id: f._id ?? f.id,

@@ -2,8 +2,10 @@ import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
+  Autocomplete,
   Box,
   Button,
+  CircularProgress,
   IconButton,
   InputAdornment,
   MenuItem,
@@ -15,7 +17,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import AddIcon from '@mui/icons-material/Add'
 import SearchIcon from '@mui/icons-material/Search'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { calcFoodMacrosFromGrams, gramsFromPortions, searchFoods } from '../lib/foods'
 import type { Food, Meal, MealItem } from '../types'
 import MacroStatusBanner from './MacroStatusBanner'
@@ -28,6 +30,8 @@ type Props = {
 }
 
 const portionSizes = { protein: 10, carbs: 15, fat: 5 }
+const MIN_SEARCH_LENGTH = 2
+const SEARCH_DEBOUNCE_MS = 300
 
 const macroToPortions = (macros: { protein: number; carbs: number; fat: number }) => ({
   protein: macros.protein / portionSizes.protein,
@@ -49,10 +53,13 @@ const calcMealTotals = (items: MealItem[]) => {
 
 const MealBuilder = ({ meals, onChange, budgetMacros, onError }: Props) => {
   const [expanded, setExpanded] = useState<string | null>(null)
-  const [query, setQuery] = useState('')
+  const [inputValue, setInputValue] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [autocompleteOpen, setAutocompleteOpen] = useState(false)
   const [selectedFood, setSelectedFood] = useState<Food | null>(null)
   const [mode, setMode] = useState<'grams' | 'portions'>('portions')
   const [amount, setAmount] = useState<number>(0)
+  const amountInputRef = useRef<HTMLInputElement | null>(null)
 
   const [foods, setFoods] = useState<Food[]>([])
   const [loadingFoods, setLoadingFoods] = useState(false)
@@ -60,15 +67,33 @@ const MealBuilder = ({ meals, onChange, budgetMacros, onError }: Props) => {
   const [foodError, setFoodError] = useState<string | null>(null)
 
   useEffect(() => {
+    const handle = setTimeout(() => {
+      setDebouncedQuery(inputValue.trim())
+    }, SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(handle)
+  }, [inputValue])
+
+  useEffect(() => {
     let active = true
+    const trimmedQuery = debouncedQuery.trim()
+    if (trimmedQuery.length < MIN_SEARCH_LENGTH) {
+      setFoods([])
+      setLoadingFoods(false)
+      return () => {
+        active = false
+      }
+    }
+    const controller = new AbortController()
     setLoadingFoods(true)
     setFoodError(null)
-    searchFoods(query)
+    searchFoods(trimmedQuery, groupFilter, controller.signal)
       .then((list) => {
         if (active) setFoods(list)
       })
-      .catch(() => {
-        if (active) setFoods([])
+      .catch((err) => {
+        if (!active) return
+        if (err instanceof DOMException && err.name === 'AbortError') return
+        setFoods([])
         setFoodError('No se pudo cargar el listado de alimentos. Usando lista local.')
       })
       .finally(() => {
@@ -76,13 +101,9 @@ const MealBuilder = ({ meals, onChange, budgetMacros, onError }: Props) => {
       })
     return () => {
       active = false
+      controller.abort()
     }
-  }, [query])
-
-  const filteredFoods = useMemo(() => {
-    if (groupFilter === 'all') return foods
-    return foods.filter((f) => f.group === groupFilter)
-  }, [foods, groupFilter])
+  }, [debouncedQuery, groupFilter])
 
   const usedMacros = meals.reduce(
     (acc, meal) => {
@@ -167,6 +188,14 @@ const MealBuilder = ({ meals, onChange, budgetMacros, onError }: Props) => {
     return `P ${portions.protein.toFixed(1)} · C ${portions.carbs.toFixed(1)} · G ${portions.fat.toFixed(1)}`
   }
 
+  const handleGroupChange = (value: typeof groupFilter) => {
+    setGroupFilter(value)
+    const trimmedQuery = inputValue.trim()
+    if (trimmedQuery.length >= MIN_SEARCH_LENGTH) {
+      setDebouncedQuery(trimmedQuery)
+    }
+  }
+
   return (
     <Stack spacing={1.5}>
       {meals.map((meal) => (
@@ -197,46 +226,103 @@ const MealBuilder = ({ meals, onChange, budgetMacros, onError }: Props) => {
           <AccordionDetails sx={{ px: 1.5, pb: 1.5, pt: 0.5 }}>
               <Stack spacing={1.5}>
               <MacroStatusBanner budget={macroToPortions(budgetMacros)} used={macroToPortions(usedMacros)} />
-                <TextField
-                  size="small"
-                  label="Buscar alimento"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
+              <Autocomplete
+                size="small"
+                fullWidth
+                value={selectedFood}
+                inputValue={inputValue}
+                options={foods}
+                loading={loadingFoods}
+                open={autocompleteOpen && inputValue.trim().length >= MIN_SEARCH_LENGTH}
+                onOpen={() => {
+                  if (inputValue.trim().length >= MIN_SEARCH_LENGTH) {
+                    setAutocompleteOpen(true)
+                  }
+                }}
+                onClose={() => setAutocompleteOpen(false)}
+                openOnFocus
+                autoHighlight
+                filterOptions={(options) => options}
+                getOptionLabel={(option) => option.name}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                noOptionsText={inputValue.trim().length < MIN_SEARCH_LENGTH ? 'Escribe al menos 2 caracteres' : 'Sin resultados'}
+                loadingText="Cargando..."
+                onInputChange={(_, newValue, reason) => {
+                  if (reason === 'reset') return
+                  setInputValue(newValue)
+                  if (reason === 'input') {
+                    const trimmed = newValue.trim()
+                    if (trimmed.length < MIN_SEARCH_LENGTH) {
+                      setDebouncedQuery('')
+                      setFoods([])
+                      setAutocompleteOpen(false)
+                      setSelectedFood(null)
+                      return
+                    }
+                    setSelectedFood(null)
+                    setAutocompleteOpen(true)
+                  }
+                  if (reason === 'clear') {
+                    setDebouncedQuery('')
+                    setFoods([])
+                    setAutocompleteOpen(false)
+                    setSelectedFood(null)
+                  }
+                }}
+                onChange={(_, newValue) => {
+                  if (!newValue) return
+                  setSelectedFood(newValue)
+                  setInputValue(newValue.name)
+                  setAutocompleteOpen(false)
+                  amountInputRef.current?.focus()
+                }}
+                renderOption={(props, option) => (
+                  <li {...props}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" width="100%" gap={1}>
+                      <Typography variant="body2" fontWeight={600}>
+                        {option.name}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {option.kcal_100g} kcal /100g
+                      </Typography>
+                    </Stack>
+                  </li>
+                )}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Buscar alimento"
+                    InputProps={{
+                      ...params.InputProps,
+                      startAdornment: (
+                        <>
+                          <InputAdornment position="start">
+                            <SearchIcon fontSize="small" />
+                          </InputAdornment>
+                          {params.InputProps.startAdornment}
+                        </>
+                      ),
+                      endAdornment: (
+                        <>
+                          {loadingFoods ? <CircularProgress color="inherit" size={16} sx={{ mr: 1 }} /> : null}
+                          {params.InputProps.endAdornment}
+                        </>
+                      ),
+                    }}
+                  />
+                )}
               />
               <TextField
                 select
                 size="small"
                 label="Filtrar por grupo"
                 value={groupFilter}
-                onChange={(e) => setGroupFilter(e.target.value as typeof groupFilter)}
+                onChange={(e) => handleGroupChange(e.target.value as typeof groupFilter)}
               >
                 <MenuItem value="all">Todos</MenuItem>
-                <MenuItem value="proteinas">Proteínas</MenuItem>
+                <MenuItem value="proteinas">ProteA-nas</MenuItem>
                 <MenuItem value="carbohidratos">Carbohidratos</MenuItem>
                 <MenuItem value="grasas">Grasas</MenuItem>
-              </TextField>
-              <TextField
-                select
-                size="small"
-                label="Selecciona alimento"
-                value={selectedFood?.id ?? ''}
-                onChange={(e) => {
-                  const food = filteredFoods.find((f) => f.id === e.target.value)
-                  setSelectedFood(food ?? null)
-                }}
-                helperText={loadingFoods ? 'Cargando...' : undefined}
-              >
-                {filteredFoods.map((food) => (
-                  <MenuItem key={food.id} value={food.id}>
-                    {food.name} · {food.kcal_100g} kcal /100g
-                  </MenuItem>
-                ))}
-                {filteredFoods.length === 0 && (
-                  <MenuItem disabled value="">
-                    {loadingFoods ? 'Cargando...' : 'Sin resultados'}
-                  </MenuItem>
-                )}
               </TextField>
               {foodError && (
                 <Typography variant="caption" color="error">
@@ -263,6 +349,7 @@ const MealBuilder = ({ meals, onChange, budgetMacros, onError }: Props) => {
                   onChange={(e) => setAmount(Number(e.target.value))}
                   fullWidth
                   inputProps={{ min: 0, step: mode === 'grams' ? 10 : 0.25 }}
+                  inputRef={amountInputRef}
                 />
                 <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleAdd(meal.key)}>
                   Agregar
