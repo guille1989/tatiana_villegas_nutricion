@@ -13,6 +13,8 @@ import {
   useMediaQuery,
   Chip,
   LinearProgress,
+  ToggleButton,
+  ToggleButtonGroup,
 } from "@mui/material";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -23,6 +25,12 @@ import { calculateDayFromBase } from "../lib/calc";
 import { getPlan, upsertOverride } from "../lib/api";
 import MealBuilder from "../components/MealBuilder";
 import { getMacroState, macroStateColor } from "../lib/macroStatus";
+import {
+  distributeMacros,
+  getMealsByCount,
+  getWeightsByCount,
+  type MealCount,
+} from "../lib/meals";
 import type { Assessment, DayOverride, Meal, Plan } from "../types";
 
 const PlanDetailPage = () => {
@@ -148,42 +156,21 @@ const PlanDetailPage = () => {
       : "Descanso";
 
 
-  const defaultMealsTemplate: Meal[] = [
-    {
-      key: "breakfast",
-      name: "Desayuno",
-      items: [],
-      totals: { protein: 0, carbs: 0, fat: 0, kcal: 0 },
-    },
-    {
-      key: "snack",
-      name: "Merienda",
-      items: [],
-      totals: { protein: 0, carbs: 0, fat: 0, kcal: 0 },
-    },
-    {
-      key: "lunch",
-      name: "Comida",
-      items: [],
-      totals: { protein: 0, carbs: 0, fat: 0, kcal: 0 },
-    },
-    {
-      key: "snack2",
-      name: "Merienda 2",
-      items: [],
-      totals: { protein: 0, carbs: 0, fat: 0, kcal: 0 },
-    },
-    {
-      key: "dinner",
-      name: "Cena",
-      items: [],
-      totals: { protein: 0, carbs: 0, fat: 0, kcal: 0 },
-    },
-  ];
+  const getMealCount = (meals?: Meal[]): MealCount | null => {
+    if (!meals) return null;
+    if (meals.length === 3 || meals.length === 4 || meals.length === 5) {
+      return meals.length;
+    }
+    return null;
+  };
 
-  const withDefaults = (meals?: Meal[]) => {
+  const mergeMealsWithTemplate = (meals: Meal[] | undefined, template: Meal[]) => {
     const map = new Map((meals ?? []).map((m) => [m.key, m]));
-    return defaultMealsTemplate.map((tpl) => map.get(tpl.key) ?? { ...tpl });
+    return template.map((tpl) => {
+      const existing = map.get(tpl.key);
+      if (!existing) return { ...tpl };
+      return { ...existing, name: tpl.name };
+    });
   };
 
   const totalsFromMeals = (meals: Meal[]) =>
@@ -218,27 +205,42 @@ const PlanDetailPage = () => {
   };
 
   const getDayMeals = (date: string) =>
-    withDefaults(mealsByDate[date] || (overrides.find((o) => o.date === date)?.meals as Meal[] | undefined));
+    mealsByDate[date] ||
+    (overrides.find((o) => o.date === date)?.meals as Meal[] | undefined) ||
+    [];
 
   const rawMeals =
     (selectedDate && mealsByDate[selectedDate]) ||
-    (selectedOverride?.meals as Meal[] | undefined) ||
-    defaultMealsTemplate;
-const currentMeals = withDefaults(rawMeals);
-const currentTotals = currentMeals.reduce(
-  (acc, meal) => ({
-    protein: acc.protein + meal.totals.protein,
-    carbs: acc.carbs + meal.totals.carbs,
-    fat: acc.fat + meal.totals.fat,
-    kcal: acc.kcal + meal.totals.kcal,
-  }),
-  { protein: 0, carbs: 0, fat: 0, kcal: 0 }
-);
+    (selectedOverride?.meals as Meal[] | undefined);
+  const mealCount = getMealCount(rawMeals);
+  const mealTemplate = mealCount ? getMealsByCount(mealCount) : [];
+  const currentMeals = mealCount ? mergeMealsWithTemplate(rawMeals, mealTemplate) : [];
+  const currentTotals = totalsFromMeals(currentMeals);
+  const dailyMacros = selectedOutputs
+    ? {
+        protein: selectedOutputs.protein,
+        carbs: selectedOutputs.carbsAdjusted,
+        fat: selectedOutputs.fatsAdjusted,
+      }
+    : { protein: 0, carbs: 0, fat: 0 };
+  const mealTargets = distributeMacros(
+    dailyMacros,
+    mealCount ? getWeightsByCount(mealCount) : []
+  );
 
 
   const handleMealsChange = (meals: Meal[]) => {
     if (!selectedDate) return;
     setMealsByDate((prev) => ({ ...prev, [selectedDate]: meals }));
+  };
+
+  const handleMealCountChange = (count: MealCount) => {
+    if (!selectedDate) return;
+    const baseMeals =
+      mealsByDate[selectedDate] ||
+      (selectedOverride?.meals as Meal[] | undefined);
+    const nextMeals = mergeMealsWithTemplate(baseMeals, getMealsByCount(count));
+    handleMealsChange(nextMeals);
   };
 
   const handleEditSelectedDay = () => {
@@ -248,6 +250,10 @@ const currentTotals = currentMeals.reduce(
 
   const handleSaveMeals = async (mealsOverride?: Meal[] | unknown) => {
     if (!planId || !selectedDate || !baseInputs) return;
+    if (!mealCount && !Array.isArray(mealsOverride)) {
+      setSnackbar("Selecciona cuantas comidas haras hoy");
+      return;
+    }
     const mealsToSave = Array.isArray(mealsOverride) ? mealsOverride : currentMeals;
     const baseOverride = selectedOverride?.overrides ?? {
       dayType: baseInputs.dayType,
@@ -907,21 +913,52 @@ const currentTotals = currentMeals.reduce(
                     variant="contained"
                     size="small"
                     onClick={() => handleSaveMeals()}
+                    disabled={!mealCount}
                   >
                     Guardar comidas
                   </Button>
                 </Stack>
-                <MealBuilder
-                  meals={currentMeals}
-                  onChange={handleMealsChange}
-                  onSave={handleSaveMeals}
-                  budgetMacros={{
-                    protein: selectedOutputs.protein,
-                    carbs: selectedOutputs.carbsAdjusted,
-                    fat: selectedOutputs.fatsAdjusted,
-                  }}
-                  onError={(msg) => setSnackbar(msg)}
-                />
+                <Stack spacing={1}>
+                  <Typography variant="subtitle2" fontWeight={700}>
+                    Cuantas comidas haras hoy?
+                  </Typography>
+                  <ToggleButtonGroup
+                    value={mealCount}
+                    exclusive
+                    onChange={(_, value) => {
+                      if (!value) return;
+                      handleMealCountChange(value);
+                    }}
+                    size="small"
+                    sx={{ width: "100%", justifyContent: "center" }}
+                  >
+                    <ToggleButton value={3} sx={{ flex: 1 }}>
+                      3
+                    </ToggleButton>
+                    <ToggleButton value={4} sx={{ flex: 1 }}>
+                      4
+                    </ToggleButton>
+                    <ToggleButton value={5} sx={{ flex: 1 }}>
+                      5
+                    </ToggleButton>
+                  </ToggleButtonGroup>
+                  <Typography variant="caption" color="text.secondary">
+                    Selecciona 3, 4 o 5 comidas para distribuir las macros del dia.
+                  </Typography>
+                </Stack>
+                {!mealCount ? (
+                  <Typography variant="caption" color="text.secondary">
+                    Elige el numero de comidas para comenzar.
+                  </Typography>
+                ) : (
+                  <MealBuilder
+                    meals={currentMeals}
+                    onChange={handleMealsChange}
+                    onSave={handleSaveMeals}
+                    mealTargets={mealTargets}
+                    onError={(msg) => setSnackbar(msg)}
+                  />
+                )}
               </Stack>
             </Card>
             {/* 
@@ -975,3 +1012,4 @@ const currentTotals = currentMeals.reduce(
 };
 
 export default PlanDetailPage;
+
