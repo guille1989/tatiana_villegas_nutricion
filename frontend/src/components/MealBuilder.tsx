@@ -49,7 +49,7 @@ type Props = {
   onError: (msg: string) => void;
 };
 
-type BlockCategory = "protein" | "carb" | "fat";
+type BlockCategory = "protein" | "carb" | "fat" | "veggies" | "extras";
 
 type FoodGroupFilter =
   | "all"
@@ -67,7 +67,9 @@ const CATEGORY_OPTIONS: {
 }[] = [
   { value: "protein", label: "Proteina", searchGroup: "proteinas", catalogGroup: "proteinas" },
   { value: "carb", label: "Carbo", searchGroup: "carbohidratos", catalogGroup: "carbohidratos" },
-  { value: "fat", label: "Grasas", searchGroup: "grasas", catalogGroup: "grasas" }
+  { value: "fat", label: "Grasas", searchGroup: "grasas", catalogGroup: "grasas" },
+  { value: "veggies", label: "Vegetales", searchGroup: "vegetales", catalogGroup: "vegetales" },
+  { value: "extras", label: "Extras", searchGroup: "extras", catalogGroup: "extras" },
 ];
 
 const MIN_SEARCH_LENGTH = 2;
@@ -111,6 +113,13 @@ type MacroGaugeProps = {
   tolerancePct: number;
 };
 
+const parseNumberInput = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const numberValue = Number(trimmed);
+  return Number.isFinite(numberValue) ? numberValue : null;
+};
+
 const MacroGauge = ({
   label,
   consumedGrams,
@@ -141,10 +150,18 @@ const MacroGauge = ({
   const progress =
     safeTarget > 0 ? Math.min((safeConsumed / safeTarget) * 100, 100) : 0;
 
-  const remainingGrams = Math.max(safeTarget - safeConsumed, 0);
+  const round1 = (value: number) => Math.round(value * 10) / 10;
+  const normalizeNegativeZero = (value: number) =>
+    Object.is(value, -0) ? 0 : value;
+
+  const remainingGrams = normalizeNegativeZero(
+    round1(safeTarget - safeConsumed)
+  );
   const consumedPortions = gramsPerPortion > 0 ? safeConsumed / gramsPerPortion : 0;
   const targetPortions = gramsPerPortion > 0 ? safeTarget / gramsPerPortion : 0;
-  const remainingPortions = Math.max(targetPortions - consumedPortions, 0);
+  const remainingPortions = normalizeNegativeZero(
+    round1(targetPortions - consumedPortions)
+  );
 
   return (
     <Stack
@@ -193,12 +210,12 @@ const MacroGauge = ({
       </Box>
       <Stack spacing={0.5} alignItems="center">
         <Typography variant="caption" color="text.secondary" textAlign="center">
-          Gramos: {safeConsumed.toFixed(1)} / {safeTarget.toFixed(1)} g (Restan{" "}
-          {remainingGrams.toFixed(1)} g)
+          Gramos: {safeConsumed.toFixed(1)} / {safeTarget.toFixed(1)} g <b>(Restan{" "}
+          {remainingGrams.toFixed(1)} g)</b>
         </Typography>
         <Typography variant="caption" color="text.secondary" textAlign="center">
           Porciones: {consumedPortions.toFixed(1)} / {targetPortions.toFixed(1)}{" "}
-          (Restan {remainingPortions.toFixed(1)})
+          <b>(Restan {remainingPortions.toFixed(1)})</b>
         </Typography>
       </Stack>
     </Stack>
@@ -221,7 +238,7 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
   const [autocompleteOpen, setAutocompleteOpen] = useState(false);
   const [selectedFood, setSelectedFood] = useState<Food | null>(null);
   const [mode, setMode] = useState<"grams" | "portions">("portions");
-  const [amount, setAmount] = useState<number>(0);
+  const [amount, setAmount] = useState<string>("");
   const amountInputRef = useRef<HTMLInputElement | null>(null);
 
   const [foods, setFoods] = useState<Food[]>([]);
@@ -235,12 +252,16 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [catalogOffset, setCatalogOffset] = useState(0);
   const [catalogHasMore, setCatalogHasMore] = useState(false);
+  const [catalogAddFood, setCatalogAddFood] = useState<Food | null>(null);
+  const [catalogAddOpen, setCatalogAddOpen] = useState(false);
+  const [catalogAddPortions, setCatalogAddPortions] = useState<string>("1");
+  const [catalogAddError, setCatalogAddError] = useState<string | null>(null);
 
   const [editingItem, setEditingItem] = useState<{
     index: number;
     item: MealItem;
   } | null>(null);
-  const [editAmount, setEditAmount] = useState<number>(0);
+  const [editAmount, setEditAmount] = useState<string>("");
   const [editMode, setEditMode] = useState<"grams" | "portions">("grams");
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -352,7 +373,7 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
     setDebouncedQuery("");
     setAutocompleteOpen(false);
     setSelectedFood(null);
-    setAmount(0);
+    setAmount("");
     setFoods([]);
     setFoodError(null);
     if (resetMode) {
@@ -391,6 +412,10 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
     setEditError(null);
     resetBuilderInputs(true);
     resetCatalog(true);
+    setCatalogAddFood(null);
+    setCatalogAddOpen(false);
+    setCatalogAddPortions("1");
+    setCatalogAddError(null);
   };
 
   const handleConfirmBuilder = () => {
@@ -460,14 +485,37 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
       onError("Selecciona un alimento");
       return;
     }
-    addFoodToDraft(selectedFood, mode, amount, { resetInputs: true });
+    const amountValue = parseNumberInput(amount);
+    if (!amountValue || amountValue <= 0) {
+      onError("Cantidad invalida");
+      return;
+    }
+    addFoodToDraft(selectedFood, mode, amountValue, { resetInputs: true });
   };
 
-  const handleAddFromCatalog = (food: Food) => {
-    const added = addFoodToDraft(food, mode, amount, {
-      allowFallback: true,
-    });
+  const handleRequestAddFromCatalog = (food: Food) => {
+    setCatalogAddFood(food);
+    setCatalogAddPortions("1");
+    setCatalogAddError(null);
+    setCatalogAddOpen(true);
+  };
+
+  const handleCloseCatalogAdd = () => {
+    setCatalogAddOpen(false);
+    setCatalogAddFood(null);
+    setCatalogAddError(null);
+  };
+
+  const handleConfirmCatalogAdd = () => {
+    if (!catalogAddFood) return;
+    const portions = parseNumberInput(catalogAddPortions);
+    if (!portions || portions <= 0) {
+      setCatalogAddError("Cantidad invalida");
+      return;
+    }
+    const added = addFoodToDraft(catalogAddFood, "portions", portions);
     if (added) {
+      handleCloseCatalogAdd();
       plateRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   };
@@ -493,7 +541,7 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
     const nextMode = resolveItemMode(item);
     const nextAmount = nextMode === "grams" ? item.grams : item.amount ?? 0;
     setEditMode(nextMode);
-    setEditAmount(Number.isFinite(nextAmount) ? nextAmount : 0);
+    setEditAmount(Number.isFinite(nextAmount) ? String(nextAmount) : "");
     setEditError(null);
     setEditingItem({ index, item });
   };
@@ -505,8 +553,8 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
 
   const handleEditSave = () => {
     if (!editingItem || !draftMeal) return;
-    const nextAmount = Number(editAmount);
-    if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+    const nextAmount = parseNumberInput(editAmount);
+    if (!nextAmount || nextAmount <= 0) {
       setEditError("Cantidad invalida");
       return;
     }
@@ -552,7 +600,10 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
   };
 
   const editModeLabel = editMode === "grams" ? "Gramos" : "Porciones";
-  const editAmountInvalid = !Number.isFinite(editAmount) || editAmount <= 0;
+  const editAmountValue = parseNumberInput(editAmount);
+  const editAmountInvalid = !editAmountValue || editAmountValue <= 0;
+  const catalogAddValue = parseNumberInput(catalogAddPortions);
+  const catalogAddInvalid = !catalogAddValue || catalogAddValue <= 0;
 
   const activeTargets: MacroTargets =
     (activeMealKey && mealTargets[activeMealKey]) ??
@@ -624,7 +675,39 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
                 </Stack>
               </AccordionSummary>
               <AccordionDetails sx={{ px: 1.5, pb: 1.5, pt: 0.5 }}>
-                <Stack spacing={1}>
+                <Stack spacing={1.5}>
+                  <Typography variant="subtitle2" fontWeight={700}>
+                    Macros de la comida
+                  </Typography>
+                  <Box
+                    sx={{
+                      display: "grid",
+                      gap: 1,
+                      gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                    }}
+                  >
+                    <MacroGauge
+                      label="Proteina"
+                      consumedGrams={meal.totals.protein}
+                      targetGrams={targets.protein}
+                      gramsPerPortion={10}
+                      tolerancePct={TOL_PCT}
+                    />
+                    <MacroGauge
+                      label="Carbohidratos"
+                      consumedGrams={meal.totals.carbs}
+                      targetGrams={targets.carbs}
+                      gramsPerPortion={15}
+                      tolerancePct={TOL_PCT}
+                    />
+                    <MacroGauge
+                      label="Grasas"
+                      consumedGrams={meal.totals.fat}
+                      targetGrams={targets.fat}
+                      gramsPerPortion={5}
+                      tolerancePct={TOL_PCT}
+                    />
+                  </Box>
                   <Button
                     variant="contained"
                     onClick={() => handleOpenBuilder(meal.key)}
@@ -734,13 +817,12 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
               isLoading={catalogLoading}
               error={catalogError}
               isDesktop={isDesktop}
-              onAdd={handleAddFromCatalog}
+              onAdd={handleRequestAddFromCatalog}
               hasMore={catalogHasMore}
               onLoadMore={() => setCatalogOffset((prev) => prev + CATALOG_LIMIT)}
             />
           </Stack>
-         
-          {/*
+          
           <Stack spacing={1}>
             <Typography variant="subtitle2" fontWeight={700}>
               Nuevo bloque ({activeCategoryConfig.label})
@@ -869,7 +951,7 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
                 type="number"
                 label={mode === "grams" ? "Gramos" : "Porciones"}
                 value={amount}
-                onChange={(e) => setAmount(Number(e.target.value))}
+                onChange={(e) => setAmount(e.target.value)}
                 fullWidth
                 inputProps={{ min: 0, step: mode === "grams" ? 10 : 0.25 }}
                 inputRef={amountInputRef}
@@ -883,7 +965,6 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
               </Button>
             </Stack>
           </Stack>
-           */}
 
           <Stack spacing={1} ref={plateRef}>
             <Typography variant="subtitle2" fontWeight={700}>
@@ -952,6 +1033,40 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
         </Stack>
       </Drawer>
 
+      <Dialog open={catalogAddOpen} onClose={handleCloseCatalogAdd} fullWidth maxWidth="xs">
+        <DialogTitle>Agregar porciones</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ mt: 0.5 }}>
+            <Typography variant="subtitle2">
+              {catalogAddFood?.name ?? ""}
+            </Typography>
+            <TextField
+              size="small"
+              type="number"
+              label="Porciones"
+              value={catalogAddPortions}
+              onChange={(e) => {
+                setCatalogAddPortions(e.target.value);
+                setCatalogAddError(null);
+              }}
+              error={catalogAddInvalid || !!catalogAddError}
+              helperText={
+                catalogAddError ??
+                (catalogAddInvalid ? "Cantidad invalida" : " ")
+              }
+              inputProps={{ min: 0, step: 0.25 }}
+              fullWidth
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseCatalogAdd}>Cancelar</Button>
+          <Button variant="contained" onClick={handleConfirmCatalogAdd}>
+            Agregar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={!!editingItem} onClose={handleCloseEdit} fullWidth maxWidth="xs">
         <DialogTitle>Editar alimento</DialogTitle>
         <DialogContent>
@@ -966,7 +1081,7 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
               label={editModeLabel}
               value={editAmount}
               onChange={(e) => {
-                setEditAmount(Number(e.target.value));
+                setEditAmount(e.target.value);
                 setEditError(null);
               }}
               error={editAmountInvalid || !!editError}
