@@ -181,12 +181,22 @@ export const deletePlan = async (planId: string, userId = DEFAULT_USER_ID) => {
   if (error) throw new Error(error)
 }
 
-export const searchFoodsApi = async (query: string, group?: string, signal?: AbortSignal) => {
+export const searchFoodsApi = async (
+  query: string,
+  options?: {
+    group?: string
+    limit?: number
+    offset?: number
+    signal?: AbortSignal
+  },
+) => {
   const params = new URLSearchParams()
   if (query) params.set('q', query)
-  if (group) params.set('group', group)
+  if (options?.group) params.set('group', options.group)
+  if (options?.limit !== undefined) params.set('limit', String(options.limit))
+  if (options?.offset !== undefined) params.set('offset', String(options.offset))
   const qParam = params.toString() ? `?${params.toString()}` : ''
-  const { data, error } = await request<{ foods: FoodDto[] }>(`/foods${qParam}`, { signal })
+  const { data, error } = await request<{ foods: FoodDto[] }>(`/foods${qParam}`, { signal: options?.signal })
   if (error) throw new Error(error)
   return data.foods.map((f) => ({
     id: f._id ?? f.id,

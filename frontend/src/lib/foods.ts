@@ -20,7 +20,10 @@ export const searchFoods = async (
   signal?: AbortSignal,
 ): Promise<Food[]> => {
   try {
-    const foods = await searchFoodsApi(query, group && group !== 'all' ? group : undefined, signal)
+    const foods = await searchFoodsApi(query, {
+      group: group && group !== 'all' ? group : undefined,
+      signal,
+    })
     return applyGroupFilter(foods, group)
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err
@@ -32,6 +35,26 @@ export const searchFoods = async (
     return applyGroupFilter(filtered, group)
   }
 }
+
+export const fetchFoodsCatalog = async ({
+  query = '',
+  group,
+  limit,
+  offset,
+  signal,
+}: {
+  query?: string
+  group?: FoodGroupFilter
+  limit?: number
+  offset?: number
+  signal?: AbortSignal
+}): Promise<Food[]> =>
+  searchFoodsApi(query, {
+    group: group && group !== 'all' ? group : undefined,
+    limit,
+    offset,
+    signal,
+  })
 
 export const calcFoodMacrosFromGrams = (food: Food, grams: number) => {
   const protein = (grams * food.prot_100g) / 100

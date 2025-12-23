@@ -30,12 +30,14 @@ import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import { useEffect, useRef, useState } from "react";
 import {
   calcFoodMacrosFromGrams,
+  fetchFoodsCatalog,
   gramsFromPortions,
   searchFoods,
 } from "../lib/foods";
 import { getMacroState, macroStateColor } from "../lib/macroStatus";
 import type { MacroTargets } from "../lib/meals";
 import type { Food, Meal, MealItem } from "../types";
+import IngredientCatalogTable from "./IngredientCatalogTable";
 
 type MealTargets = Record<Meal["key"], MacroTargets>;
 
@@ -47,24 +49,25 @@ type Props = {
   onError: (msg: string) => void;
 };
 
-type BlockCategory = "protein" | "carb" | "fat" | "veggies" | "extras";
+type BlockCategory = "protein" | "carb" | "fat";
 
 type FoodGroupFilter = "all" | "proteinas" | "carbohidratos" | "grasas";
 
 const CATEGORY_OPTIONS: {
   value: BlockCategory;
   label: string;
-  group: FoodGroupFilter;
+  searchGroup: FoodGroupFilter;
+  catalogGroup?: Food["group"];
 }[] = [
-  { value: "protein", label: "Proteina", group: "proteinas" },
-  { value: "carb", label: "Carbo", group: "carbohidratos" },
-  { value: "fat", label: "Grasas", group: "grasas" },
-  { value: "veggies", label: "Vegetales", group: "carbohidratos" },
-  { value: "extras", label: "Extras", group: "all" },
+  { value: "protein", label: "Proteina", searchGroup: "proteinas", catalogGroup: "proteinas" },
+  { value: "carb", label: "Carbo", searchGroup: "carbohidratos", catalogGroup: "carbohidratos" },
+  { value: "fat", label: "Grasas", searchGroup: "grasas", catalogGroup: "grasas" }
 ];
 
 const MIN_SEARCH_LENGTH = 2;
 const SEARCH_DEBOUNCE_MS = 300;
+const CATALOG_DEBOUNCE_MS = 300;
+const CATALOG_LIMIT = 25;
 
 const calcMealTotals = (items: MealItem[]) =>
   items.reduce(
@@ -103,6 +106,7 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
   const [draftMeal, setDraftMeal] = useState<Meal | null>(null);
   const [activeCategory, setActiveCategory] =
     useState<BlockCategory>("protein");
+  const [selectedGroup, setSelectedGroup] = useState<FoodGroupFilter>("proteinas");
 
   const [inputValue, setInputValue] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -116,6 +120,14 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
   const [loadingFoods, setLoadingFoods] = useState(false);
   const [foodError, setFoodError] = useState<string | null>(null);
 
+  const [catalogQuery, setCatalogQuery] = useState("");
+  const [catalogDebouncedQuery, setCatalogDebouncedQuery] = useState("");
+  const [catalogItems, setCatalogItems] = useState<Food[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [catalogOffset, setCatalogOffset] = useState(0);
+  const [catalogHasMore, setCatalogHasMore] = useState(false);
+
   const [editingItem, setEditingItem] = useState<{
     index: number;
     item: MealItem;
@@ -127,7 +139,14 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
   const activeCategoryConfig =
     CATEGORY_OPTIONS.find((cat) => cat.value === activeCategory) ??
     CATEGORY_OPTIONS[0];
-  const groupFilter = activeCategoryConfig.group;
+  const groupFilter = activeCategoryConfig.searchGroup;
+  const plateRef = useRef<HTMLDivElement | null>(null);
+
+  const updateCategory = (value: BlockCategory) => {
+    const config = CATEGORY_OPTIONS.find((cat) => cat.value === value);
+    setActiveCategory(value);
+    setSelectedGroup(config?.catalogGroup ?? "all");
+  };
 
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -135,6 +154,13 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(handle);
   }, [inputValue]);
+
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setCatalogDebouncedQuery(catalogQuery.trim());
+    }, CATALOG_DEBOUNCE_MS);
+    return () => clearTimeout(handle);
+  }, [catalogQuery]);
 
   useEffect(() => {
     let active = true;
@@ -168,6 +194,51 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
     };
   }, [debouncedQuery, groupFilter]);
 
+  useEffect(() => {
+    if (!builderOpen) return;
+    setCatalogItems([]);
+    setCatalogHasMore(false);
+    setCatalogOffset(0);
+  }, [builderOpen, selectedGroup, catalogDebouncedQuery]);
+
+  useEffect(() => {
+    if (!builderOpen) return;
+    let active = true;
+    const controller = new AbortController();
+    setCatalogLoading(true);
+    setCatalogError(null);
+    fetchFoodsCatalog({
+      query: catalogDebouncedQuery,
+      group: selectedGroup,
+      limit: CATALOG_LIMIT,
+      offset: catalogOffset,
+      signal: controller.signal,
+    })
+      .then((list) => {
+        if (!active) return;
+        setCatalogItems((prev) =>
+          catalogOffset === 0 ? list : [...prev, ...list]
+        );
+        setCatalogHasMore(list.length === CATALOG_LIMIT);
+      })
+      .catch((err) => {
+        if (!active) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setCatalogError("No se pudo cargar el catalogo.");
+        setCatalogHasMore(false);
+        if (catalogOffset === 0) {
+          setCatalogItems([]);
+        }
+      })
+      .finally(() => {
+        if (active) setCatalogLoading(false);
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [builderOpen, catalogDebouncedQuery, selectedGroup, catalogOffset]);
+
   const resetBuilderInputs = (resetMode = false) => {
     setInputValue("");
     setDebouncedQuery("");
@@ -181,14 +252,27 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
     }
   };
 
+  const resetCatalog = (resetQuery = false) => {
+    setCatalogItems([]);
+    setCatalogError(null);
+    setCatalogHasMore(false);
+    setCatalogLoading(false);
+    setCatalogOffset(0);
+    if (resetQuery) {
+      setCatalogQuery("");
+      setCatalogDebouncedQuery("");
+    }
+  };
+
   const handleOpenBuilder = (mealKey: Meal["key"]) => {
     const meal = meals.find((item) => item.key === mealKey);
     if (!meal) return;
     setActiveMealKey(mealKey);
     setDraftMeal(cloneMeal(meal));
     setBuilderOpen(true);
-    setActiveCategory("protein");
+    updateCategory("protein");
     resetBuilderInputs(true);
+    resetCatalog(true);
   };
 
   const handleCloseBuilder = () => {
@@ -198,6 +282,7 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
     setEditingItem(null);
     setEditError(null);
     resetBuilderInputs(true);
+    resetCatalog(true);
   };
 
   const handleConfirmBuilder = () => {
@@ -210,33 +295,42 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
     handleCloseBuilder();
   };
 
-  const handleAddBlock = () => {
-    if (!draftMeal) return;
-    if (!selectedFood) {
-      onError("Selecciona un alimento");
-      return;
+  const addFoodToDraft = (
+    food: Food,
+    usedMode: "grams" | "portions",
+    usedAmount: number,
+    options?: { allowFallback?: boolean; resetInputs?: boolean }
+  ) => {
+    if (!draftMeal) return false;
+    let nextAmount = usedAmount;
+    if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+      if (!options?.allowFallback) {
+        onError("Cantidad invalida");
+        return false;
+      }
+      nextAmount = usedMode === "grams" ? 100 : 1;
     }
-    let grams = mode === "grams" ? amount : 0;
-    if (mode === "portions") {
-      const g = gramsFromPortions(selectedFood, amount);
+    let grams = usedMode === "grams" ? nextAmount : 0;
+    if (usedMode === "portions") {
+      const g = gramsFromPortions(food, nextAmount);
       if (g === null) {
         onError("No se puede calcular porciones para este alimento");
-        return;
+        return false;
       }
       grams = g;
     }
     if (!Number.isFinite(grams) || grams <= 0) {
       onError("Cantidad invalida");
-      return;
+      return false;
     }
 
-    const macros = calcFoodMacrosFromGrams(selectedFood, grams);
+    const macros = calcFoodMacrosFromGrams(food, grams);
     const newItem: MealItem = {
-      foodId: selectedFood.id,
-      nameSnapshot: selectedFood.name,
+      foodId: food.id,
+      nameSnapshot: food.name,
       grams,
-      amount,
-      mode,
+      amount: nextAmount,
+      mode: usedMode,
       macros: { protein: macros.protein, carbs: macros.carbs, fat: macros.fat },
       kcal: macros.kcal,
     };
@@ -247,7 +341,27 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
       items: nextItems,
       totals: calcMealTotals(nextItems),
     });
-    resetBuilderInputs();
+    if (options?.resetInputs) {
+      resetBuilderInputs();
+    }
+    return true;
+  };
+
+  const handleAddBlock = () => {
+    if (!selectedFood) {
+      onError("Selecciona un alimento");
+      return;
+    }
+    addFoodToDraft(selectedFood, mode, amount, { resetInputs: true });
+  };
+
+  const handleAddFromCatalog = (food: Food) => {
+    const added = addFoodToDraft(food, mode, amount, {
+      allowFallback: true,
+    });
+    if (added) {
+      plateRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   };
 
   const handleRemoveItem = (idx: number) => {
@@ -520,12 +634,37 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
                   key={cat.value}
                   variant={activeCategory === cat.value ? "contained" : "outlined"}
                   size="small"
-                  onClick={() => setActiveCategory(cat.value)}
+                  onClick={() => updateCategory(cat.value)}
                 >
                   {cat.label}
                 </Button>
               ))}
             </Stack>
+          </Stack>
+
+          <Stack spacing={1}>
+            <TextField
+              size="small"
+              placeholder="Buscar alimento..."
+              value={catalogQuery}
+              onChange={(e) => setCatalogQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              }}
+            />
+            <IngredientCatalogTable
+              items={catalogItems}
+              isLoading={catalogLoading}
+              error={catalogError}
+              isDesktop={isDesktop}
+              onAdd={handleAddFromCatalog}
+              hasMore={catalogHasMore}
+              onLoadMore={() => setCatalogOffset((prev) => prev + CATALOG_LIMIT)}
+            />
           </Stack>
 
           <Stack spacing={1}>
@@ -671,7 +810,7 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
             </Stack>
           </Stack>
 
-          <Stack spacing={1}>
+          <Stack spacing={1} ref={plateRef}>
             <Typography variant="subtitle2" fontWeight={700}>
               Tu plato
             </Typography>
