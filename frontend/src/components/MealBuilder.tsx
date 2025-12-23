@@ -34,7 +34,7 @@ import {
   gramsFromPortions,
   searchFoods,
 } from "../lib/foods";
-import { getMacroState, macroStateColor } from "../lib/macroStatus";
+import { macroStateColor, TOL_PCT } from "../lib/macroStatus";
 import type { MacroTargets } from "../lib/meals";
 import type { Food, Meal, MealItem } from "../types";
 import IngredientCatalogTable from "./IngredientCatalogTable";
@@ -51,13 +51,19 @@ type Props = {
 
 type BlockCategory = "protein" | "carb" | "fat";
 
-type FoodGroupFilter = "all" | "proteinas" | "carbohidratos" | "grasas";
+type FoodGroupFilter =
+  | "all"
+  | "proteinas"
+  | "carbohidratos"
+  | "grasas"
+  | "vegetales"
+  | "extras";
 
 const CATEGORY_OPTIONS: {
   value: BlockCategory;
   label: string;
   searchGroup: FoodGroupFilter;
-  catalogGroup?: Food["group"];
+  catalogGroup: FoodGroupFilter;
 }[] = [
   { value: "protein", label: "Proteina", searchGroup: "proteinas", catalogGroup: "proteinas" },
   { value: "carb", label: "Carbo", searchGroup: "carbohidratos", catalogGroup: "carbohidratos" },
@@ -96,6 +102,108 @@ const calcTargetKcal = (targets: MacroTargets) =>
 
 const formatTargets = (targets: MacroTargets) =>
   `P ${targets.protein.toFixed(1)} C ${targets.carbs.toFixed(1)} G ${targets.fat.toFixed(1)}`;
+
+type MacroGaugeProps = {
+  label: string;
+  consumedGrams: number;
+  targetGrams: number;
+  gramsPerPortion: number;
+  tolerancePct: number;
+};
+
+const MacroGauge = ({
+  label,
+  consumedGrams,
+  targetGrams,
+  gramsPerPortion,
+  tolerancePct,
+}: MacroGaugeProps) => {
+  const theme = useTheme();
+  const isMdUp = useMediaQuery(theme.breakpoints.up("md"));
+  const isSmUp = useMediaQuery(theme.breakpoints.up("sm"));
+  const size = isMdUp ? 110 : isSmUp ? 92 : 80;
+  const thickness = isMdUp ? 6 : 5;
+  const safeTarget = Number.isFinite(targetGrams) ? targetGrams : 0;
+  const safeConsumed = Number.isFinite(consumedGrams) ? consumedGrams : 0;
+  const lower = safeTarget * (1 - tolerancePct);
+  const upper = safeTarget * (1 + tolerancePct);
+  const state =
+    safeTarget <= 0
+      ? safeConsumed > 0
+        ? "over"
+        : "pending"
+      : safeConsumed < lower
+      ? "pending"
+      : safeConsumed <= upper
+      ? "ok"
+      : "over";
+  const color = macroStateColor[state];
+  const progress =
+    safeTarget > 0 ? Math.min((safeConsumed / safeTarget) * 100, 100) : 0;
+
+  const remainingGrams = Math.max(safeTarget - safeConsumed, 0);
+  const consumedPortions = gramsPerPortion > 0 ? safeConsumed / gramsPerPortion : 0;
+  const targetPortions = gramsPerPortion > 0 ? safeTarget / gramsPerPortion : 0;
+  const remainingPortions = Math.max(targetPortions - consumedPortions, 0);
+
+  return (
+    <Stack
+      spacing={0.75}
+      alignItems="center"
+      sx={{
+        p: 1,
+        borderRadius: 2,
+        border: "1px solid",
+        borderColor: "divider",
+        width: "100%",
+        minWidth: 0,
+      }}
+    >
+      <Typography variant="body2" fontWeight={700}>
+        {label}
+      </Typography>
+      <Box sx={{ position: "relative", width: size, height: size }}>
+        <CircularProgress
+          variant="determinate"
+          value={100}
+          size={size}
+          thickness={thickness}
+          sx={{ color: "grey.200", position: "absolute", left: 0, top: 0 }}
+        />
+        <CircularProgress
+          variant="determinate"
+          value={progress}
+          size={size}
+          thickness={thickness}
+          sx={{ color, position: "absolute", left: 0, top: 0 }}
+        />
+        <Stack
+          spacing={0.25}
+          alignItems="center"
+          justifyContent="center"
+          sx={{ position: "absolute", inset: 0 }}
+        >
+          <Typography variant="caption" fontWeight={700}>
+            {safeConsumed.toFixed(1)} / {safeTarget.toFixed(1)}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            g
+          </Typography>
+        </Stack>
+      </Box>
+      <Stack spacing={0.5} alignItems="center">
+        <Typography variant="caption" color="text.secondary" textAlign="center">
+          Gramos: {safeConsumed.toFixed(1)} / {safeTarget.toFixed(1)} g (Restan{" "}
+          {remainingGrams.toFixed(1)} g)
+        </Typography>
+        <Typography variant="caption" color="text.secondary" textAlign="center">
+          Porciones: {consumedPortions.toFixed(1)} / {targetPortions.toFixed(1)}{" "}
+          (Restan {remainingPortions.toFixed(1)})
+        </Typography>
+      </Stack>
+    </Stack>
+  );
+};
 
 const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) => {
   const theme = useTheme();
@@ -456,27 +564,6 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
     kcal: 0,
   };
 
-  const macroRows = ([
-    { key: "protein", label: "Proteina" },
-    { key: "carbs", label: "Carbohidratos" },
-    { key: "fat", label: "Grasas" },
-  ] as const).map(({ key, label }) => {
-    const target = activeTargets[key];
-    const used = activeTotals[key];
-    const remaining = target - used;
-    const state = getMacroState(remaining, target);
-    const statusLabel =
-      state === "pending" ? "Pendiente" : state === "ok" ? "Consumido" : "Exceso";
-    const detail =
-      state === "pending"
-        ? `Restan ${remaining.toFixed(1)} g`
-        : state === "over"
-        ? `Exceso ${Math.abs(remaining).toFixed(1)} g`
-        : "En rango";
-    const statusColor = macroStateColor[state];
-    return { key, label, target, used, statusLabel, detail, statusColor };
-  });
-
   const drawerPaperSx = isDesktop
     ? { width: 420 }
     : { height: "90vh", borderTopLeftRadius: 16, borderTopRightRadius: 16 };
@@ -577,49 +664,35 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
             <Typography variant="subtitle2" fontWeight={700}>
               Objetivo vs consumido
             </Typography>
-            <Stack spacing={1}>
-              {macroRows.map((macro) => (
-                <Box
-                  key={macro.key}
-                  sx={{
-                    p: 1,
-                    borderRadius: 2,
-                    border: "1px solid",
-                    borderColor: "divider",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 1,
-                  }}
-                >
-                  <Stack spacing={0.25}>
-                    <Typography variant="body2" fontWeight={700}>
-                      {macro.label}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Objetivo {macro.target.toFixed(1)} g | Consumido{" "}
-                      {macro.used.toFixed(1)} g
-                    </Typography>
-                  </Stack>
-                  <Stack spacing={0.25} alignItems="flex-end">
-                    <Box
-                      sx={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: "50%",
-                        bgcolor: macro.statusColor,
-                      }}
-                    />
-                    <Typography variant="caption" color="text.secondary">
-                      {macro.statusLabel}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {macro.detail}
-                    </Typography>
-                  </Stack>
-                </Box>
-              ))}
-            </Stack>
+            <Box
+              sx={{
+                display: "grid",
+                gap: 1,
+                gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+              }}
+            >
+              <MacroGauge
+                label="Proteina"
+                consumedGrams={activeTotals.protein}
+                targetGrams={activeTargets.protein}
+                gramsPerPortion={10}
+                tolerancePct={TOL_PCT}
+              />
+              <MacroGauge
+                label="Carbohidratos"
+                consumedGrams={activeTotals.carbs}
+                targetGrams={activeTargets.carbs}
+                gramsPerPortion={15}
+                tolerancePct={TOL_PCT}
+              />
+              <MacroGauge
+                label="Grasas"
+                consumedGrams={activeTotals.fat}
+                targetGrams={activeTargets.fat}
+                gramsPerPortion={5}
+                tolerancePct={TOL_PCT}
+              />
+            </Box>
           </Stack>
 
           <Divider />
@@ -666,7 +739,8 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
               onLoadMore={() => setCatalogOffset((prev) => prev + CATALOG_LIMIT)}
             />
           </Stack>
-
+         
+          {/*
           <Stack spacing={1}>
             <Typography variant="subtitle2" fontWeight={700}>
               Nuevo bloque ({activeCategoryConfig.label})
@@ -809,6 +883,7 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
               </Button>
             </Stack>
           </Stack>
+           */}
 
           <Stack spacing={1} ref={plateRef}>
             <Typography variant="subtitle2" fontWeight={700}>

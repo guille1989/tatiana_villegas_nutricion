@@ -7,11 +7,18 @@ const localFoods: Food[] = (foodsLocal as Food[]).map((f) => ({
   sub_group: (f as any).sub_group ?? null,
 }))
 
-type FoodGroupFilter = Food['group'] | 'all'
+type FoodGroupFilter = Food['group'] | 'all' | 'vegetales' | 'extras'
+
+const normalizeGroup = (group?: FoodGroupFilter): Food['group'] | undefined => {
+  if (!group || group === 'all' || group === 'extras') return undefined
+  if (group === 'vegetales') return 'carbohidratos'
+  return group
+}
 
 const applyGroupFilter = (foods: Food[], group?: FoodGroupFilter) => {
-  if (!group || group === 'all') return foods
-  return foods.filter((food) => food.group === group)
+  const normalized = normalizeGroup(group)
+  if (!normalized) return foods
+  return foods.filter((food) => food.group === normalized)
 }
 
 export const searchFoods = async (
