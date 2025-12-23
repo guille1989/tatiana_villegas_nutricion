@@ -2,7 +2,6 @@ import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
-  Autocomplete,
   Box,
   Button,
   CircularProgress,
@@ -14,7 +13,6 @@ import {
   Drawer,
   IconButton,
   InputAdornment,
-  MenuItem,
   Stack,
   TextField,
   Typography,
@@ -23,7 +21,6 @@ import {
 import { useTheme } from "@mui/material/styles";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
-import AddIcon from "@mui/icons-material/Add";
 import SearchIcon from "@mui/icons-material/Search";
 import CloseIcon from "@mui/icons-material/Close";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
@@ -32,7 +29,6 @@ import {
   calcFoodMacrosFromGrams,
   fetchFoodsCatalog,
   gramsFromPortions,
-  searchFoods,
 } from "../lib/foods";
 import { macroStateColor, TOL_PCT } from "../lib/macroStatus";
 import type { MacroTargets } from "../lib/meals";
@@ -68,8 +64,6 @@ const CATEGORY_OPTIONS: {
   { value: "fat", label: "Grasas", searchGroup: "grasas", catalogGroup: "grasas" },
 ];
 
-const MIN_SEARCH_LENGTH = 2;
-const SEARCH_DEBOUNCE_MS = 300;
 const CATALOG_DEBOUNCE_MS = 300;
 const CATALOG_LIMIT = 25;
 
@@ -229,18 +223,6 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
     useState<BlockCategory>("protein");
   const [selectedGroup, setSelectedGroup] = useState<FoodGroupFilter>("proteinas");
 
-  const [inputValue, setInputValue] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [autocompleteOpen, setAutocompleteOpen] = useState(false);
-  const [selectedFood, setSelectedFood] = useState<Food | null>(null);
-  const [mode, setMode] = useState<"grams" | "portions">("portions");
-  const [amount, setAmount] = useState<string>("");
-  const amountInputRef = useRef<HTMLInputElement | null>(null);
-
-  const [foods, setFoods] = useState<Food[]>([]);
-  const [loadingFoods, setLoadingFoods] = useState(false);
-  const [foodError, setFoodError] = useState<string | null>(null);
-
   const [catalogQuery, setCatalogQuery] = useState("");
   const [catalogDebouncedQuery, setCatalogDebouncedQuery] = useState("");
   const [catalogItems, setCatalogItems] = useState<Food[]>([]);
@@ -261,10 +243,6 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
   const [editMode, setEditMode] = useState<"grams" | "portions">("grams");
   const [editError, setEditError] = useState<string | null>(null);
 
-  const activeCategoryConfig =
-    CATEGORY_OPTIONS.find((cat) => cat.value === activeCategory) ??
-    CATEGORY_OPTIONS[0];
-  const groupFilter = activeCategoryConfig.searchGroup;
   const plateRef = useRef<HTMLDivElement | null>(null);
 
   const updateCategory = (value: BlockCategory) => {
@@ -275,49 +253,10 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
 
   useEffect(() => {
     const handle = setTimeout(() => {
-      setDebouncedQuery(inputValue.trim());
-    }, SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(handle);
-  }, [inputValue]);
-
-  useEffect(() => {
-    const handle = setTimeout(() => {
       setCatalogDebouncedQuery(catalogQuery.trim());
     }, CATALOG_DEBOUNCE_MS);
     return () => clearTimeout(handle);
   }, [catalogQuery]);
-
-  useEffect(() => {
-    let active = true;
-    const trimmedQuery = debouncedQuery.trim();
-    if (trimmedQuery.length < MIN_SEARCH_LENGTH) {
-      setFoods([]);
-      setLoadingFoods(false);
-      return () => {
-        active = false;
-      };
-    }
-    const controller = new AbortController();
-    setLoadingFoods(true);
-    setFoodError(null);
-    searchFoods(trimmedQuery, groupFilter, controller.signal)
-      .then((list) => {
-        if (active) setFoods(list);
-      })
-      .catch((err) => {
-        if (!active) return;
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        setFoods([]);
-        setFoodError("No se pudo cargar el listado de alimentos.");
-      })
-      .finally(() => {
-        if (active) setLoadingFoods(false);
-      });
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, [debouncedQuery, groupFilter]);
 
   useEffect(() => {
     if (!builderOpen) return;
@@ -364,19 +303,6 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
     };
   }, [builderOpen, catalogDebouncedQuery, selectedGroup, catalogOffset]);
 
-  const resetBuilderInputs = (resetMode = false) => {
-    setInputValue("");
-    setDebouncedQuery("");
-    setAutocompleteOpen(false);
-    setSelectedFood(null);
-    setAmount("");
-    setFoods([]);
-    setFoodError(null);
-    if (resetMode) {
-      setMode("portions");
-    }
-  };
-
   const resetCatalog = (resetQuery = false) => {
     setCatalogItems([]);
     setCatalogError(null);
@@ -396,7 +322,6 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
     setDraftMeal(cloneMeal(meal));
     setBuilderOpen(true);
     updateCategory("protein");
-    resetBuilderInputs(true);
     resetCatalog(true);
   };
 
@@ -406,7 +331,6 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
     setDraftMeal(null);
     setEditingItem(null);
     setEditError(null);
-    resetBuilderInputs(true);
     resetCatalog(true);
     setCatalogAddFood(null);
     setCatalogAddOpen(false);
@@ -428,7 +352,7 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
     food: Food,
     usedMode: "grams" | "portions",
     usedAmount: number,
-    options?: { allowFallback?: boolean; resetInputs?: boolean }
+    options?: { allowFallback?: boolean }
   ) => {
     if (!draftMeal) return false;
     let nextAmount = usedAmount;
@@ -470,23 +394,7 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
       items: nextItems,
       totals: calcMealTotals(nextItems),
     });
-    if (options?.resetInputs) {
-      resetBuilderInputs();
-    }
     return true;
-  };
-
-  const handleAddBlock = () => {
-    if (!selectedFood) {
-      onError("Selecciona un alimento");
-      return;
-    }
-    const amountValue = parseNumberInput(amount);
-    if (!amountValue || amountValue <= 0) {
-      onError("Cantidad invalida");
-      return;
-    }
-    addFoodToDraft(selectedFood, mode, amountValue, { resetInputs: true });
   };
 
   const handleRequestAddFromCatalog = (food: Food) => {
