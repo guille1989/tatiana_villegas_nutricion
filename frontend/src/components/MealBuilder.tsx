@@ -49,15 +49,13 @@ type Props = {
   onError: (msg: string) => void;
 };
 
-type BlockCategory = "protein" | "carb" | "fat" | "veggies" | "extras";
+type BlockCategory = "protein" | "carb" | "fat";
 
 type FoodGroupFilter =
   | "all"
   | "proteinas"
   | "carbohidratos"
-  | "grasas"
-  | "vegetales"
-  | "extras";
+  | "grasas";
 
 const CATEGORY_OPTIONS: {
   value: BlockCategory;
@@ -68,8 +66,6 @@ const CATEGORY_OPTIONS: {
   { value: "protein", label: "Proteina", searchGroup: "proteinas", catalogGroup: "proteinas" },
   { value: "carb", label: "Carbo", searchGroup: "carbohidratos", catalogGroup: "carbohidratos" },
   { value: "fat", label: "Grasas", searchGroup: "grasas", catalogGroup: "grasas" },
-  { value: "veggies", label: "Vegetales", searchGroup: "vegetales", catalogGroup: "vegetales" },
-  { value: "extras", label: "Extras", searchGroup: "extras", catalogGroup: "extras" },
 ];
 
 const MIN_SEARCH_LENGTH = 2;
