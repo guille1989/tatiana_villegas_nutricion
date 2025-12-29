@@ -124,21 +124,26 @@ const MacroGauge = ({
   const thickness = isMdUp ? 6 : 5;
   const safeTarget = Number.isFinite(targetGrams) ? targetGrams : 0;
   const safeConsumed = Number.isFinite(consumedGrams) ? consumedGrams : 0;
-  const lower = safeTarget * (1 - tolerancePct);
-  const upper = safeTarget * (1 + tolerancePct);
+  const portionScale = gramsPerPortion > 0 ? 1 / gramsPerPortion : null;
+  const targetPortions = portionScale ? safeTarget * portionScale : 0;
+  const consumedPortions = portionScale ? safeConsumed * portionScale : 0;
+  const baseTarget = portionScale ? targetPortions : safeTarget;
+  const baseConsumed = portionScale ? consumedPortions : safeConsumed;
+  const lower = baseTarget * (1 - tolerancePct);
+  const upper = baseTarget * (1 + tolerancePct);
   const state =
-    safeTarget <= 0
-      ? safeConsumed > 0
+    baseTarget <= 0
+      ? baseConsumed > 0
         ? "over"
         : "pending"
-      : safeConsumed < lower
+      : baseConsumed < lower
       ? "pending"
-      : safeConsumed <= upper
+      : baseConsumed <= upper
       ? "ok"
       : "over";
   const color = macroStateColor[state];
   const progress =
-    safeTarget > 0 ? Math.min((safeConsumed / safeTarget) * 100, 100) : 0;
+    baseTarget > 0 ? Math.min((baseConsumed / baseTarget) * 100, 100) : 0;
 
   const round1 = (value: number) => Math.round(value * 10) / 10;
   const normalizeNegativeZero = (value: number) =>
@@ -147,8 +152,6 @@ const MacroGauge = ({
   const remainingGrams = normalizeNegativeZero(
     round1(safeTarget - safeConsumed)
   );
-  const consumedPortions = gramsPerPortion > 0 ? safeConsumed / gramsPerPortion : 0;
-  const targetPortions = gramsPerPortion > 0 ? safeTarget / gramsPerPortion : 0;
   const remainingPortions = normalizeNegativeZero(
     round1(targetPortions - consumedPortions)
   );
@@ -191,22 +194,23 @@ const MacroGauge = ({
           sx={{ position: "absolute", inset: 0 }}
         >
           <Typography variant="caption" fontWeight={700}>
-            {safeConsumed.toFixed(1)} / {safeTarget.toFixed(1)}
+            {consumedPortions.toFixed(1)} / {targetPortions.toFixed(1)}
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            g
+            porciones
           </Typography>
         </Stack>
       </Box>
       <Stack spacing={0.5} alignItems="center">
         <Typography variant="caption" color="text.secondary" textAlign="center">
-          Gramos: {safeConsumed.toFixed(1)} / {safeTarget.toFixed(1)} g <b>(Restan{" "}
-          {remainingGrams.toFixed(1)} g)</b>
-        </Typography>
-        <Typography variant="caption" color="text.secondary" textAlign="center">
           Porciones: {consumedPortions.toFixed(1)} / {targetPortions.toFixed(1)}{" "}
           <b>(Restan {remainingPortions.toFixed(1)})</b>
         </Typography>
+        {/* 
+        <Typography variant="caption" color="text.secondary" textAlign="center">
+          Gramos: {safeConsumed.toFixed(1)} / {safeTarget.toFixed(1)} g <b>(Restan{" "}
+          {remainingGrams.toFixed(1)} g)</b>
+        </Typography>*/}
       </Stack>
     </Stack>
   );
