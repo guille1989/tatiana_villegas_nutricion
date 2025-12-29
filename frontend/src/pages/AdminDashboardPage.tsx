@@ -24,8 +24,8 @@ import {
   Typography,
   useTheme,
 } from '@mui/material'
-import dayjs from 'dayjs'
-import { useEffect, useMemo, useState } from 'react'
+import dayjs, { type Dayjs } from 'dayjs'
+import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createInvite, getAdminOverview, listInvites, type AdminOverviewItem, type Invite } from '../lib/api'
 import {
@@ -53,6 +53,15 @@ type TrendPoint = {
   label: string
   progress: number
   state: AdherenceState
+}
+
+type MacroSummary = { protein: number; carbs: number; fat: number }
+type MacroTotals = MacroSummary & { kcal: number }
+
+type SyncPoint = {
+  date: string
+  targetKcal: number | null
+  consumedKcal: number | null
 }
 
 type AdminRecord = {
@@ -114,7 +123,7 @@ const formatWithUnit = (value: number | null | undefined, unit: string) => {
   return `${formatNumber(value)} ${unit}`
 }
 
-const totalsFromMeals = (meals: Meal[]) =>
+const totalsFromMeals = (meals: Meal[]): MacroTotals =>
   meals.reduce(
     (acc, meal) => ({
       protein: acc.protein + meal.totals.protein,
@@ -125,9 +134,24 @@ const totalsFromMeals = (meals: Meal[]) =>
     { protein: 0, carbs: 0, fat: 0, kcal: 0 },
   )
 
+const getOverrideMeals = (override?: DayOverride | null) => {
+  const meals = (override?.meals as Meal[] | undefined) ?? override?.overrides?.meals
+  return Array.isArray(meals) ? meals : undefined
+}
+
 const getPlanLabel = (plan?: Plan | null) => {
   if (!plan) return 'Sin plan'
   return plan.title ?? `Plan ${plan.days} dias`
+}
+
+const getTargetMacros = (outputs?: CalculationOutputs | null) => {
+  if (!outputs) return null
+  return {
+    protein: outputs.protein,
+    carbs: outputs.carbsAdjusted,
+    fat: outputs.fatsAdjusted,
+    kcal: outputs.kcalObjectiveDay,
+  }
 }
 
 const getBudgetFromOutputs = (outputs?: CalculationOutputs | null) => {
@@ -197,13 +221,76 @@ const getLastUpdateDate = (plan?: Plan | null, overrides: DayOverride[] = []) =>
   return latestOverride?.updatedAt ?? plan?.createdAt ?? plan?.startDate ?? null
 }
 
-const buildTrend = (overrides: DayOverride[], outputs?: CalculationOutputs | null, days = 7): TrendPoint[] => {
-  const today = dayjs()
-  return Array.from({ length: days }, (_, idx) => {
-    const date = today.subtract(days - 1 - idx, 'day').format('YYYY-MM-DD')
-    const label = dayjs(date).format('dd').toUpperCase()
-    const override = overrides.find((item) => item.date === date)
-    const meals = override?.meals as Meal[] | undefined
+const buildSyncSeries = (
+  overrides: DayOverride[],
+  outputs: CalculationOutputs | undefined,
+  planStart: string | undefined,
+  planDays: number | undefined,
+): SyncPoint[] => {
+  const overrideMap = new Map(overrides.map((item) => [item.date, item]))
+  if (!planStart || !planDays) return []
+
+  const planStartDate = dayjs(planStart)
+  const planEndDate = planStartDate.add(planDays - 1, 'day')
+  const rangeStart = planStartDate
+  const rangeEnd = planEndDate.isBefore(planStartDate.add(6, 'day'), 'day')
+    ? planEndDate
+    : planStartDate.add(6, 'day')
+  const daysCount = rangeEnd.diff(rangeStart, 'day') + 1
+
+  return Array.from({ length: daysCount }, (_, idx) => {
+    const date = rangeStart.add(idx, 'day').format('YYYY-MM-DD')
+    const override = overrideMap.get(date)
+    const targetBase = override?.computed ?? outputs ?? null
+    const target = getTargetMacros(targetBase)
+    const meals = getOverrideMeals(override)
+    const totals = meals && meals.length > 0 ? totalsFromMeals(meals) : null
+
+    return {
+      date,
+      targetKcal: target?.kcal ?? null,
+      consumedKcal: totals?.kcal ?? null,
+    }
+  })
+}
+
+const buildTrend = (
+  overrides: DayOverride[],
+  outputs?: CalculationOutputs | null,
+  plan?: Plan | null,
+  days = 7,
+): TrendPoint[] => {
+  const today = dayjs().startOf('day')
+  const latestMealDate = overrides.reduce<Dayjs | null>((acc, item) => {
+    const meals = getOverrideMeals(item)
+    if (!meals || meals.length === 0) return acc
+    const date = dayjs(item.date)
+    if (!acc || date.isAfter(acc, 'day')) return date
+    return acc
+  }, null)
+  const baseEndDate = latestMealDate && latestMealDate.isAfter(today, 'day') ? latestMealDate : today
+  const planStartValue = plan?.startDate ?? plan?.createdAt
+  const planStartDate = planStartValue ? dayjs(planStartValue).startOf('day') : null
+  const spanDays = plan?.days ? Math.min(days, plan.days) : days
+  let endDate = baseEndDate
+  if (planStartDate && plan?.days) {
+    const planEndDate = planStartDate.add(plan.days - 1, 'day')
+    if (endDate.isAfter(planEndDate, 'day')) {
+      endDate = planEndDate
+    }
+  }
+  let startDate = endDate.subtract(spanDays - 1, 'day')
+  if (planStartDate && startDate.isBefore(planStartDate, 'day')) {
+    startDate = planStartDate
+    endDate = planStartDate.add(spanDays - 1, 'day')
+  }
+  const overrideMap = new Map(overrides.map((item) => [item.date, item]))
+
+  return Array.from({ length: spanDays }, (_, idx) => {
+    const date = startDate.add(idx, 'day').format('YYYY-MM-DD')
+    const label = dayjs(date).format('D')
+    const override = overrideMap.get(date)
+    const meals = getOverrideMeals(override)
     const summary = getAdherenceFromMeals(meals, override?.computed ?? outputs ?? null)
     return {
       date,
@@ -212,6 +299,199 @@ const buildTrend = (overrides: DayOverride[], outputs?: CalculationOutputs | nul
       state: summary.state,
     }
   })
+}
+
+type LineSeries = { values: (number | null)[]; color: string; dashed?: boolean; label: string }
+
+const LineChart = ({ series, labels }: { series: LineSeries[]; labels: string[] }) => {
+  const theme = useTheme()
+  if (series.length === 0) return null
+
+  const allValues = series
+    .flatMap((item) => item.values)
+    .filter((value): value is number => value !== null)
+  if (allValues.length === 0) return null
+
+  const width = 360
+  const height = 160
+  const min = Math.min(...allValues)
+  const max = Math.max(...allValues)
+  const range = max - min || 1
+  const paddingY = 16
+  const paddingX = 8
+  const pointsCount = labels.length || Math.max(...series.map((item) => item.values.length))
+  const xStep = (width - paddingX * 2) / Math.max(pointsCount - 1, 1)
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null)
+
+  const getPoint = (value: number, idx: number) => {
+    const x = paddingX + idx * xStep
+    const y = height - paddingY - ((value - min) / range) * (height - paddingY * 2)
+    return { x, y, point: `${x},${y}` }
+  }
+
+  const buildSegments = (values: (number | null)[]) => {
+    const segments: string[] = []
+    let current: string[] = []
+    values.forEach((value, idx) => {
+      if (value === null) {
+        if (current.length > 0) {
+          segments.push(current.join(' '))
+          current = []
+        }
+        return
+      }
+      const { point } = getPoint(value, idx)
+      current.push(point)
+    })
+    if (current.length > 0) segments.push(current.join(' '))
+    return segments
+  }
+
+  const gridLines = Array.from({ length: 4 }, (_, idx) => {
+    const y = paddingY + ((height - paddingY * 2) / 3) * idx
+    return y
+  })
+
+  const handleMouseMove = (event: MouseEvent<SVGSVGElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    const x = event.clientX - rect.left
+    const y = event.clientY - rect.top
+    const svgX = (x / rect.width) * width
+    const index = Math.round((svgX - paddingX) / xStep)
+    const clamped = Math.max(0, Math.min(pointsCount - 1, index))
+    const hasValueAtIndex = series.some((item) => item.values[clamped] !== null)
+    if (!hasValueAtIndex) {
+      setHoverIndex(null)
+      setTooltipPos(null)
+      return
+    }
+    setHoverIndex(clamped)
+    setTooltipPos({ x, y })
+  }
+
+  const handleMouseLeave = () => {
+    setHoverIndex(null)
+    setTooltipPos(null)
+  }
+
+  const hoverX = hoverIndex !== null ? paddingX + hoverIndex * xStep : null
+
+  return (
+    <Box sx={{ position: 'relative', width: '100%', height }}>
+      <svg
+        width="100%"
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+      >
+        {gridLines.map((y, idx) => (
+          <line
+            key={idx}
+            x1={0}
+            y1={y}
+            x2={width}
+            y2={y}
+            stroke={theme.palette.grey[200]}
+            strokeWidth={1}
+          />
+        ))}
+        {hoverX !== null && (
+          <line
+            x1={hoverX}
+            y1={paddingY}
+            x2={hoverX}
+            y2={height - paddingY}
+            stroke={theme.palette.grey[300]}
+            strokeDasharray="4 4"
+            strokeWidth={1}
+          />
+        )}
+        {series.map((item, seriesIdx) => {
+          const segments = buildSegments(item.values)
+          let lastIndex = -1
+          for (let i = item.values.length - 1; i >= 0; i -= 1) {
+            if (item.values[i] !== null) {
+              lastIndex = i
+              break
+            }
+          }
+          const lastValue = lastIndex >= 0 ? item.values[lastIndex] : null
+          const lastPoint = lastValue !== null ? getPoint(lastValue, lastIndex) : null
+          return (
+            <g key={seriesIdx}>
+              {segments.map((segment, idx) => (
+                <polyline
+                  key={idx}
+                  fill="none"
+                  stroke={item.color}
+                  strokeWidth={2.5}
+                  strokeDasharray={item.dashed ? '6 6' : undefined}
+                  points={segment}
+                />
+              ))}
+              {lastPoint && <circle cx={lastPoint.x} cy={lastPoint.y} r={3.5} fill={item.color} />}
+              {hoverIndex !== null && item.values[hoverIndex] !== null && (
+                <circle
+                  cx={getPoint(item.values[hoverIndex] as number, hoverIndex).x}
+                  cy={getPoint(item.values[hoverIndex] as number, hoverIndex).y}
+                  r={4}
+                  fill={item.color}
+                  stroke={theme.palette.common.white}
+                  strokeWidth={2}
+                />
+              )}
+            </g>
+          )
+        })}
+      </svg>
+      {hoverIndex !== null && tooltipPos && (
+        <Box
+          sx={{
+            position: 'absolute',
+            left: tooltipPos.x,
+            top: tooltipPos.y,
+            transform: 'translate(-50%, -120%)',
+            bgcolor: 'common.white',
+            border: '1px solid',
+            borderColor: 'divider',
+            borderRadius: 2,
+            boxShadow: '0 12px 28px rgba(15, 23, 42, 0.12)',
+            px: 1.5,
+            py: 1,
+            minWidth: 160,
+            pointerEvents: 'none',
+            zIndex: 2,
+          }}
+        >
+          <Typography variant="caption" color="text.secondary">
+            {labels[hoverIndex] ?? ''}
+          </Typography>
+          <Stack spacing={0.5} mt={0.5}>
+            {series.map((item) => (
+              <Stack key={item.label} direction="row" spacing={1} alignItems="center">
+                <Box
+                  sx={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    bgcolor: item.color,
+                  }}
+                />
+                <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
+                  {item.label}
+                </Typography>
+                <Typography variant="subtitle2" fontWeight={700}>
+                  {item.values[hoverIndex] !== null ? Math.round(item.values[hoverIndex] as number) : '--'}
+                </Typography>
+              </Stack>
+            ))}
+          </Stack>
+        </Box>
+      )}
+    </Box>
+  )
 }
 
 const AdminDashboardPage = () => {
@@ -247,10 +527,13 @@ const AdminDashboardPage = () => {
         const nextRecords = overview.map((item: AdminOverviewItem) => {
           const overrides = item.overrides ?? []
           const outputs = item.assessment?.outputs ?? null
-          const overridesWithMeals = overrides.filter((ov) => Array.isArray(ov.meals) && ov.meals.length > 0)
+          const overridesWithMeals = overrides.filter((ov) => {
+            const meals = getOverrideMeals(ov)
+            return !!meals && meals.length > 0
+          })
           const latestMealsOverride = overridesWithMeals.sort((a, b) => dayjs(b.updatedAt).diff(a.updatedAt))[0]
           const adherenceBase = latestMealsOverride?.computed ?? outputs
-          const adherence = getAdherenceFromMeals(latestMealsOverride?.meals as Meal[] | undefined, adherenceBase)
+          const adherence = getAdherenceFromMeals(getOverrideMeals(latestMealsOverride), adherenceBase)
 
           return {
             userId: item.user.id,
@@ -261,7 +544,7 @@ const AdminDashboardPage = () => {
             overrides,
             lastUpdate: getLastUpdateDate(item.plan ?? null, overrides),
             adherence: latestMealsOverride ? { ...adherence, lastDate: latestMealsOverride.date } : adherence,
-            trend: buildTrend(overrides, outputs),
+            trend: buildTrend(overrides, outputs, item.plan ?? null),
           }
         })
 
@@ -305,6 +588,46 @@ const AdminDashboardPage = () => {
 
   const selectedRecord = records.find((record) => record.userId === selectedUserId) ?? null
   const assessment = selectedRecord?.latestAssessment ?? null
+  const trendPoints = selectedRecord
+    ? [...selectedRecord.trend].sort((a, b) => dayjs(a.date).diff(dayjs(b.date)))
+    : []
+  const syncSeries = useMemo(() => {
+    if (!selectedRecord?.plan) return []
+    return buildSyncSeries(
+      selectedRecord.overrides,
+      selectedRecord.latestAssessment?.outputs,
+      selectedRecord.plan.startDate,
+      selectedRecord.plan.days,
+    )
+  }, [selectedRecord])
+  const syncLabels = syncSeries.map((item) => dayjs(item.date).format('DD/MM'))
+  const targetSeries = syncSeries.map((item) => item.targetKcal)
+  const consumedSeries = syncSeries.map((item) => item.consumedKcal)
+  const consumedValues = consumedSeries.filter((value): value is number => value !== null)
+  const hasConsumedData = consumedValues.length > 0
+  const hasTargetData = targetSeries.some((value) => value !== null)
+  const avgConsumed = consumedValues.length
+    ? Math.round(consumedValues.reduce((acc, value) => acc + value, 0) / consumedValues.length)
+    : null
+
+  let latestConsumedPoint: SyncPoint | null = null
+  for (let i = syncSeries.length - 1; i >= 0; i -= 1) {
+    if (syncSeries[i].consumedKcal !== null) {
+      latestConsumedPoint = syncSeries[i]
+      break
+    }
+  }
+
+  let latestTargetPoint: SyncPoint | null = null
+  for (let i = syncSeries.length - 1; i >= 0; i -= 1) {
+    if (syncSeries[i].targetKcal !== null) {
+      latestTargetPoint = syncSeries[i]
+      break
+    }
+  }
+
+  const latestConsumed = latestConsumedPoint?.consumedKcal ?? null
+  const latestTarget = latestConsumedPoint?.targetKcal ?? latestTargetPoint?.targetKcal ?? null
 
   const inputRows = useMemo(() => {
     if (!assessment) return []
@@ -837,11 +1160,111 @@ const AdminDashboardPage = () => {
 
                   <Box>
                     <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-                      Delta vs evaluacion previa
+                      Consumo de calorias
                     </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Sin evaluaciones previas o endpoint disponible.
-                    </Typography>
+                    {!hasTargetData ? (
+                      <Stack spacing={1}>
+                        <Typography variant="subtitle2" fontWeight={700}>
+                          Sin datos del plan
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Aun no hay objetivos disponibles para graficar.
+                        </Typography>
+                      </Stack>
+                    ) : (
+                      <Stack spacing={2}>
+                        <Stack
+                          direction={{ xs: 'column', sm: 'row' }}
+                          spacing={2}
+                          alignItems={{ xs: 'flex-start', sm: 'center' }}
+                          justifyContent="space-between"
+                        >
+                          <Stack direction="row" spacing={3} alignItems="baseline" flexWrap="wrap">
+                            <Stack spacing={0.5}>
+                              <Typography variant="h5" fontWeight={800}>
+                                {avgConsumed !== null ? avgConsumed : '--'}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Promedio consumido
+                              </Typography>
+                            </Stack>
+                            <Stack spacing={0.5}>
+                              <Typography variant="h5" fontWeight={800}>
+                                {latestConsumed !== null ? Math.round(latestConsumed) : '--'}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Ultimo dia
+                              </Typography>
+                            </Stack>
+                            <Stack spacing={0.5}>
+                              <Typography variant="h5" fontWeight={800}>
+                                {latestTarget !== null ? Math.round(latestTarget) : '--'}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Objetivo kcal
+                              </Typography>
+                            </Stack>
+                          </Stack>
+                          <Stack direction="row" spacing={1.5} alignItems="center">
+                            {hasTargetData && (
+                              <Stack direction="row" spacing={0.75} alignItems="center">
+                                <Box
+                                  sx={{
+                                    width: 8,
+                                    height: 8,
+                                    borderRadius: '50%',
+                                    bgcolor: theme.palette.secondary.main,
+                                  }}
+                                />
+                                <Typography variant="caption" color="text.secondary">
+                                  Objetivo
+                                </Typography>
+                              </Stack>
+                            )}
+                            <Stack direction="row" spacing={0.75} alignItems="center">
+                              <Box
+                                sx={{
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: '50%',
+                                  bgcolor: theme.palette.primary.main,
+                                }}
+                              />
+                              <Typography variant="caption" color="text.secondary">
+                                Consumido
+                              </Typography>
+                            </Stack>
+                          </Stack>
+                        </Stack>
+                        {!hasConsumedData && (
+                          <Typography variant="caption" color="text.secondary">
+                            Sin consumos registrados aun.
+                          </Typography>
+                        )}
+                        <Box sx={{ flex: 1 }}>
+                          <LineChart
+                            labels={syncLabels}
+                            series={[
+                              ...(hasTargetData
+                                ? [
+                                    {
+                                      values: targetSeries,
+                                      color: theme.palette.secondary.main,
+                                      dashed: true,
+                                      label: 'Objetivo kcal',
+                                    },
+                                  ]
+                                : []),
+                              {
+                                values: consumedSeries,
+                                color: theme.palette.primary.main,
+                                label: 'Consumidas kcal',
+                              },
+                            ]}
+                          />
+                        </Box>
+                      </Stack>
+                    )}
                   </Box>
 
                   <Divider />
@@ -851,7 +1274,7 @@ const AdminDashboardPage = () => {
                       Tendencia ultima semana
                     </Typography>
                     <Stack spacing={1}>
-                      {selectedRecord.trend.map((point) => (
+                      {trendPoints.map((point) => (
                         <Stack key={point.date} direction="row" spacing={1} alignItems="center">
                           <Typography variant="caption" sx={{ width: 28 }}>
                             {point.label}
