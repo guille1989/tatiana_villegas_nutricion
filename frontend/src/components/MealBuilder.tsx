@@ -206,11 +206,10 @@ const MacroGauge = ({
           Porciones: {consumedPortions.toFixed(1)} / {targetPortions.toFixed(1)}{" "}
           <b>(Restan {remainingPortions.toFixed(1)})</b>
         </Typography>
-        {/* 
         <Typography variant="caption" color="text.secondary" textAlign="center">
           Gramos: {safeConsumed.toFixed(1)} / {safeTarget.toFixed(1)} g <b>(Restan{" "}
           {remainingGrams.toFixed(1)} g)</b>
-        </Typography>*/}
+        </Typography>
       </Stack>
     </Stack>
   );
