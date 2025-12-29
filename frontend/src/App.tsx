@@ -12,6 +12,7 @@ import { LocalizationProvider } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import { BrowserRouter, Link as RouterLink, Navigate, Route, Routes } from 'react-router-dom'
 import './App.css'
+import AdminDashboardPage from './pages/AdminDashboardPage'
 import PlanDetailPage from './pages/PlanDetailPage'
 import PlansPage from './pages/PlansPage'
 import WizardPage from './pages/WizardPage'
@@ -67,6 +68,9 @@ const App = () => (
                 <Button component={RouterLink} to="/plans" color="primary">
                   Planes
                 </Button>
+                <Button component={RouterLink} to="/admin" color="primary">
+                  Admin
+                </Button>
               </Stack>
             </Toolbar>
           </AppBar>
@@ -75,6 +79,7 @@ const App = () => (
             <Route path="/wizard" element={<WizardPage />} />
             <Route path="/plans" element={<PlansPage />} />
             <Route path="/plans/:planId" element={<PlanDetailPage />} />
+            <Route path="/admin" element={<AdminDashboardPage />} />
             <Route path="*" element={<Navigate to="/wizard" replace />} />
           </Routes>
         </div>
