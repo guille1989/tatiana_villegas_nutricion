@@ -12,3 +12,4 @@ export class ApiError extends Error {
 export const notFound = (msg = 'Not found') => new ApiError(404, msg)
 export const badRequest = (msg = 'Bad request', details?: unknown) => new ApiError(400, msg, details)
 export const unauthorized = (msg = 'Unauthorized') => new ApiError(401, msg)
+export const forbidden = (msg = 'Forbidden') => new ApiError(403, msg)

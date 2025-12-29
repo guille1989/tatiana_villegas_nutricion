@@ -1,10 +1,13 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { FoodModel } from '../models/Food'
+import { authMiddleware } from '../middleware/auth'
 import { asyncHandler } from '../utils/asyncHandler'
 import { badRequest } from '../utils/apiError'
 
 const router = Router()
+
+router.use(authMiddleware)
 
 const querySchema = z.object({
   q: z.string().trim().optional(),

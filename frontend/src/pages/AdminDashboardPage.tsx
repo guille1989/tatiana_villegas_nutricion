@@ -27,11 +27,17 @@ import {
 import dayjs from 'dayjs'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getLatestAssessment, getPlan, listPlans } from '../lib/api'
+import { createInvite, getAdminOverview, listInvites, type AdminOverviewItem, type Invite } from '../lib/api'
+import {
+  activityOptions,
+  dayTypeOptions,
+  goalOptions,
+  profileOptions,
+  sexOptions,
+  trainingOptions,
+} from '../lib/schema'
 import { getMacroState, type MacroState } from '../lib/macroStatus'
 import type { Assessment, CalculationOutputs, DayOverride, Meal, Plan } from '../types'
-
-const ADMIN_USER_IDS = ['demo-user', 'socio-ana', 'socio-carlos']
 
 type AdherenceState = MacroState | 'none'
 
@@ -51,9 +57,10 @@ type TrendPoint = {
 
 type AdminRecord = {
   userId: string
+  userName?: string
+  userCreatedAt?: string
   latestAssessment?: Assessment | null
   plan?: Plan | null
-  planAssessment?: Assessment | null
   overrides: DayOverride[]
   lastUpdate?: string | null
   adherence: AdherenceSummary
@@ -76,6 +83,35 @@ const STATUS_COLORS: Record<string, 'success' | 'warning' | 'default'> = {
   active: 'success',
   draft: 'warning',
   archived: 'default',
+}
+
+const INVITE_STATUS_COLORS: Record<string, 'success' | 'warning' | 'error' | 'default'> = {
+  active: 'success',
+  disabled: 'warning',
+  expired: 'error',
+  consumed: 'default',
+}
+
+const optionLabel = (
+  value: string | null | undefined,
+  options: ReadonlyArray<{ value: string; label: string }>,
+) => {
+  if (!value) return '--'
+  const match = options.find((item) => item.value === value)
+  return match ? match.label : value
+}
+
+const formatNumber = (value: number) => (Number.isInteger(value) ? value.toString() : value.toFixed(1))
+
+const formatValue = (value: string | number | null | undefined) => {
+  if (value === null || value === undefined || value === '') return '--'
+  if (typeof value === 'number') return formatNumber(value)
+  return value
+}
+
+const formatWithUnit = (value: number | null | undefined, unit: string) => {
+  if (value === null || value === undefined) return '--'
+  return `${formatNumber(value)} ${unit}`
 }
 
 const totalsFromMeals = (meals: Meal[]) =>
@@ -110,10 +146,7 @@ const toPortions = (macros: { protein: number; carbs: number; fat: number }) => 
   fat: macros.fat / 5,
 })
 
-const getAdherenceFromMeals = (
-  meals: Meal[] | undefined,
-  outputs?: CalculationOutputs | null,
-): AdherenceSummary => {
+const getAdherenceFromMeals = (meals: Meal[] | undefined, outputs?: CalculationOutputs | null): AdherenceSummary => {
   if (!meals || meals.length === 0 || !outputs) {
     return { state: 'none', progress: 0, label: 'Sin datos' }
   }
@@ -164,11 +197,7 @@ const getLastUpdateDate = (plan?: Plan | null, overrides: DayOverride[] = []) =>
   return latestOverride?.updatedAt ?? plan?.createdAt ?? plan?.startDate ?? null
 }
 
-const buildTrend = (
-  overrides: DayOverride[],
-  outputs?: CalculationOutputs | null,
-  days = 7,
-): TrendPoint[] => {
+const buildTrend = (overrides: DayOverride[], outputs?: CalculationOutputs | null, days = 7): TrendPoint[] => {
   const today = dayjs()
   return Array.from({ length: days }, (_, idx) => {
     const date = today.subtract(days - 1 - idx, 'day').format('YYYY-MM-DD')
@@ -189,6 +218,13 @@ const AdminDashboardPage = () => {
   const theme = useTheme()
   const navigate = useNavigate()
   const [records, setRecords] = useState<AdminRecord[]>([])
+  const [invites, setInvites] = useState<Invite[]>([])
+  const [inviteCode, setInviteCode] = useState<string | null>(null)
+  const [inviteRole, setInviteRole] = useState<'admin' | 'member'>('member')
+  const [inviteMaxUses, setInviteMaxUses] = useState(1)
+  const [inviteExpires, setInviteExpires] = useState(7)
+  const [creatingInvite, setCreatingInvite] = useState(false)
+  const [inviteError, setInviteError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
@@ -203,66 +239,33 @@ const AdminDashboardPage = () => {
       setError(null)
 
       try {
-        const results = await Promise.allSettled(
-          ADMIN_USER_IDS.map(async (userId) => {
-            const [assessment, plans] = await Promise.all([
-              getLatestAssessment(userId).catch(() => null),
-              listPlans(userId).catch(() => []),
-            ])
-            const activePlan =
-              plans.find((plan) => plan.status === 'active') ??
-              plans.sort((a, b) => dayjs(b.createdAt).diff(a.createdAt))[0]
+        const [overview, inviteList] = await Promise.all([getAdminOverview(), listInvites()])
+        if (!active) return
 
-            if (!activePlan) {
-              return {
-                userId,
-                latestAssessment: assessment,
-                plan: null,
-                planAssessment: null,
-                overrides: [],
-                lastUpdate: null,
-                adherence: { state: 'none', progress: 0, label: 'Sin datos' },
-                trend: buildTrend([], assessment?.outputs ?? null),
-              }
-            }
+        setInvites(inviteList)
 
-            const planData = await getPlan(activePlan.id).catch(() => null)
-            const overrides = planData?.overrides ?? []
-            const planAssessment = planData?.assessment ?? null
-            const sourceOutputs = planAssessment?.outputs ?? assessment?.outputs ?? null
+        const nextRecords = overview.map((item: AdminOverviewItem) => {
+          const overrides = item.overrides ?? []
+          const outputs = item.assessment?.outputs ?? null
+          const overridesWithMeals = overrides.filter((ov) => Array.isArray(ov.meals) && ov.meals.length > 0)
+          const latestMealsOverride = overridesWithMeals.sort((a, b) => dayjs(b.updatedAt).diff(a.updatedAt))[0]
+          const adherenceBase = latestMealsOverride?.computed ?? outputs
+          const adherence = getAdherenceFromMeals(latestMealsOverride?.meals as Meal[] | undefined, adherenceBase)
 
-            const overridesWithMeals = overrides.filter((item) => Array.isArray(item.meals) && item.meals.length > 0)
-            const latestMealsOverride = overridesWithMeals.sort((a, b) => dayjs(b.updatedAt).diff(a.updatedAt))[0]
-            const adherence = getAdherenceFromMeals(latestMealsOverride?.meals as Meal[] | undefined, sourceOutputs)
-
-            return {
-              userId,
-              latestAssessment: assessment,
-              plan: planData?.plan ?? activePlan,
-              planAssessment,
-              overrides,
-              lastUpdate: getLastUpdateDate(activePlan, overrides),
-              adherence: latestMealsOverride ? { ...adherence, lastDate: latestMealsOverride.date } : adherence,
-              trend: buildTrend(overrides, sourceOutputs),
-            }
-          }),
-        )
-
-        const nextRecords = results.map((result, index) => {
-          if (result.status === 'fulfilled') return result.value
           return {
-            userId: ADMIN_USER_IDS[index],
-            latestAssessment: null,
-            plan: null,
-            planAssessment: null,
-            overrides: [],
-            lastUpdate: null,
-            adherence: { state: 'none', progress: 0, label: 'Sin datos' },
-            trend: buildTrend([], null),
+            userId: item.user.id,
+            userName: item.user.name,
+            userCreatedAt: item.user.createdAt,
+            latestAssessment: item.assessment ?? null,
+            plan: item.plan ?? null,
+            overrides,
+            lastUpdate: getLastUpdateDate(item.plan ?? null, overrides),
+            adherence: latestMealsOverride ? { ...adherence, lastDate: latestMealsOverride.date } : adherence,
+            trend: buildTrend(overrides, outputs),
           }
         })
 
-        if (active) setRecords(nextRecords)
+        setRecords(nextRecords)
       } catch (err) {
         if (active) setError(err instanceof Error ? err.message : 'No se pudo cargar')
       } finally {
@@ -270,7 +273,6 @@ const AdminDashboardPage = () => {
       }
     }
 
-    // TODO: reemplazar ADMIN_USER_IDS por endpoint admin real.
     load()
     return () => {
       active = false
@@ -280,13 +282,11 @@ const AdminDashboardPage = () => {
   const filteredRecords = useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
     return records.filter((record) => {
-      const name = record.latestAssessment?.inputs.name ?? ''
+      const name = record.latestAssessment?.inputs.name ?? record.userName ?? ''
       const goal = record.latestAssessment?.inputs.goal ?? ''
       const status = record.plan?.status ?? 'none'
       const matchesTerm =
-        term.length === 0 ||
-        name.toLowerCase().includes(term) ||
-        record.userId.toLowerCase().includes(term)
+        term.length === 0 || name.toLowerCase().includes(term) || record.userId.toLowerCase().includes(term)
       const matchesStatus = statusFilter === 'all' || status === statusFilter
       const matchesGoal = goalFilter === 'all' || goal === goalFilter
       return matchesTerm && matchesStatus && matchesGoal
@@ -304,6 +304,47 @@ const AdminDashboardPage = () => {
   }, [filteredRecords, selectedUserId])
 
   const selectedRecord = records.find((record) => record.userId === selectedUserId) ?? null
+  const assessment = selectedRecord?.latestAssessment ?? null
+
+  const inputRows = useMemo(() => {
+    if (!assessment) return []
+    const { inputs } = assessment
+    return [
+      { label: 'Nombre', value: formatValue(inputs.name) },
+      { label: 'Sexo', value: optionLabel(inputs.sex, sexOptions) },
+      { label: 'Edad', value: formatWithUnit(inputs.age, 'anos') },
+      { label: 'Peso', value: formatWithUnit(inputs.weight, 'kg') },
+      { label: 'Talla', value: formatWithUnit(inputs.height, 'cm') },
+      { label: '% Grasa', value: formatWithUnit(inputs.bodyFat ?? null, '%') },
+      { label: 'Perfil', value: optionLabel(inputs.profile, profileOptions) },
+      { label: 'Actividad', value: optionLabel(inputs.activityLevel, activityOptions) },
+      { label: 'Objetivo', value: optionLabel(inputs.goal, goalOptions) },
+      { label: 'Tipo de dia', value: optionLabel(inputs.dayType, dayTypeOptions) },
+      { label: 'Tipo entreno', value: optionLabel(inputs.trainingType ?? null, trainingOptions) },
+      { label: 'Duracion', value: formatWithUnit(inputs.duration ?? null, 'min') },
+      { label: 'Training MET', value: formatValue(inputs.trainingMet ?? null) },
+    ]
+  }, [assessment])
+
+  const outputRows = useMemo(() => {
+    if (!assessment) return []
+    const { outputs } = assessment
+    return [
+      { label: 'RMR', value: formatWithUnit(outputs.rmr, 'kcal') },
+      { label: 'PAL', value: formatValue(outputs.pal) },
+      { label: 'TDEE', value: formatWithUnit(outputs.tdee, 'kcal') },
+      { label: 'Kcal base', value: formatWithUnit(outputs.kcalObjectiveBase, 'kcal') },
+      { label: 'Proteina', value: formatWithUnit(outputs.protein, 'g') },
+      { label: 'Grasas', value: formatWithUnit(outputs.fats, 'g') },
+      { label: 'Carbs', value: formatWithUnit(outputs.carbs, 'g') },
+      { label: 'EEE', value: formatWithUnit(outputs.eee, 'kcal') },
+      { label: 'Kcal dia', value: formatWithUnit(outputs.kcalObjectiveDay, 'kcal') },
+      { label: 'Carbs ajustados', value: formatWithUnit(outputs.carbsAdjusted, 'g') },
+      { label: 'Grasas ajustadas', value: formatWithUnit(outputs.fatsAdjusted, 'g') },
+      { label: 'FFM', value: formatValue(outputs.ffm ?? null) },
+      { label: 'EA', value: formatValue(outputs.ea ?? null) },
+    ]
+  }, [assessment])
 
   const kpis = useMemo(() => {
     const total = records.length
@@ -343,6 +384,36 @@ const AdminDashboardPage = () => {
       }}
     />
   )
+
+  const handleCreateInvite = async () => {
+    setCreatingInvite(true)
+    setInviteError(null)
+    setInviteCode(null)
+    try {
+      const maxUses = Number.isFinite(inviteMaxUses) ? inviteMaxUses : 1
+      const expiresInDays = Number.isFinite(inviteExpires) ? inviteExpires : 7
+      const result = await createInvite({
+        role: inviteRole,
+        maxUses,
+        expiresInDays,
+      })
+      setInvites((prev) => [result.invite, ...prev])
+      setInviteCode(result.code)
+    } catch (err) {
+      setInviteError(err instanceof Error ? err.message : 'No se pudo crear el codigo')
+    } finally {
+      setCreatingInvite(false)
+    }
+  }
+
+  const handleCopyCode = async () => {
+    if (!inviteCode) return
+    try {
+      await navigator.clipboard.writeText(inviteCode)
+    } catch {
+      setInviteError('No se pudo copiar el codigo')
+    }
+  }
 
   return (
     <Container maxWidth="xl" sx={{ py: { xs: 3, md: 5 } }}>
@@ -416,6 +487,130 @@ const AdminDashboardPage = () => {
 
         <Card elevation={0}>
           <CardContent>
+            <Stack spacing={2}>
+              <Stack
+                direction={{ xs: 'column', md: 'row' }}
+                spacing={2}
+                alignItems={{ xs: 'flex-start', md: 'center' }}
+                justifyContent="space-between"
+              >
+                <Box>
+                  <Typography variant="h6" fontWeight={700}>
+                    Invitaciones
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Genera codigos unicos para nuevos socios.
+                  </Typography>
+                </Box>
+                <Button variant="contained" onClick={handleCreateInvite} disabled={creatingInvite}>
+                  {creatingInvite ? 'Generando...' : 'Generar codigo'}
+                </Button>
+              </Stack>
+
+              <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+                <FormControl fullWidth>
+                  <InputLabel>Rol</InputLabel>
+                  <Select
+                    value={inviteRole}
+                    label="Rol"
+                    onChange={(event) => setInviteRole(event.target.value as 'admin' | 'member')}
+                  >
+                    <MenuItem value="member">Socio</MenuItem>
+                    <MenuItem value="admin">Admin</MenuItem>
+                  </Select>
+                </FormControl>
+                <TextField
+                  label="Usos"
+                  type="number"
+                  fullWidth
+                  value={inviteMaxUses}
+                  onChange={(event) => setInviteMaxUses(Number(event.target.value))}
+                  inputProps={{ min: 1, max: 50 }}
+                />
+                <TextField
+                  label="Expira en dias"
+                  type="number"
+                  fullWidth
+                  value={inviteExpires}
+                  onChange={(event) => setInviteExpires(Number(event.target.value))}
+                  inputProps={{ min: 1, max: 365 }}
+                />
+              </Stack>
+
+              {inviteError && <Alert severity="warning">{inviteError}</Alert>}
+              {inviteCode && (
+                <Alert
+                  severity="success"
+                  action={
+                    <Button color="inherit" size="small" onClick={handleCopyCode}>
+                      Copiar
+                    </Button>
+                  }
+                >
+                  Codigo generado: <strong>{inviteCode}</strong>
+                </Alert>
+              )}
+
+              <Divider />
+
+              <Paper variant="outlined">
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Codigo</TableCell>
+                      <TableCell>Rol</TableCell>
+                      <TableCell>Usos</TableCell>
+                      <TableCell>Expira</TableCell>
+                      <TableCell>Estado</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {loading &&
+                      Array.from({ length: 3 }).map((_, idx) => (
+                        <TableRow key={idx}>
+                          <TableCell colSpan={5}>
+                            <Skeleton variant="rectangular" height={32} />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    {!loading && invites.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={5}>
+                          <Typography variant="body2" color="text.secondary">
+                            Sin codigos creados.
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {!loading &&
+                      invites.map((invite) => (
+                        <TableRow key={invite.id}>
+                          <TableCell>{`****-${invite.codeSuffix}`}</TableCell>
+                          <TableCell>{invite.role === 'admin' ? 'Admin' : 'Socio'}</TableCell>
+                          <TableCell>
+                            {invite.usesCount}/{invite.maxUses}
+                          </TableCell>
+                          <TableCell>
+                            {invite.expiresAt ? dayjs(invite.expiresAt).format('DD MMM YYYY') : '--'}
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              size="small"
+                              label={invite.status}
+                              color={INVITE_STATUS_COLORS[invite.status] ?? 'default'}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                  </TableBody>
+                </Table>
+              </Paper>
+            </Stack>
+          </CardContent>
+        </Card>
+
+        <Card elevation={0}>
+          <CardContent>
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
               <TextField
                 fullWidth
@@ -426,11 +621,7 @@ const AdminDashboardPage = () => {
               />
               <FormControl fullWidth>
                 <InputLabel>Status</InputLabel>
-                <Select
-                  value={statusFilter}
-                  label="Status"
-                  onChange={(event) => setStatusFilter(event.target.value)}
-                >
+                <Select value={statusFilter} label="Status" onChange={(event) => setStatusFilter(event.target.value)}>
                   <MenuItem value="all">Todos</MenuItem>
                   <MenuItem value="active">Activo</MenuItem>
                   <MenuItem value="draft">Borrador</MenuItem>
@@ -440,11 +631,7 @@ const AdminDashboardPage = () => {
               </FormControl>
               <FormControl fullWidth>
                 <InputLabel>Objetivo</InputLabel>
-                <Select
-                  value={goalFilter}
-                  label="Objetivo"
-                  onChange={(event) => setGoalFilter(event.target.value)}
-                >
+                <Select value={goalFilter} label="Objetivo" onChange={(event) => setGoalFilter(event.target.value)}>
                   <MenuItem value="all">Todos</MenuItem>
                   <MenuItem value="fat_loss">Perdida grasa</MenuItem>
                   <MenuItem value="muscle_gain">Ganancia muscular</MenuItem>
@@ -461,6 +648,7 @@ const AdminDashboardPage = () => {
               <TableHead>
                 <TableRow>
                   <TableCell>Socio</TableCell>
+                  <TableCell>Incorporacion</TableCell>
                   <TableCell>Plan activo</TableCell>
                   <TableCell>Objetivo</TableCell>
                   <TableCell>Ultima actualizacion</TableCell>
@@ -493,9 +681,8 @@ const AdminDashboardPage = () => {
                     const statusLabel = STATUS_LABELS[status] ?? 'Sin plan'
                     const statusColor = STATUS_COLORS[status] ?? 'default'
                     const planLabel = getPlanLabel(record.plan)
-                    const lastUpdate = record.lastUpdate
-                      ? dayjs(record.lastUpdate).format('DD MMM YYYY')
-                      : '--'
+                    const createdAt = record.userCreatedAt ? dayjs(record.userCreatedAt).format('DD MMM YYYY') : '--'
+                    const lastUpdate = record.lastUpdate ? dayjs(record.lastUpdate).format('DD MMM YYYY') : '--'
                     const adherence = record.adherence
                     const adherenceChipColor =
                       adherence.state === 'ok'
@@ -505,6 +692,7 @@ const AdminDashboardPage = () => {
                           : adherence.state === 'pending'
                             ? 'warning'
                             : 'default'
+                    const name = record.latestAssessment?.inputs.name ?? record.userName ?? 'Sin nombre'
 
                     return (
                       <TableRow
@@ -516,14 +704,13 @@ const AdminDashboardPage = () => {
                       >
                         <TableCell>
                           <Stack spacing={0.5}>
-                            <Typography fontWeight={700}>
-                              {record.latestAssessment?.inputs.name ?? 'Sin nombre'}
-                            </Typography>
+                            <Typography fontWeight={700}>{name}</Typography>
                             <Typography variant="caption" color="text.secondary">
                               {record.userId}
                             </Typography>
                           </Stack>
                         </TableCell>
+                        <TableCell>{createdAt}</TableCell>
                         <TableCell>
                           <Stack spacing={0.5}>
                             <Typography variant="body2" fontWeight={600}>
@@ -553,11 +740,7 @@ const AdminDashboardPage = () => {
                             >
                               Abrir
                             </Button>
-                            <Button
-                              size="small"
-                              variant="text"
-                              onClick={(event) => event.stopPropagation()}
-                            >
+                            <Button size="small" variant="text" onClick={(event) => event.stopPropagation()}>
                               Seguimiento
                             </Button>
                           </Stack>
@@ -583,7 +766,7 @@ const AdminDashboardPage = () => {
                 <Stack spacing={2}>
                   <Stack spacing={0.5}>
                     <Typography variant="h6" fontWeight={800}>
-                      {selectedRecord.latestAssessment?.inputs.name ?? 'Sin nombre'}
+                      {selectedRecord.latestAssessment?.inputs.name ?? selectedRecord.userName ?? 'Sin nombre'}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
                       {selectedRecord.userId}
@@ -597,64 +780,53 @@ const AdminDashboardPage = () => {
 
                   <Box>
                     <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-                      Resumen evaluacion
+                      Evaluacion completa
                     </Typography>
-                    {selectedRecord.latestAssessment ? (
-                      <Stack spacing={1}>
-                        <Stack direction="row" spacing={2}>
-                          <Box>
-                            <Typography variant="caption" color="text.secondary">
-                              Peso
-                            </Typography>
-                            <Typography fontWeight={700}>
-                              {selectedRecord.latestAssessment.inputs.weight} kg
-                            </Typography>
+                    {assessment ? (
+                      <Stack spacing={2}>
+                        <Box>
+                          <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                            Inputs
+                          </Typography>
+                          <Box
+                            sx={{
+                              display: 'grid',
+                              gridTemplateColumns: { xs: 'repeat(1, minmax(0, 1fr))', sm: 'repeat(2, minmax(0, 1fr))' },
+                              gap: 1.25,
+                            }}
+                          >
+                            {inputRows.map((row) => (
+                              <Stack key={row.label} spacing={0.25}>
+                                <Typography variant="caption" color="text.secondary">
+                                  {row.label}
+                                </Typography>
+                                <Typography fontWeight={700}>{row.value}</Typography>
+                              </Stack>
+                            ))}
                           </Box>
-                          <Box>
-                            <Typography variant="caption" color="text.secondary">
-                              % Grasa
-                            </Typography>
-                            <Typography fontWeight={700}>
-                              {selectedRecord.latestAssessment.inputs.bodyFat ?? '--'}
-                            </Typography>
+                        </Box>
+
+                        <Box>
+                          <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                            Outputs
+                          </Typography>
+                          <Box
+                            sx={{
+                              display: 'grid',
+                              gridTemplateColumns: { xs: 'repeat(1, minmax(0, 1fr))', sm: 'repeat(2, minmax(0, 1fr))' },
+                              gap: 1.25,
+                            }}
+                          >
+                            {outputRows.map((row) => (
+                              <Stack key={row.label} spacing={0.25}>
+                                <Typography variant="caption" color="text.secondary">
+                                  {row.label}
+                                </Typography>
+                                <Typography fontWeight={700}>{row.value}</Typography>
+                              </Stack>
+                            ))}
                           </Box>
-                        </Stack>
-                        <Stack direction="row" spacing={2}>
-                          <Box>
-                            <Typography variant="caption" color="text.secondary">
-                              Kcal objetivo
-                            </Typography>
-                            <Typography fontWeight={700}>
-                              {selectedRecord.latestAssessment.outputs.kcalObjectiveDay}
-                            </Typography>
-                          </Box>
-                          <Box>
-                            <Typography variant="caption" color="text.secondary">
-                              Proteina
-                            </Typography>
-                            <Typography fontWeight={700}>
-                              {selectedRecord.latestAssessment.outputs.protein} g
-                            </Typography>
-                          </Box>
-                        </Stack>
-                        <Stack direction="row" spacing={2}>
-                          <Box>
-                            <Typography variant="caption" color="text.secondary">
-                              Carbs
-                            </Typography>
-                            <Typography fontWeight={700}>
-                              {selectedRecord.latestAssessment.outputs.carbsAdjusted} g
-                            </Typography>
-                          </Box>
-                          <Box>
-                            <Typography variant="caption" color="text.secondary">
-                              Grasas
-                            </Typography>
-                            <Typography fontWeight={700}>
-                              {selectedRecord.latestAssessment.outputs.fatsAdjusted} g
-                            </Typography>
-                          </Box>
-                        </Stack>
+                        </Box>
                       </Stack>
                     ) : (
                       <Alert severity="info">Sin evaluacion disponible.</Alert>

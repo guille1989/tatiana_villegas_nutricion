@@ -4,14 +4,16 @@ import { AssessmentModel } from '../models/Assessment'
 import { PlanModel } from '../models/Plan'
 import { calculateInitials } from '../modules/calc/calc'
 import { wizardInputsSchema } from '../modules/types'
+import { authMiddleware } from '../middleware/auth'
 import { asyncHandler } from '../utils/asyncHandler'
-import { badRequest, notFound } from '../utils/apiError'
+import { badRequest, notFound, unauthorized } from '../utils/apiError'
 import { Types } from 'mongoose'
 
 const router = Router()
 
+router.use(authMiddleware)
+
 const assessmentBodySchema = z.object({
-  userId: z.string().min(1),
   inputs: wizardInputsSchema,
 })
 
@@ -22,10 +24,13 @@ router.post(
     const parsed = assessmentBodySchema.safeParse(req.body)
     if (!parsed.success) throw badRequest('Validation failed', parsed.error.flatten())
 
+    const userId = req.user?.id
+    if (!userId) throw unauthorized('Usuario no autenticado')
+
     const { outputs, formulas } = calculateInitials(parsed.data.inputs)
 
     const assessment = await AssessmentModel.create({
-      userId: parsed.data.userId,
+      userId,
       inputs: parsed.data.inputs,
       outputs,
       formulas,
@@ -33,14 +38,14 @@ router.post(
 
     // Upsert a 7-day plan for this user based on the latest assessment
     const startDate = new Date()
-    const existingPlan = await PlanModel.findOne({ userId: parsed.data.userId, days: 7 }).sort({
+    const existingPlan = await PlanModel.findOne({ userId, days: 7 }).sort({
       createdAt: -1,
     })
 
     const plan =
       existingPlan ??
       new PlanModel({
-        userId: parsed.data.userId,
+        userId,
         baseAssessmentId: new Types.ObjectId(assessment._id),
         startDate,
         days: 7,
@@ -61,8 +66,8 @@ router.post(
 router.get(
   '/latest',
   asyncHandler(async (req, res) => {
-    const userId = req.query.userId
-    if (!userId || typeof userId !== 'string') throw badRequest('userId requerido')
+    const userId = req.user?.id
+    if (!userId) throw unauthorized('Usuario no autenticado')
 
     const assessment = await AssessmentModel.findOne({ userId }).sort({ createdAt: -1 })
     if (!assessment) throw notFound('Assessment no encontrado')
