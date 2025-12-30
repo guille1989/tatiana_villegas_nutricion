@@ -17,7 +17,8 @@ const MacroStatusBanner = ({ budget, used }: Props) => {
 
   const excessItems = (["protein", "carbs", "fat"] as const)
     .map((key) => {
-      const state = getMacroState(remaining[key], budget[key]);
+      const unitSize = key === "protein" ? 10 : key === "carbs" ? 15 : 5;
+      const state = getMacroState(remaining[key], budget[key], key, unitSize);
       if (state !== "over") return null;
       return `${key === "protein" ? "Prote" : key === "carbs" ? "Carbs" : "Grasas"} +${Math.abs(
         remaining[key]

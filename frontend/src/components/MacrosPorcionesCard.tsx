@@ -1,5 +1,5 @@
 import { Card, CardContent, Stack, Typography, Box } from "@mui/material";
-import { getMacroState, macroStateColor } from "../lib/macroStatus";
+import { getMacroState, macroStateColor, type MacroKey } from "../lib/macroStatus";
 
 type Macros = { protein: number; carbs: number; fat: number };
 
@@ -16,14 +16,17 @@ const Row = ({
   used,
   remaining,
   isPortion = false,
+  macroKey,
 }: {
   label: string;
   objective: number;
   used: number;
   remaining: number;
   isPortion?: boolean;
+  macroKey: MacroKey;
 }) => {
-  const state = getMacroState(remaining, objective);
+  const unitSize = isPortion ? 1 : macroKey === "protein" ? 10 : macroKey === "carbs" ? 15 : 5;
+  const state = getMacroState(remaining, objective, macroKey, unitSize);
   const isExcess = state === "over";
   const isOk = state === "ok";
   const text =
@@ -88,9 +91,9 @@ const MacrosPorcionesCard = ({ macrosObjective, macrosUsed, portionsBudget, port
                 Macros (g)
               </Typography>
               <Stack spacing={1}>
-                <Row label="Proteína" objective={macrosObjective.protein} used={macrosUsed.protein} remaining={macrosRemaining.protein} />
-                <Row label="Carbs" objective={macrosObjective.carbs} used={macrosUsed.carbs} remaining={macrosRemaining.carbs} />
-                <Row label="Grasas" objective={macrosObjective.fat} used={macrosUsed.fat} remaining={macrosRemaining.fat} />
+                <Row label="Proteína" objective={macrosObjective.protein} used={macrosUsed.protein} remaining={macrosRemaining.protein} macroKey="protein" />
+                <Row label="Carbs" objective={macrosObjective.carbs} used={macrosUsed.carbs} remaining={macrosRemaining.carbs} macroKey="carbs" />
+                <Row label="Grasas" objective={macrosObjective.fat} used={macrosUsed.fat} remaining={macrosRemaining.fat} macroKey="fat" />
               </Stack>
             </Stack>
             <Stack flex={1} spacing={1}>
@@ -98,9 +101,9 @@ const MacrosPorcionesCard = ({ macrosObjective, macrosUsed, portionsBudget, port
                 Porciones
               </Typography>
               <Stack spacing={1}>
-                <Row label="Proteína" objective={portionsBudget.protein} used={portionsUsed.protein} remaining={portionsRemaining.protein} isPortion />
-                <Row label="Carbs" objective={portionsBudget.carbs} used={portionsUsed.carbs} remaining={portionsRemaining.carbs} isPortion />
-                <Row label="Grasas" objective={portionsBudget.fat} used={portionsUsed.fat} remaining={portionsRemaining.fat} isPortion />
+                <Row label="Proteína" objective={portionsBudget.protein} used={portionsUsed.protein} remaining={portionsRemaining.protein} isPortion macroKey="protein" />
+                <Row label="Carbs" objective={portionsBudget.carbs} used={portionsUsed.carbs} remaining={portionsRemaining.carbs} isPortion macroKey="carbs" />
+                <Row label="Grasas" objective={portionsBudget.fat} used={portionsUsed.fat} remaining={portionsRemaining.fat} isPortion macroKey="fat" />
               </Stack>
             </Stack>
           </Stack>
@@ -111,3 +114,4 @@ const MacrosPorcionesCard = ({ macrosObjective, macrosUsed, portionsBudget, port
 };
 
 export default MacrosPorcionesCard;
+

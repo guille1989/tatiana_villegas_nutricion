@@ -30,7 +30,7 @@ import {
   fetchFoodsCatalog,
   gramsFromPortions,
 } from "../lib/foods";
-import { macroStateColor, TOL_PCT } from "../lib/macroStatus";
+import { getMacroState, macroStateColor, type MacroKey } from "../lib/macroStatus";
 import type { MacroTargets } from "../lib/meals";
 import type { Food, Meal, MealItem } from "../types";
 import IngredientCatalogTable from "./IngredientCatalogTable";
@@ -100,7 +100,7 @@ type MacroGaugeProps = {
   consumedGrams: number;
   targetGrams: number;
   gramsPerPortion: number;
-  tolerancePct: number;
+  macroKey: MacroKey;
 };
 
 const parseNumberInput = (value: string) => {
@@ -115,7 +115,7 @@ const MacroGauge = ({
   consumedGrams,
   targetGrams,
   gramsPerPortion,
-  tolerancePct,
+  macroKey,
 }: MacroGaugeProps) => {
   const theme = useTheme();
   const isMdUp = useMediaQuery(theme.breakpoints.up("md"));
@@ -129,18 +129,13 @@ const MacroGauge = ({
   const consumedPortions = portionScale ? safeConsumed * portionScale : 0;
   const baseTarget = portionScale ? targetPortions : safeTarget;
   const baseConsumed = portionScale ? consumedPortions : safeConsumed;
-  const lower = baseTarget * (1 - tolerancePct);
-  const upper = baseTarget * (1 + tolerancePct);
+  const remaining = baseTarget - baseConsumed;
   const state =
     baseTarget <= 0
       ? baseConsumed > 0
         ? "over"
         : "pending"
-      : baseConsumed < lower
-      ? "pending"
-      : baseConsumed <= upper
-      ? "ok"
-      : "over";
+      : getMacroState(remaining, baseTarget, macroKey);
   const color = macroStateColor[state];
   const progress =
     baseTarget > 0 ? Math.min((baseConsumed / baseTarget) * 100, 100) : 0;
@@ -206,10 +201,11 @@ const MacroGauge = ({
           Porciones: {consumedPortions.toFixed(1)} / {targetPortions.toFixed(1)}{" "}
           <b>(Restan {remainingPortions.toFixed(1)})</b>
         </Typography>
+        {/* 
         <Typography variant="caption" color="text.secondary" textAlign="center">
           Gramos: {safeConsumed.toFixed(1)} / {safeTarget.toFixed(1)} g <b>(Restan{" "}
           {remainingGrams.toFixed(1)} g)</b>
-        </Typography>
+        </Typography>*/}
       </Stack>
     </Stack>
   );
@@ -598,21 +594,21 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
                       consumedGrams={meal.totals.protein}
                       targetGrams={targets.protein}
                       gramsPerPortion={10}
-                      tolerancePct={TOL_PCT}
+                      macroKey="protein"
                     />
                     <MacroGauge
                       label="Carbohidratos"
                       consumedGrams={meal.totals.carbs}
                       targetGrams={targets.carbs}
                       gramsPerPortion={15}
-                      tolerancePct={TOL_PCT}
+                      macroKey="carbs"
                     />
                     <MacroGauge
                       label="Grasas"
                       consumedGrams={meal.totals.fat}
                       targetGrams={targets.fat}
                       gramsPerPortion={5}
-                      tolerancePct={TOL_PCT}
+                      macroKey="fat"
                     />
                   </Box>
                   <Button
@@ -666,21 +662,21 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
                 consumedGrams={activeTotals.protein}
                 targetGrams={activeTargets.protein}
                 gramsPerPortion={10}
-                tolerancePct={TOL_PCT}
+                macroKey="protein"
               />
               <MacroGauge
                 label="Carbohidratos"
                 consumedGrams={activeTotals.carbs}
                 targetGrams={activeTargets.carbs}
                 gramsPerPortion={15}
-                tolerancePct={TOL_PCT}
+                macroKey="carbs"
               />
               <MacroGauge
                 label="Grasas"
                 consumedGrams={activeTotals.fat}
                 targetGrams={activeTargets.fat}
                 gramsPerPortion={5}
-                tolerancePct={TOL_PCT}
+                macroKey="fat"
               />
             </Box>
           </Stack>

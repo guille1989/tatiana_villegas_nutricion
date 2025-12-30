@@ -24,7 +24,7 @@ import DayEditDialog from "../components/DayEditDialog";
 import { calculateDayFromBase } from "../lib/calc";
 import { getPlan, upsertOverride } from "../lib/api";
 import MealBuilder from "../components/MealBuilder";
-import { getMacroState, macroStateColor } from "../lib/macroStatus";
+import { getMacroState, getTol, macroStateColor } from "../lib/macroStatus";
 import {
   distributeMacros,
   getMealsByCount,
@@ -197,7 +197,7 @@ const PlanDetailPage = () => {
     budget: { protein: number; carbs: number; fat: number }
   ): DayStatus => {
     const states: DayStatus[] = (["protein", "carbs", "fat"] as const).map((key) =>
-      getMacroState(remaining[key], budget[key])
+      getMacroState(remaining[key], budget[key], key)
     ) as DayStatus[];
     if (states.includes("over")) return "over";
     if (states.every((s) => s === "ok")) return "ok";
@@ -710,13 +710,14 @@ const PlanDetailPage = () => {
                               ? currentTotals.carbs / 15
                               : currentTotals.fat / 5;
                           const remainingRaw = budget - used;
-                          const EPS = Math.max(1e-6, budget * 0.05);
+                          const tol = getTol(budget, key);
                           const remaining =
-                            Math.abs(remainingRaw) < EPS ? 0 : remainingRaw;
+                            Math.abs(remainingRaw) <= tol ? 0 : remainingRaw;
                           const percent =
                             budget > 0
                               ? Math.min((used / budget) * 100, 140)
                               : 0;
+                          const state = getMacroState(remainingRaw, budget, key);
                           const label =
                             key === "protein"
                               ? "Proteína"
@@ -729,9 +730,9 @@ const PlanDetailPage = () => {
                               : key === "carbs"
                               ? selectedOutputs.carbsAdjusted
                               : selectedOutputs.fatsAdjusted;
-                          const isExcess = remaining < -EPS;
-                          const isPending = remaining > EPS;
-                          const isCompleted = !isExcess && !isPending;
+                          const isExcess = state === "over";
+                          const isPending = state === "pending";
+                          const isCompleted = state === "ok";
                           const statusText = isExcess
                             ? `Exceso ${Math.abs(remaining).toFixed(1)}`
                             : isPending

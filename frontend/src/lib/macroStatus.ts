@@ -1,20 +1,33 @@
 export type MacroState = "ok" | "pending" | "over";
 
-export const TOL_PCT = 0.05;
-export const MIN_TOL = 0.3;
+export type MacroKey = "protein" | "carbs" | "fat";
+
+export const MACRO_TOL_PCT: Record<MacroKey, number> = {
+  protein: 0.15,
+  carbs: 0.25,
+  fat: 0.2,
+};
+
+export const MACRO_MIN_TOL: Record<MacroKey, number> = {
+  protein: 0.15,
+  carbs: 0.25,
+  fat: 0.2,
+};
 export const ZERO_EPS = 1e-9;
 
 export const norm0 = (n: number) => (Math.abs(n) < ZERO_EPS ? 0 : n);
 
-export const getTol = (budgetPortions: number) =>
-  Math.max(budgetPortions * TOL_PCT, MIN_TOL);
+export const getTol = (budget: number, macro: MacroKey, unitSize = 1) =>
+  Math.max(budget * MACRO_TOL_PCT[macro], MACRO_MIN_TOL[macro] * unitSize);
 
 export const getMacroState = (
-  remainingPortions: number,
-  budgetPortions: number
+  remaining: number,
+  budget: number,
+  macro: MacroKey,
+  unitSize = 1
 ): MacroState => {
-  const r = norm0(remainingPortions);
-  const tol = getTol(budgetPortions);
+  const r = norm0(remaining);
+  const tol = getTol(budget, macro, unitSize);
   if (r < -tol) return "over";
   if (Math.abs(r) <= tol) return "ok";
   return "pending";

@@ -189,7 +189,7 @@ const getAdherenceFromMeals = (meals: Meal[] | undefined, outputs?: CalculationO
   }
 
   const states: MacroState[] = (['protein', 'carbs', 'fat'] as const).map((key) =>
-    getMacroState(remaining[key], budgetPortions[key]),
+    getMacroState(remaining[key], budgetPortions[key], key),
   )
 
   const state: AdherenceState = states.includes('over')
