@@ -768,7 +768,7 @@ const PlanDetailPage = () => {
                                 fontWeight={700}
                                 fontSize={13}
                               >
-                                {`${label} Obj: ${objective.toFixed(1)} g | ${budget.toFixed(1)} porciones`}
+                                {`${label} Obj: ${objective.toFixed(0)} g | ${budget.toFixed(1)} porciones`}
                               </Typography>
                               <Stack
                                 direction="row"

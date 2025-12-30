@@ -31,13 +31,14 @@ router.post(
     if (!userId) throw unauthorized('Usuario no autenticado')
 
     const { baseAssessmentId, startDate, days, title } = parsed.data
+    await PlanModel.updateMany({ userId, status: 'active' }, { status: 'archived' })
     const plan = await PlanModel.create({
       userId,
       baseAssessmentId: new Types.ObjectId(baseAssessmentId),
       startDate: new Date(startDate),
       days,
       title,
-      status: 'draft',
+      status: 'active',
     })
     res.status(201).json({ plan })
   }),

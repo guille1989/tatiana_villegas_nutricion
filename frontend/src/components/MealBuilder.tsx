@@ -93,7 +93,7 @@ const calcTargetKcal = (targets: MacroTargets) =>
   Math.round(targets.protein * 4 + targets.carbs * 4 + targets.fat * 9);
 
 const formatTargets = (targets: MacroTargets) =>
-  `P ${targets.protein.toFixed(1)} C ${targets.carbs.toFixed(1)} G ${targets.fat.toFixed(1)}`;
+  `P ${targets.protein.toFixed(0)} C ${targets.carbs.toFixed(0)} G ${targets.fat.toFixed(0)}`;
 
 type MacroGaugeProps = {
   label: string;
@@ -786,9 +786,9 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       {item.grams.toFixed(0)} g | {item.kcal.toFixed(0)} kcal | P{" "}
-                      {item.macros.protein.toFixed(1)} C{" "}
-                      {item.macros.carbs.toFixed(1)} G{" "}
-                      {item.macros.fat.toFixed(1)}
+                      {item.macros.protein.toFixed(0)} C{" "}
+                      {item.macros.carbs.toFixed(0)} G{" "}
+                      {item.macros.fat.toFixed(0)}
                     </Typography>
                   </Stack>
                   <Stack direction="row" spacing={0.5}>
@@ -854,9 +854,9 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
                     {item.grams.toFixed(0)} g | {item.kcal.toFixed(0)} kcal | P{" "}
-                    {item.macros.protein.toFixed(1)} C{" "}
-                    {item.macros.carbs.toFixed(1)} G{" "}
-                    {item.macros.fat.toFixed(1)}
+                    {item.macros.protein.toFixed(0)} C{" "}
+                    {item.macros.carbs.toFixed(0)} G{" "}
+                    {item.macros.fat.toFixed(0)}
                   </Typography>
                 </Box>
               ))

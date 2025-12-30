@@ -22,7 +22,7 @@ const MacroStatusBanner = ({ budget, used }: Props) => {
       if (state !== "over") return null;
       return `${key === "protein" ? "Prote" : key === "carbs" ? "Carbs" : "Grasas"} +${Math.abs(
         remaining[key]
-      ).toFixed(1)}`;
+      ).toFixed(0)}`;
     })
     .filter(Boolean) as string[];
 

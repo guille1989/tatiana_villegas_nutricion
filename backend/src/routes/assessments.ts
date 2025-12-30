@@ -42,6 +42,8 @@ router.post(
       createdAt: -1,
     })
 
+    await PlanModel.updateMany({ userId, status: 'active' }, { status: 'archived' })
+
     const plan =
       existingPlan ??
       new PlanModel({

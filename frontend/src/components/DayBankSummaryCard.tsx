@@ -74,9 +74,9 @@ const DayBankSummaryCard = ({ objectiveKcal, objectiveMacros, usedMacros }: Prop
                   gap: 1,
                 }}
               >
-                {pill('Prote', `${objectiveMacros.protein.toFixed(1)} g`, `Usado ${usedMacros.protein.toFixed(1)} g`)}
-                {pill('Carbs', `${objectiveMacros.carbs.toFixed(1)} g`, `Usado ${usedMacros.carbs.toFixed(1)} g`)}
-                {pill('Grasa', `${objectiveMacros.fat.toFixed(1)} g`, `Usado ${usedMacros.fat.toFixed(1)} g`)}
+                {pill('Prote', `${objectiveMacros.protein.toFixed(0)} g`, `Usado ${usedMacros.protein.toFixed(0)} g`)}
+                {pill('Carbs', `${objectiveMacros.carbs.toFixed(0)} g`, `Usado ${usedMacros.carbs.toFixed(0)} g`)}
+                {pill('Grasa', `${objectiveMacros.fat.toFixed(0)} g`, `Usado ${usedMacros.fat.toFixed(0)} g`)}
               </Box>
             </Stack>
 

@@ -86,8 +86,8 @@ const IngredientCatalogTable = ({
                 </TableCell>
                 <TableCell sx={{ py: 0.75, width: 200 }}>
                   <Typography variant="caption" color="text.secondary">
-                    P {food.prot_100g.toFixed(1)} | C{" "}
-                    {food.cho_100g.toFixed(1)} | G {food.fat_100g.toFixed(1)}
+                    P {food.prot_100g.toFixed(0)} | C{" "}
+                    {food.cho_100g.toFixed(0)} | G {food.fat_100g.toFixed(0)}
                   </Typography>
                 </TableCell>
                 <TableCell align="right" sx={{ py: 0.75, width: 10 }}>

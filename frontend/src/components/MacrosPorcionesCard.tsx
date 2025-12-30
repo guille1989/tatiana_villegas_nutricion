@@ -27,13 +27,15 @@ const Row = ({
 }) => {
   const unitSize = isPortion ? 1 : macroKey === "protein" ? 10 : macroKey === "carbs" ? 15 : 5;
   const state = getMacroState(remaining, objective, macroKey, unitSize);
+  const formatValue = (value: number) =>
+    isPortion ? value.toFixed(1) : value.toFixed(0);
   const isExcess = state === "over";
   const isOk = state === "ok";
   const text =
     state === "over"
-      ? `Exceso ${Math.abs(remaining).toFixed(1)}`
+      ? `Exceso ${formatValue(Math.abs(remaining))}`
       : state === "pending"
-      ? `Restan ${remaining.toFixed(1)}`
+      ? `Restan ${formatValue(remaining)}`
       : "Cumplido";
   const borderColor = macroStateColor[state];
   return (
@@ -50,16 +52,16 @@ const Row = ({
         {label}
       </Typography>
       <Typography variant="body2" fontWeight={700} color={borderColor}>
-        {isPortion ? `Presupuesto: ${objective.toFixed(1)}` : `Obj: ${objective.toFixed(1)} g`}
+        {isPortion ? `Presupuesto: ${formatValue(objective)}` : `Obj: ${formatValue(objective)} g`}
       </Typography>
       <Typography variant="caption" color="text.secondary">
         {isPortion
           ? isOk
             ? "Cumplido"
-            : `Usadas: ${used.toFixed(1)} · ${text}`
+            : `Usadas: ${formatValue(used)} · ${text}`
           : isOk
           ? "Cumplido"
-          : `Usado: ${used.toFixed(1)} g · ${text}`}
+          : `Usado: ${formatValue(used)} g · ${text}`}
       </Typography>
     </Box>
   );
