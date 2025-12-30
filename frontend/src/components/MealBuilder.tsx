@@ -143,10 +143,7 @@ const MacroGauge = ({
   const round1 = (value: number) => Math.round(value * 10) / 10;
   const normalizeNegativeZero = (value: number) =>
     Object.is(value, -0) ? 0 : value;
-
-  const remainingGrams = normalizeNegativeZero(
-    round1(safeTarget - safeConsumed)
-  );
+  
   const remainingPortions = normalizeNegativeZero(
     round1(targetPortions - consumedPortions)
   );
@@ -218,6 +215,7 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
   const [builderOpen, setBuilderOpen] = useState(false);
   const [activeMealKey, setActiveMealKey] = useState<Meal["key"] | null>(null);
   const [draftMeal, setDraftMeal] = useState<Meal | null>(null);
+  const [ingredientsMeal, setIngredientsMeal] = useState<Meal | null>(null);
   const [activeCategory, setActiveCategory] =
     useState<BlockCategory>("protein");
   const [selectedGroup, setSelectedGroup] = useState<FoodGroupFilter>("proteinas");
@@ -345,6 +343,14 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
     onChange(nextMeals);
     onSave?.(nextMeals);
     handleCloseBuilder();
+  };
+
+  const handleOpenIngredients = (meal: Meal) => {
+    setIngredientsMeal(meal);
+  };
+
+  const handleCloseIngredients = () => {
+    setIngredientsMeal(null);
   };
 
   const addFoodToDraft = (
@@ -559,22 +565,50 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
               >
                 <Stack
                   direction="row"
-                  spacing={1}
+                  spacing={1.5}
                   alignItems="center"
                   flex={1}
                   justifyContent="space-between"
                 >
-                  <Stack spacing={0.25}>
+                  <Stack spacing={0.5} sx={{ minWidth: 0 }}>
                     <Typography variant="body1" fontWeight={700}>
                       {meal.name}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Objetivo {targetKcal} kcal | {formatTargets(targets)}
-                    </Typography>
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      alignItems="center"
+                      flexWrap="wrap"
+                    >
+                      <Typography variant="caption" color="text.secondary">
+                        Objetivo {targetKcal} kcal
+                      </Typography>
+                      <Stack direction="row" spacing={0.5} alignItems="center">
+                        <Typography variant="caption" color="text.secondary">
+                          |
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {formatTargets(targets)}
+                        </Typography>
+                      </Stack>
+                    </Stack>
                   </Stack>
-                  <Typography variant="caption" color="text.secondary">
-                    {meal.items.length} items
-                  </Typography>
+                  <Stack spacing={0.25} alignItems="flex-end">
+                    <Typography variant="caption" color="text.secondary">
+                      {meal.items.length} items
+                    </Typography>
+                    <Button
+                      size="small"
+                      variant="text"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        event.preventDefault();
+                        handleOpenIngredients(meal);
+                      }}
+                    >
+                      Ver ingredientes
+                    </Button>
+                  </Stack>
                 </Stack>
               </AccordionSummary>
               <AccordionDetails sx={{ px: 1.5, pb: 1.5, pt: 0.5 }}>
@@ -792,6 +826,51 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
           </Stack>
         </Stack>
       </Drawer>
+
+      <Dialog
+        open={!!ingredientsMeal}
+        onClose={handleCloseIngredients}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>
+          Ingredientes{ingredientsMeal ? ` de ${ingredientsMeal.name}` : ""}
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.25} sx={{ mt: 0.5 }}>
+            {ingredientsMeal?.items.length ? (
+              ingredientsMeal.items.map((item, idx) => (
+                <Box
+                  key={`${item.foodId}-${idx}-ingredients`}
+                  sx={{
+                    p: 1,
+                    borderRadius: 2,
+                    border: "1px solid",
+                    borderColor: "divider",
+                  }}
+                >
+                  <Typography variant="body2" fontWeight={700}>
+                    {item.nameSnapshot}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {item.grams.toFixed(0)} g | {item.kcal.toFixed(0)} kcal | P{" "}
+                    {item.macros.protein.toFixed(1)} C{" "}
+                    {item.macros.carbs.toFixed(1)} G{" "}
+                    {item.macros.fat.toFixed(1)}
+                  </Typography>
+                </Box>
+              ))
+            ) : (
+              <Typography variant="caption" color="text.secondary">
+                Sin alimentos.
+              </Typography>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseIngredients}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={catalogAddOpen} onClose={handleCloseCatalogAdd} fullWidth maxWidth="xs">
         <DialogTitle>Agregar porciones</DialogTitle>
