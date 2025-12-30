@@ -7,6 +7,8 @@ import type {
   Plan,
   Food,
   WizardInputs,
+  MealTemplate,
+  MealItem,
 } from '../types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api'
@@ -43,6 +45,14 @@ type OverrideDto = {
 }
 
 type FoodDto = Food & { _id: string }
+
+type MealTemplateDto = {
+  _id: string
+  createdAt: string
+  name: string
+  items: MealItem[]
+  totals: { protein: number; carbs: number; fat: number; kcal: number }
+}
 
 type InviteDto = {
   _id: string
@@ -155,6 +165,14 @@ const mapInvite = (raw: InviteDto): Invite => ({
   usesCount: raw.usesCount,
   expiresAt: raw.expiresAt,
   status: raw.status,
+})
+
+const mapMealTemplate = (raw: MealTemplateDto): MealTemplate => ({
+  id: raw._id,
+  createdAt: raw.createdAt,
+  name: raw.name,
+  items: raw.items,
+  totals: raw.totals,
 })
 
 export const claimInvite = async (
@@ -301,6 +319,25 @@ export const getDay = async (planId: string, date: string) => {
 export const deletePlan = async (planId: string) => {
   const { error } = await request(`/plans/${planId}`, { method: 'DELETE' })
   if (error) throw new Error(error)
+}
+
+export const listMealTemplates = async () => {
+  const { data, error } = await request<{ templates: MealTemplateDto[] }>('/meal-library')
+  if (error) throw new Error(error)
+  return (data.templates ?? []).map(mapMealTemplate)
+}
+
+export const createMealTemplate = async (payload: {
+  name: string
+  items: MealItem[]
+  totals: { protein: number; carbs: number; fat: number; kcal: number }
+}) => {
+  const { data, error } = await request<{ template: MealTemplateDto }>('/meal-library', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  if (error) throw new Error(error)
+  return mapMealTemplate(data.template)
 }
 
 export const searchFoodsApi = async (

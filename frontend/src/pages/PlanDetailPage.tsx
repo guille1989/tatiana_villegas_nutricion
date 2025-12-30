@@ -1,10 +1,17 @@
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
   Box,
   Button,
   ButtonBase,
   Card,
   Container,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Fade,
   Paper,
   Snackbar,
@@ -16,13 +23,14 @@ import {
   ToggleButton,
   ToggleButtonGroup,
 } from "@mui/material";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@mui/material/styles";
 import { useNavigate, useParams } from "react-router-dom";
 import DayEditDialog from "../components/DayEditDialog";
 import { calculateDayFromBase } from "../lib/calc";
-import { getPlan, upsertOverride } from "../lib/api";
+import { createMealTemplate, getPlan, listMealTemplates, upsertOverride } from "../lib/api";
 import MealBuilder from "../components/MealBuilder";
 import { getMacroState, getTol, macroStateColor } from "../lib/macroStatus";
 import {
@@ -31,7 +39,7 @@ import {
   getWeightsByCount,
   type MealCount,
 } from "../lib/meals";
-import type { Assessment, DayOverride, Meal, Plan } from "../types";
+import type { Assessment, DayOverride, Meal, MealTemplate, Plan } from "../types";
 
 const PlanDetailPage = () => {
   const { planId } = useParams<{ planId: string }>();
@@ -47,6 +55,18 @@ const PlanDetailPage = () => {
   const [snackbar, setSnackbar] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mealsByDate, setMealsByDate] = useState<Record<string, Meal[]>>({});
+  const [mealLibrary, setMealLibrary] = useState<MealTemplate[]>([]);
+  const [mealLibraryLoading, setMealLibraryLoading] = useState(false);
+  const [mealLibraryError, setMealLibraryError] = useState<string | null>(null);
+  const [cloneOpen, setCloneOpen] = useState(false);
+  const [cloneSaving, setCloneSaving] = useState(false);
+  const [cloneError, setCloneError] = useState<string | null>(null);
+  const [cloneSourceId, setCloneSourceId] = useState<string | null>(null);
+  const [cloneTargetPlanId, setCloneTargetPlanId] = useState<string | null>(null);
+  const [cloneTargetDate, setCloneTargetDate] = useState<string | null>(null);
+  const [cloneTargetMealKey, setCloneTargetMealKey] = useState<Meal["key"] | null>(null);
+  const [cloneTargetMealName, setCloneTargetMealName] = useState<string | null>(null);
+  const [cloneExpandedId, setCloneExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!planId) return;
@@ -93,6 +113,13 @@ const PlanDetailPage = () => {
       detailRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [selectedDate]);
+
+  useEffect(() => {
+    if (!cloneOpen) return;
+    if (!mealLibraryLoading && mealLibrary.length === 0) {
+      void loadMealLibrary();
+    }
+  }, [cloneOpen, mealLibraryLoading, mealLibrary.length]);
 
   const baseOutputs = assessment?.outputs;
   const baseInputs = assessment?.inputs;
@@ -184,6 +211,22 @@ const PlanDetailPage = () => {
       { protein: 0, carbs: 0, fat: 0, kcal: 0 },
     );
 
+  const buildMealTemplateName = (
+    mealName: string,
+    dateLabel: string,
+    usedNames: Set<string>
+  ) => {
+    const baseName = `${mealName} - ${dateLabel}`;
+    let nextName = baseName;
+    let counter = 2;
+    while (usedNames.has(nextName)) {
+      nextName = `${baseName} (${counter})`;
+      counter += 1;
+    }
+    usedNames.add(nextName);
+    return nextName;
+  };
+
   type DayStatus = "pending" | "ok" | "over";
 
   const statusColorMap: Record<DayStatus, string> = {
@@ -228,6 +271,14 @@ const PlanDetailPage = () => {
     mealCount ? getWeightsByCount(mealCount) : []
   );
 
+  const cloneSource = mealLibrary.find((item) => item.id === cloneSourceId);
+  const cloneDisabled =
+    cloneSaving ||
+    !cloneSourceId ||
+    !cloneTargetPlanId ||
+    !cloneTargetDate ||
+    !cloneTargetMealKey;
+
 
   const handleMealsChange = (meals: Meal[]) => {
     if (!selectedDate) return;
@@ -268,10 +319,173 @@ const PlanDetailPage = () => {
       });
       handleSaved(record);
       setMealsByDate((prev) => ({ ...prev, [selectedDate]: mealsToSave }));
+      void saveMealsToLibrary(mealsToSave);
       setSnackbar("Comidas guardadas");
     } catch (err) {
       console.error(err);
       setError("No se pudieron guardar las comidas");
+    }
+  };
+
+  const saveMealsToLibrary = async (meals: Meal[]) => {
+    if (!selectedDate) return;
+    const candidates = meals.filter((meal) => meal.items.length > 0);
+    if (candidates.length === 0) return;
+    let templates = mealLibrary;
+    if (templates.length === 0) {
+      try {
+        templates = await listMealTemplates();
+      } catch (err) {
+        console.error(err);
+        templates = [];
+      }
+    }
+    const usedNames = new Set(templates.map((item) => item.name));
+    const dateLabel = dayjs(selectedDate).format("YYYY-MM-DD");
+    try {
+      const created = await Promise.all(
+        candidates.map((meal) =>
+          createMealTemplate({
+            name: buildMealTemplateName(meal.name, dateLabel, usedNames),
+            items: meal.items,
+            totals: meal.totals,
+          })
+        )
+      );
+      setMealLibrary((prev) => {
+        const map = new Map<string, MealTemplate>();
+        templates.forEach((item) => map.set(item.id, item));
+        prev.forEach((item) => map.set(item.id, item));
+        created.forEach((item) => map.set(item.id, item));
+        return Array.from(map.values()).sort((a, b) =>
+          dayjs(b.createdAt).diff(dayjs(a.createdAt))
+        );
+      });
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const loadMealLibrary = async () => {
+    setMealLibraryLoading(true);
+    setMealLibraryError(null);
+    try {
+      const templates = await listMealTemplates();
+      setMealLibrary(templates);
+    } catch (err) {
+      setMealLibraryError(
+        err instanceof Error ? err.message : "No se pudo cargar la biblioteca"
+      );
+    } finally {
+      setMealLibraryLoading(false);
+    }
+  };
+
+  const handleOpenClone = (meal: Meal) => {
+    setCloneError(null);
+    setCloneOpen(true);
+    setCloneSourceId(null);
+    setCloneTargetPlanId(plan?.id ?? null);
+    setCloneTargetDate(selectedDate ?? null);
+    setCloneTargetMealKey(meal.key);
+    setCloneTargetMealName(meal.name);
+    setCloneExpandedId(null);
+  };
+
+  const handleCloseClone = () => {
+    setCloneOpen(false);
+    setCloneSaving(false);
+    setCloneError(null);
+    setCloneSourceId(null);
+    setCloneTargetPlanId(null);
+    setCloneTargetDate(null);
+    setCloneTargetMealKey(null);
+    setCloneTargetMealName(null);
+    setCloneExpandedId(null);
+  };
+
+  const handleConfirmClone = async () => {
+    if (!cloneSourceId || !cloneTargetPlanId || !cloneTargetDate || !cloneTargetMealKey) {
+      setCloneError("Completa los campos requeridos.");
+      return;
+    }
+    const template = mealLibrary.find((item) => item.id === cloneSourceId);
+    if (!template) {
+      setCloneError("Selecciona un plato de la biblioteca.");
+      return;
+    }
+
+    const baseMeals =
+      cloneTargetDate === selectedDate
+        ? currentMeals
+        : getDayMeals(cloneTargetDate);
+    const baseMealCount = getMealCount(baseMeals);
+    if (!baseMealCount) {
+      setCloneError("El dia seleccionado no tiene comidas configuradas.");
+      return;
+    }
+    const targetMeals = mergeMealsWithTemplate(
+      baseMeals,
+      getMealsByCount(baseMealCount)
+    );
+    if (!targetMeals.some((meal) => meal.key === cloneTargetMealKey)) {
+      setCloneError("Selecciona una comida destino valida.");
+      return;
+    }
+
+    const nextMeals = targetMeals.map((meal) => {
+      if (meal.key !== cloneTargetMealKey) return meal;
+      return {
+        ...meal,
+        items: template.items.map((item) => ({
+          ...item,
+          macros: { ...item.macros },
+        })),
+        totals: { ...template.totals },
+      };
+    });
+
+    const existingOverride =
+      cloneTargetDate === selectedDate
+        ? selectedOverride
+        : overrides.find((item) => item.date === cloneTargetDate);
+    const planAssessment = assessment ?? undefined;
+    const baseOverride =
+      existingOverride?.overrides ??
+      (planAssessment?.inputs
+        ? {
+            dayType: planAssessment.inputs.dayType,
+            activityLevel: planAssessment.inputs.activityLevel,
+          }
+        : {});
+
+    setCloneSaving(true);
+    setCloneError(null);
+    try {
+      const record = await upsertOverride({
+        planId: cloneTargetPlanId,
+        date: cloneTargetDate,
+        overrides: baseOverride,
+        meals: nextMeals,
+      });
+
+      if (cloneTargetPlanId === plan?.id) {
+        setOverrides((prev) => {
+          const filtered = prev.filter((item) => item.date !== record.date);
+          return [...filtered, record];
+        });
+        setMealsByDate((prev) => ({
+          ...prev,
+          [record.date]: (record.meals ?? []) as Meal[],
+        }));
+      }
+
+      setSnackbar("Plato clonado");
+      handleCloseClone();
+    } catch (err) {
+      setCloneError("No se pudo clonar el plato.");
+    } finally {
+      setCloneSaving(false);
     }
   };
 
@@ -958,6 +1172,7 @@ const PlanDetailPage = () => {
                     onSave={handleSaveMeals}
                     mealTargets={mealTargets}
                     onError={(msg) => setSnackbar(msg)}
+                    onCloneMeal={handleOpenClone}
                   />
                 )}
               </Stack>
@@ -989,6 +1204,151 @@ const PlanDetailPage = () => {
         )}
       </Stack>
 
+      <Dialog open={cloneOpen} onClose={handleCloseClone} fullWidth maxWidth="sm">
+        <DialogTitle>Clonar plato</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 0.5 }}>
+            <Stack spacing={1}>
+              <Typography variant="subtitle2" fontWeight={700}>
+                Platos guardados
+              </Typography>
+              {mealLibraryLoading ? (
+                <Typography variant="caption" color="text.secondary">
+                  Cargando biblioteca...
+                </Typography>
+              ) : mealLibrary.length === 0 ? (
+                <Typography variant="caption" color="text.secondary">
+                  No hay platos guardados en la biblioteca.
+                </Typography>
+                ) : (
+                  <Stack spacing={1}>
+                    {mealLibrary.map((item) => {
+                      const isSelected = cloneSourceId === item.id;
+                      const isExpanded = cloneExpandedId === item.id;
+                      return (
+                        <Accordion
+                          key={item.id}
+                          expanded={isExpanded}
+                          onChange={(_, expanded) =>
+                            setCloneExpandedId(expanded ? item.id : null)
+                          }
+                          disableGutters
+                          elevation={0}
+                          sx={{
+                            borderRadius: 2,
+                            border: "1px solid",
+                            borderColor: isSelected ? "primary.main" : "divider",
+                            "&:before": { display: "none" },
+                          }}
+                        >
+                          <AccordionSummary
+                            expandIcon={<ExpandMoreIcon />}
+                            sx={{
+                              px: 1.5,
+                              py: 1,
+                              "& .MuiAccordionSummary-content": {
+                                my: 0,
+                              },
+                            }}
+                          >
+                            <Stack
+                              direction={{ xs: "column", sm: "row" }}
+                              spacing={1}
+                              alignItems={{ xs: "flex-start", sm: "center" }}
+                              justifyContent="space-between"
+                              width="100%"
+                            >
+                              <Stack spacing={0.25} alignItems="flex-start">
+                                <Typography variant="body2" fontWeight={700}>
+                                  {item.name}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {item.items.length} items | {item.totals.kcal.toFixed(0)} kcal
+                                </Typography>
+                              </Stack>
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                <Typography variant="caption" color="text.secondary">
+                                  Ver ingredientes
+                                </Typography>
+                                <Button
+                                  size="small"
+                                  variant={isSelected ? "contained" : "outlined"}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    event.preventDefault();
+                                    setCloneSourceId(item.id);
+                                  }}
+                                >
+                                  {isSelected ? "Seleccionado" : "Seleccionar"}
+                                </Button>
+                              </Stack>
+                            </Stack>
+                          </AccordionSummary>
+                          <AccordionDetails sx={{ pt: 0, pb: 1.5, px: 1.5 }}>
+                            <Stack spacing={1}>
+                              {item.items.length ? (
+                                item.items.map((mealItem, idx) => (
+                                  <Box
+                                    key={`${mealItem.foodId}-${idx}-clone`}
+                                    sx={{
+                                      p: 1,
+                                      borderRadius: 2,
+                                      border: "1px solid",
+                                      borderColor: "divider",
+                                    }}
+                                  >
+                                    <Typography variant="body2" fontWeight={700}>
+                                      {mealItem.nameSnapshot}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {mealItem.grams.toFixed(0)} g |{" "}
+                                      {mealItem.kcal.toFixed(0)} kcal | P{" "}
+                                      {mealItem.macros.protein.toFixed(0)} C{" "}
+                                      {mealItem.macros.carbs.toFixed(0)} G{" "}
+                                      {mealItem.macros.fat.toFixed(0)}
+                                    </Typography>
+                                  </Box>
+                                ))
+                              ) : (
+                                <Typography variant="caption" color="text.secondary">
+                                  Sin alimentos.
+                                </Typography>
+                              )}
+                            </Stack>
+                          </AccordionDetails>
+                        </Accordion>
+                      );
+                    })}
+                  </Stack>
+                )}
+              {mealLibraryError && (
+                <Typography variant="caption" color="error">
+                  {mealLibraryError}
+                </Typography>
+              )}
+            </Stack>
+
+            {cloneSource && (
+              <Typography variant="caption" color="text.secondary">
+                Se clonara en {cloneTargetMealName ?? "la comida seleccionada"}{" "}
+                {cloneTargetDate ? `| ${dayjs(cloneTargetDate).format("DD MMM YYYY")}` : ""}.
+              </Typography>
+            )}
+            {cloneError && (
+              <Typography variant="caption" color="error">
+                {cloneError}
+              </Typography>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseClone}>Cancelar</Button>
+          <Button variant="contained" onClick={handleConfirmClone} disabled={cloneDisabled}>
+            {cloneSaving ? "Clonando..." : "Clonar"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {editingDate && baseInputs && (
         <DayEditDialog
           open
@@ -1013,4 +1373,6 @@ const PlanDetailPage = () => {
 };
 
 export default PlanDetailPage;
+
+
 

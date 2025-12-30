@@ -90,3 +90,11 @@ export type Meal = {
   items: MealItem[]
   totals: { protein: number; carbs: number; fat: number; kcal: number }
 }
+
+export type MealTemplate = {
+  id: string
+  createdAt: string
+  name: string
+  items: MealItem[]
+  totals: { protein: number; carbs: number; fat: number; kcal: number }
+}

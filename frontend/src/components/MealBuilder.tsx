@@ -43,6 +43,7 @@ type Props = {
   onChange: (meals: Meal[]) => void;
   onSave?: (meals: Meal[]) => void;
   onError: (msg: string) => void;
+  onCloneMeal?: (meal: Meal) => void;
 };
 
 type BlockCategory = "protein" | "carb" | "fat";
@@ -208,7 +209,7 @@ const MacroGauge = ({
   );
 };
 
-const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) => {
+const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMeal }: Props) => {
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -597,17 +598,32 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError }: Props) =
                     <Typography variant="caption" color="text.secondary">
                       {meal.items.length} items
                     </Typography>
-                    <Button
-                      size="small"
-                      variant="text"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        event.preventDefault();
-                        handleOpenIngredients(meal);
-                      }}
-                    >
-                      Ver ingredientes
-                    </Button>
+                    <Stack direction="row" spacing={0.5}>
+                      {onCloneMeal && (
+                        <Button
+                          size="small"
+                          variant="text"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            event.preventDefault();
+                            onCloneMeal(meal);
+                          }}
+                        >
+                          Clonar plato
+                        </Button>
+                      )}
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          event.preventDefault();
+                          handleOpenIngredients(meal);
+                        }}
+                      >
+                        Ver ingredientes
+                      </Button>
+                    </Stack>
                   </Stack>
                 </Stack>
               </AccordionSummary>

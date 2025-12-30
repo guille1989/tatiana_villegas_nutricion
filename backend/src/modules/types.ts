@@ -69,7 +69,7 @@ export const dayOverrideSchema = z.object({
   meals: z
     .array(
       z.object({
-        key: z.enum(['breakfast', 'lunch', 'snack', 'dinner']),
+        key: z.enum(['breakfast', 'lunch', 'snack', 'snack2', 'dinner']),
         name: z.string(),
         items: z.array(
           z.object({
