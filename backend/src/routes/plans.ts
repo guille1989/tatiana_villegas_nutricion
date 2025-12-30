@@ -21,6 +21,53 @@ const createPlanSchema = z.object({
   title: z.string().optional(),
 })
 
+const macroOverrideSchema = z.object({
+  kcalObjectiveDay: z.coerce.number().nonnegative(),
+  protein: z.coerce.number().nonnegative(),
+  carbsAdjusted: z.coerce.number().nonnegative(),
+  fatsAdjusted: z.coerce.number().nonnegative(),
+})
+
+const macroOverrideBodySchema = z.object({
+  effectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  macros: macroOverrideSchema,
+})
+
+type MacroOverrideValue = z.infer<typeof macroOverrideSchema>
+type MacroOverrideEntry = { effectiveFrom: string; macros?: MacroOverrideValue | null }
+
+const normalizeMacroOverrides = (overrides: Array<MacroOverrideEntry> | undefined) =>
+  (overrides ?? []).filter(
+    (item): item is { effectiveFrom: string; macros: MacroOverrideValue } =>
+      !!item?.macros,
+  )
+
+const getMacroOverrideForDate = (
+  overrides: Array<MacroOverrideEntry> | undefined,
+  date: string,
+) => {
+  const normalized = normalizeMacroOverrides(overrides)
+  if (normalized.length === 0) return null
+  const filtered = normalized.filter((item) => item.effectiveFrom <= date)
+  if (filtered.length === 0) return null
+  filtered.sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? -1 : 1))
+  return filtered[filtered.length - 1]
+}
+
+const applyMacroOverride = (
+  outputs: ReturnType<typeof calculateDayFromBase>['outputs'],
+  override: { macros: MacroOverrideValue } | null,
+) => {
+  if (!override) return outputs
+  return {
+    ...outputs,
+    kcalObjectiveDay: override.macros.kcalObjectiveDay,
+    protein: override.macros.protein,
+    carbsAdjusted: override.macros.carbsAdjusted,
+    fatsAdjusted: override.macros.fatsAdjusted,
+  }
+}
+
 router.post(
   '/',
   asyncHandler(async (req, res) => {
@@ -69,6 +116,39 @@ router.get(
   }),
 )
 
+router.put(
+  '/:planId/macro-overrides',
+  asyncHandler(async (req, res) => {
+    const { planId } = req.params
+    if (!Types.ObjectId.isValid(planId)) throw badRequest('planId invalido')
+    const parsed = macroOverrideBodySchema.safeParse(req.body)
+    if (!parsed.success) throw badRequest('Validation failed', parsed.error.flatten())
+
+    const plan = await PlanModel.findById(planId)
+    if (!plan) throw notFound('Plan no encontrado')
+    const isAdmin = req.user?.role === 'admin'
+    if (!isAdmin) throw badRequest('Acceso no permitido')
+
+    const today = new Date().toISOString().slice(0, 10)
+    const requestedDate = parsed.data.effectiveFrom ?? today
+    const effectiveFrom = requestedDate < today ? today : requestedDate
+
+    const nextOverride = {
+      effectiveFrom,
+      macros: parsed.data.macros,
+    }
+
+    const existing = normalizeMacroOverrides(plan.macroOverrides)
+    const filtered = existing.filter(
+      (item: { effectiveFrom: string }) => item.effectiveFrom !== effectiveFrom,
+    )
+    plan.set('macroOverrides', [...filtered, nextOverride])
+    await plan.save()
+
+    res.json({ plan })
+  }),
+)
+
 const overrideBodySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   overrides: dayOverrideSchema,
@@ -100,6 +180,8 @@ router.put(
     if (!assessment) throw notFound('Assessment base no encontrado')
 
     const { outputs } = calculateDayFromBase(assessment.inputs, parsed.data.overrides)
+    const macroOverride = getMacroOverrideForDate(plan.macroOverrides, parsed.data.date)
+    const computed = applyMacroOverride(outputs, macroOverride)
 
     const override = await PlanDayOverrideModel.findOneAndUpdate(
       { planId, date: parsed.data.date },
@@ -108,7 +190,7 @@ router.put(
         userId: req.user?.id ?? 'unknown',
         date: parsed.data.date,
         overrides: parsed.data.overrides,
-        computed: outputs,
+        computed,
         meals: parsed.data.meals,
         note: parsed.data.note,
       },
@@ -155,12 +237,16 @@ router.get(
 
     const existing = await PlanDayOverrideModel.findOne({ planId, date })
     if (existing) {
-      res.json({ override: existing, outputs: existing.computed })
+      const macroOverride = getMacroOverrideForDate(plan.macroOverrides, date)
+      const computed = applyMacroOverride(existing.computed, macroOverride)
+      res.json({ override: { ...existing.toObject(), computed }, outputs: computed })
       return
     }
 
     const { outputs } = calculateDayFromBase(assessment.inputs, {})
-    res.json({ outputs })
+    const macroOverride = getMacroOverrideForDate(plan.macroOverrides, date)
+    const computed = applyMacroOverride(outputs, macroOverride)
+    res.json({ outputs: computed })
   }),
 )
 

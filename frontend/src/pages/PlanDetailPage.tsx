@@ -39,7 +39,15 @@ import {
   getWeightsByCount,
   type MealCount,
 } from "../lib/meals";
-import type { Assessment, DayOverride, Meal, MealTemplate, Plan } from "../types";
+import type {
+  Assessment,
+  CalculationOutputs,
+  DayOverride,
+  Meal,
+  MealTemplate,
+  Plan,
+  PlanMacroOverride,
+} from "../types";
 
 const PlanDetailPage = () => {
   const { planId } = useParams<{ planId: string }>();
@@ -139,17 +147,45 @@ const PlanDetailPage = () => {
     setSnackbar("Override eliminado");
   };
 
-  const computeOutputs = (override?: DayOverride) => {
-    if (!baseInputs) return baseOutputs;
-    if (override?.computed) return override.computed;
+  const getMacroOverrideForDate = (
+    date: string | null,
+    overrides: PlanMacroOverride[] | undefined
+  ) => {
+    if (!date || !overrides || overrides.length === 0) return null;
+    const filtered = overrides.filter((item) => item.effectiveFrom <= date);
+    if (filtered.length === 0) return null;
+    return filtered.reduce((latest, item) =>
+      item.effectiveFrom > latest.effectiveFrom ? item : latest
+    );
+  };
+
+  const applyMacroOverride = (
+    outputs: CalculationOutputs | undefined,
+    date: string | null
+  ) => {
+    if (!outputs) return outputs;
+    const override = getMacroOverrideForDate(date, plan?.macroOverrides);
+    if (!override) return outputs;
+    return {
+      ...outputs,
+      kcalObjectiveDay: override.macros.kcalObjectiveDay,
+      protein: override.macros.protein,
+      carbsAdjusted: override.macros.carbsAdjusted,
+      fatsAdjusted: override.macros.fatsAdjusted,
+    };
+  };
+
+  const computeOutputs = (date: string | null, override?: DayOverride) => {
+    if (!baseInputs) return applyMacroOverride(baseOutputs ?? undefined, date);
+    if (override?.computed) return applyMacroOverride(override.computed, date);
     if (override) {
       try {
-        return calculateDayFromBase(baseInputs, override.overrides);
+        return applyMacroOverride(calculateDayFromBase(baseInputs, override.overrides), date);
       } catch {
-        return baseOutputs;
+        return applyMacroOverride(baseOutputs ?? undefined, date);
       }
     }
-    return baseOutputs;
+    return applyMacroOverride(baseOutputs ?? undefined, date);
   };
 
   const getTrainingCount = (override?: DayOverride) => {
@@ -169,7 +205,7 @@ const PlanDetailPage = () => {
   };
 
   const selectedOverride = overrides.find((item) => item.date === selectedDate);
-  const selectedOutputs = computeOutputs(selectedOverride);
+  const selectedOutputs = computeOutputs(selectedDate, selectedOverride);
   const selectedTrainingCount = getTrainingCount(selectedOverride);
   const selectedDayType =
     selectedTrainingCount > 0
@@ -493,7 +529,7 @@ const PlanDetailPage = () => {
 
   const getDayData = (date: string) => {
     const override = overrides.find((item) => item.date === date);
-    const outputs = computeOutputs(override);
+    const outputs = computeOutputs(date, override);
     const dayType =
       override?.overrides.dayType ?? baseInputs?.dayType ?? "rest";
     return {

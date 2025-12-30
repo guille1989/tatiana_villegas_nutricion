@@ -5,6 +5,7 @@ import type {
   DayOverride,
   DayOverrideInputs,
   Plan,
+  PlanMacroOverride,
   Food,
   WizardInputs,
   MealTemplate,
@@ -31,6 +32,7 @@ type PlanDto = {
   days: 5 | 7 | 15 | 30
   title?: string
   status?: Plan['status']
+  macroOverrides?: PlanMacroOverride[]
 }
 
 type OverrideDto = {
@@ -137,6 +139,7 @@ const mapPlan = (raw: PlanDto): Plan => ({
   days: raw.days,
   title: raw.title,
   status: raw.status,
+  macroOverrides: raw.macroOverrides,
 })
 
 const mapOverride = (raw: OverrideDto): DayOverride => ({
@@ -282,6 +285,25 @@ export const getPlan = async (planId: string) => {
     assessment:
       typeof data.plan.baseAssessmentId === 'string' ? undefined : mapAssessment(data.plan.baseAssessmentId as AssessmentDto),
   }
+}
+
+export const upsertPlanMacroOverride = async (payload: {
+  planId: string
+  macros: {
+    kcalObjectiveDay: number
+    protein: number
+    carbsAdjusted: number
+    fatsAdjusted: number
+  }
+  effectiveFrom?: string
+}) => {
+  const { planId, ...body } = payload
+  const { data, error } = await request<{ plan: PlanDto }>(`/plans/${planId}/macro-overrides`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+  if (error) throw new Error(error)
+  return mapPlan(data.plan)
 }
 
 export const upsertOverride = async (payload: {

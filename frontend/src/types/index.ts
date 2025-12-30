@@ -34,6 +34,17 @@ export type Plan = {
   days: 5 | 7 | 15 | 30
   title?: string
   status?: 'draft' | 'active' | 'archived'
+  macroOverrides?: PlanMacroOverride[]
+}
+
+export type PlanMacroOverride = {
+  effectiveFrom: string
+  macros: {
+    kcalObjectiveDay: number
+    protein: number
+    carbsAdjusted: number
+    fatsAdjusted: number
+  }
 }
 
 export type TrainingSession = {

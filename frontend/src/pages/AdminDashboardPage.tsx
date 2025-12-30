@@ -6,6 +6,10 @@ import {
   CardContent,
   Chip,
   Container,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   FormControl,
   InputLabel,
@@ -27,7 +31,14 @@ import {
 import dayjs, { type Dayjs } from 'dayjs'
 import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { createInvite, getAdminOverview, listInvites, type AdminOverviewItem, type Invite } from '../lib/api'
+import {
+  createInvite,
+  getAdminOverview,
+  listInvites,
+  upsertPlanMacroOverride,
+  type AdminOverviewItem,
+  type Invite,
+} from '../lib/api'
 import {
   activityOptions,
   dayTypeOptions,
@@ -164,6 +175,33 @@ const getBudgetFromOutputs = (outputs?: CalculationOutputs | null) => {
   }
 }
 
+const getPlanMacroOverrideForDate = (plan: Plan | null | undefined, date: string) => {
+  const overrides = plan?.macroOverrides ?? []
+  if (overrides.length === 0) return null
+  const filtered = overrides.filter((item) => item.effectiveFrom <= date)
+  if (filtered.length === 0) return null
+  return filtered.reduce((latest, item) =>
+    item.effectiveFrom > latest.effectiveFrom ? item : latest,
+  )
+}
+
+const applyPlanMacroOverride = (
+  outputs: CalculationOutputs | null | undefined,
+  plan: Plan | null | undefined,
+  date: string,
+) => {
+  if (!outputs) return outputs
+  const override = getPlanMacroOverrideForDate(plan, date)
+  if (!override) return outputs
+  return {
+    ...outputs,
+    kcalObjectiveDay: override.macros.kcalObjectiveDay,
+    protein: override.macros.protein,
+    carbsAdjusted: override.macros.carbsAdjusted,
+    fatsAdjusted: override.macros.fatsAdjusted,
+  }
+}
+
 const toPortions = (macros: { protein: number; carbs: number; fat: number }) => ({
   protein: macros.protein / 10,
   carbs: macros.carbs / 15,
@@ -224,10 +262,11 @@ const getLastUpdateDate = (plan?: Plan | null, overrides: DayOverride[] = []) =>
 const buildSyncSeries = (
   overrides: DayOverride[],
   outputs: CalculationOutputs | undefined,
-  planStart: string | undefined,
-  planDays: number | undefined,
+  plan?: Plan | null,
 ): SyncPoint[] => {
   const overrideMap = new Map(overrides.map((item) => [item.date, item]))
+  const planStart = plan?.startDate
+  const planDays = plan?.days
   if (!planStart || !planDays) return []
 
   const planStartDate = dayjs(planStart)
@@ -241,7 +280,7 @@ const buildSyncSeries = (
   return Array.from({ length: daysCount }, (_, idx) => {
     const date = rangeStart.add(idx, 'day').format('YYYY-MM-DD')
     const override = overrideMap.get(date)
-    const targetBase = override?.computed ?? outputs ?? null
+    const targetBase = applyPlanMacroOverride(override?.computed ?? outputs ?? null, plan, date)
     const target = getTargetMacros(targetBase)
     const meals = getOverrideMeals(override)
     const totals = meals && meals.length > 0 ? totalsFromMeals(meals) : null
@@ -291,7 +330,8 @@ const buildTrend = (
     const label = dayjs(date).format('D')
     const override = overrideMap.get(date)
     const meals = getOverrideMeals(override)
-    const summary = getAdherenceFromMeals(meals, override?.computed ?? outputs ?? null)
+    const baseOutputs = applyPlanMacroOverride(override?.computed ?? outputs ?? null, plan, date)
+    const summary = getAdherenceFromMeals(meals, baseOutputs)
     return {
       date,
       label,
@@ -511,6 +551,15 @@ const AdminDashboardPage = () => {
   const [statusFilter, setStatusFilter] = useState('all')
   const [goalFilter, setGoalFilter] = useState('all')
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
+  const [macroDialogOpen, setMacroDialogOpen] = useState(false)
+  const [macroSaving, setMacroSaving] = useState(false)
+  const [macroError, setMacroError] = useState<string | null>(null)
+  const [macroForm, setMacroForm] = useState({
+    kcalObjectiveDay: '',
+    protein: '',
+    carbsAdjusted: '',
+    fatsAdjusted: '',
+  })
 
   useEffect(() => {
     let active = true
@@ -527,13 +576,18 @@ const AdminDashboardPage = () => {
         const nextRecords = overview.map((item: AdminOverviewItem) => {
           const overrides = item.overrides ?? []
           const outputs = item.assessment?.outputs ?? null
-          const overridesWithMeals = overrides.filter((ov) => {
-            const meals = getOverrideMeals(ov)
-            return !!meals && meals.length > 0
-          })
-          const latestMealsOverride = overridesWithMeals.sort((a, b) => dayjs(b.updatedAt).diff(a.updatedAt))[0]
-          const adherenceBase = latestMealsOverride?.computed ?? outputs
-          const adherence = getAdherenceFromMeals(getOverrideMeals(latestMealsOverride), adherenceBase)
+            const overridesWithMeals = overrides.filter((ov) => {
+              const meals = getOverrideMeals(ov)
+              return !!meals && meals.length > 0
+            })
+            const latestMealsOverride = overridesWithMeals.sort((a, b) => dayjs(b.updatedAt).diff(a.updatedAt))[0]
+            const adherenceDate = latestMealsOverride?.date ?? dayjs().format('YYYY-MM-DD')
+            const adherenceBase = applyPlanMacroOverride(
+              latestMealsOverride?.computed ?? outputs,
+              item.plan ?? null,
+              adherenceDate,
+            )
+            const adherence = getAdherenceFromMeals(getOverrideMeals(latestMealsOverride), adherenceBase)
 
           return {
             userId: item.user.id,
@@ -591,15 +645,14 @@ const AdminDashboardPage = () => {
   const trendPoints = selectedRecord
     ? [...selectedRecord.trend].sort((a, b) => dayjs(a.date).diff(dayjs(b.date)))
     : []
-  const syncSeries = useMemo(() => {
-    if (!selectedRecord?.plan) return []
-    return buildSyncSeries(
-      selectedRecord.overrides,
-      selectedRecord.latestAssessment?.outputs,
-      selectedRecord.plan.startDate,
-      selectedRecord.plan.days,
-    )
-  }, [selectedRecord])
+    const syncSeries = useMemo(() => {
+      if (!selectedRecord?.plan) return []
+      return buildSyncSeries(
+        selectedRecord.overrides,
+        selectedRecord.latestAssessment?.outputs,
+        selectedRecord.plan,
+      )
+    }, [selectedRecord])
   const syncLabels = syncSeries.map((item) => dayjs(item.date).format('DD/MM'))
   const targetSeries = syncSeries.map((item) => item.targetKcal)
   const consumedSeries = syncSeries.map((item) => item.consumedKcal)
@@ -628,6 +681,94 @@ const AdminDashboardPage = () => {
 
   const latestConsumed = latestConsumedPoint?.consumedKcal ?? null
   const latestTarget = latestConsumedPoint?.targetKcal ?? latestTargetPoint?.targetKcal ?? null
+
+  const getMacroDefaults = () => {
+    const outputs = selectedRecord?.latestAssessment?.outputs
+    const plan = selectedRecord?.plan
+    if (!outputs && !plan?.macroOverrides?.length) return null
+    const todayLabel = dayjs().format('YYYY-MM-DD')
+    const override = getPlanMacroOverrideForDate(plan, todayLabel)
+    if (override) return override.macros
+    if (!outputs) return null
+    return {
+      kcalObjectiveDay: outputs.kcalObjectiveDay,
+      protein: outputs.protein,
+      carbsAdjusted: outputs.carbsAdjusted,
+      fatsAdjusted: outputs.fatsAdjusted,
+    }
+  }
+
+  const parseMacroValue = (value: string) => {
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    const numberValue = Number(trimmed)
+    return Number.isFinite(numberValue) ? numberValue : null
+  }
+
+  const handleOpenMacroDialog = () => {
+    setMacroError(null)
+    const defaults = getMacroDefaults()
+    if (!selectedRecord?.plan || !defaults) {
+      setMacroError('No hay datos suficientes para editar macros.')
+      setMacroDialogOpen(true)
+      return
+    }
+    setMacroForm({
+      kcalObjectiveDay: Math.round(defaults.kcalObjectiveDay).toString(),
+      protein: Math.round(defaults.protein).toString(),
+      carbsAdjusted: Math.round(defaults.carbsAdjusted).toString(),
+      fatsAdjusted: Math.round(defaults.fatsAdjusted).toString(),
+    })
+    setMacroDialogOpen(true)
+  }
+
+  const handleCloseMacroDialog = () => {
+    if (macroSaving) return
+    setMacroDialogOpen(false)
+    setMacroError(null)
+  }
+
+  const handleSaveMacroOverride = async () => {
+    if (!selectedRecord?.plan) return
+    const kcalObjectiveDay = parseMacroValue(macroForm.kcalObjectiveDay)
+    const protein = parseMacroValue(macroForm.protein)
+    const carbsAdjusted = parseMacroValue(macroForm.carbsAdjusted)
+    const fatsAdjusted = parseMacroValue(macroForm.fatsAdjusted)
+    if (
+      kcalObjectiveDay === null ||
+      protein === null ||
+      carbsAdjusted === null ||
+      fatsAdjusted === null
+    ) {
+      setMacroError('Completa los campos con numeros validos.')
+      return
+    }
+
+    setMacroSaving(true)
+    setMacroError(null)
+    try {
+      const plan = await upsertPlanMacroOverride({
+        planId: selectedRecord.plan.id,
+        effectiveFrom: dayjs().format('YYYY-MM-DD'),
+        macros: {
+          kcalObjectiveDay: Math.round(kcalObjectiveDay),
+          protein: Math.round(protein),
+          carbsAdjusted: Math.round(carbsAdjusted),
+          fatsAdjusted: Math.round(fatsAdjusted),
+        },
+      })
+      setRecords((prev) =>
+        prev.map((record) =>
+          record.plan?.id === plan.id ? { ...record, plan } : record
+        )
+      )
+      setMacroDialogOpen(false)
+    } catch (err) {
+      setMacroError(err instanceof Error ? err.message : 'No se pudo guardar')
+    } finally {
+      setMacroSaving(false)
+    }
+  }
 
   const inputRows = useMemo(() => {
     if (!assessment) return []
@@ -1094,10 +1235,15 @@ const AdminDashboardPage = () => {
                     <Typography variant="body2" color="text.secondary">
                       {selectedRecord.userId}
                     </Typography>
-                    {selectedRecord.plan && (
-                      <Typography variant="body2">{getPlanLabel(selectedRecord.plan)}</Typography>
-                    )}
-                  </Stack>
+                      {selectedRecord.plan && (
+                        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                          <Typography variant="body2">{getPlanLabel(selectedRecord.plan)}</Typography>
+                          <Button size="small" variant="outlined" onClick={handleOpenMacroDialog}>
+                            Editar macros
+                          </Button>
+                        </Stack>
+                      )}
+                    </Stack>
 
                   <Divider />
 
@@ -1309,6 +1455,68 @@ const AdminDashboardPage = () => {
           </Card>
         </Stack>
       </Stack>
+
+      <Dialog open={macroDialogOpen} onClose={handleCloseMacroDialog} fullWidth maxWidth="xs">
+        <DialogTitle>Editar macros del plan</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 0.5 }}>
+            <Typography variant="caption" color="text.secondary">
+              Aplica desde hoy y no modifica dias anteriores.
+            </Typography>
+            <TextField
+              size="small"
+              type="number"
+              label="Kcal objetivo (dia)"
+              value={macroForm.kcalObjectiveDay}
+              onChange={(event) =>
+                setMacroForm((prev) => ({ ...prev, kcalObjectiveDay: event.target.value }))
+              }
+              inputProps={{ min: 0, step: 1 }}
+              fullWidth
+            />
+            <TextField
+              size="small"
+              type="number"
+              label="Proteina (g)"
+              value={macroForm.protein}
+              onChange={(event) =>
+                setMacroForm((prev) => ({ ...prev, protein: event.target.value }))
+              }
+              inputProps={{ min: 0, step: 1 }}
+              fullWidth
+            />
+            <TextField
+              size="small"
+              type="number"
+              label="Carbohidratos ajustados (g)"
+              value={macroForm.carbsAdjusted}
+              onChange={(event) =>
+                setMacroForm((prev) => ({ ...prev, carbsAdjusted: event.target.value }))
+              }
+              inputProps={{ min: 0, step: 1 }}
+              fullWidth
+            />
+            <TextField
+              size="small"
+              type="number"
+              label="Grasas ajustadas (g)"
+              value={macroForm.fatsAdjusted}
+              onChange={(event) =>
+                setMacroForm((prev) => ({ ...prev, fatsAdjusted: event.target.value }))
+              }
+              inputProps={{ min: 0, step: 1 }}
+              fullWidth
+            />
+            {macroError && <Alert severity="warning">{macroError}</Alert>}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseMacroDialog}>Cancelar</Button>
+          <Button variant="contained" onClick={handleSaveMacroOverride} disabled={macroSaving}>
+            {macroSaving ? 'Guardando...' : 'Guardar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   )
 }
