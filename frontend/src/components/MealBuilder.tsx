@@ -141,12 +141,12 @@ const MacroGauge = ({
   const progress =
     baseTarget > 0 ? Math.min((baseConsumed / baseTarget) * 100, 100) : 0;
 
-  const round1 = (value: number) => Math.round(value * 10) / 10;
+  const round0 = (value: number) => Math.round(value);
   const normalizeNegativeZero = (value: number) =>
     Object.is(value, -0) ? 0 : value;
   
   const remainingPortions = normalizeNegativeZero(
-    round1(targetPortions - consumedPortions)
+    round0(targetPortions - consumedPortions)
   );
 
   return (
@@ -180,30 +180,30 @@ const MacroGauge = ({
           thickness={thickness}
           sx={{ color, position: "absolute", left: 0, top: 0 }}
         />
-        <Stack
-          spacing={0.25}
-          alignItems="center"
-          justifyContent="center"
-          sx={{ position: "absolute", inset: 0 }}
-        >
-          <Typography variant="caption" fontWeight={700}>
-            {consumedPortions.toFixed(1)} / {targetPortions.toFixed(1)}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            porciones
-          </Typography>
-        </Stack>
+          <Stack
+            spacing={0.25}
+            alignItems="center"
+            justifyContent="center"
+            sx={{ position: "absolute", inset: 0 }}
+          >
+            <Typography variant="caption" fontWeight={700}>
+              {consumedPortions.toFixed(0)} / {targetPortions.toFixed(0)}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              porciones
+            </Typography>
+          </Stack>
       </Box>
-      <Stack spacing={0.5} alignItems="center">
-        <Typography variant="caption" color="text.secondary" textAlign="center">
-          Porciones: {consumedPortions.toFixed(1)} / {targetPortions.toFixed(1)}{" "}
-          <b>(Restan {remainingPortions.toFixed(1)})</b>
-        </Typography>
+        <Stack spacing={0.5} alignItems="center">
+          <Typography variant="caption" color="text.secondary" textAlign="center">
+            Porciones: {consumedPortions.toFixed(0)} / {targetPortions.toFixed(0)}{" "}
+            <b>(Restan {remainingPortions.toFixed(0)})</b>
+          </Typography>
         {/* 
-        <Typography variant="caption" color="text.secondary" textAlign="center">
-          Gramos: {safeConsumed.toFixed(1)} / {safeTarget.toFixed(1)} g <b>(Restan{" "}
-          {remainingGrams.toFixed(1)} g)</b>
-        </Typography>*/}
+          <Typography variant="caption" color="text.secondary" textAlign="center">
+            Gramos: {safeConsumed.toFixed(0)} / {safeTarget.toFixed(0)} g <b>(Restan{" "}
+            {remainingGrams.toFixed(0)} g)</b>
+          </Typography>*/}
       </Stack>
     </Stack>
   );

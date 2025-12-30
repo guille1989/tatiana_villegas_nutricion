@@ -110,7 +110,7 @@ const optionLabel = (
   return match ? match.label : value
 }
 
-const formatNumber = (value: number) => (Number.isInteger(value) ? value.toString() : value.toFixed(1))
+const formatNumber = (value: number) => Math.round(value).toString()
 
 const formatValue = (value: string | number | null | undefined) => {
   if (value === null || value === undefined || value === '') return '--'

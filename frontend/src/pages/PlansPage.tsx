@@ -649,6 +649,7 @@ const PlansPage = () => {
                 <Stack spacing={1.5} sx={{ flex: 1, overflowY: 'auto', pr: 0.5 }}>
                   {planItems.map((plan) => {
                     const detail = planDetails[plan.id]
+                    const planKcal = detail?.outputs?.kcalObjectiveDay
                     const macros = getMacroPercentages(detail?.outputs)
                     const isActive = plan.status === 'active'
                     const isSelected = plan.id === selectedPlanId
@@ -730,7 +731,7 @@ const PlansPage = () => {
                                 </Typography>
                               )}
                               <Typography variant="subtitle2" fontWeight={700}>
-                                {detail?.outputs?.kcalObjectiveDay ?? '--'} kcal
+                                {planKcal !== undefined ? Math.round(planKcal) : '--'} kcal
                               </Typography>
                             </Stack>
                           </Stack>

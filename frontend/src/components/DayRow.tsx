@@ -23,6 +23,8 @@ type Props = {
   onEdit: () => void
 }
 
+const formatInt = (value: number) => Math.round(value)
+
 const DayRow = ({
   date,
   outputs,
@@ -56,7 +58,7 @@ const DayRow = ({
             }
             secondary={
               <Typography variant="body2" fontWeight={700}>
-                {outputs.kcalObjectiveDay} kcal
+                {formatInt(outputs.kcalObjectiveDay)} kcal
               </Typography>
             }
           />

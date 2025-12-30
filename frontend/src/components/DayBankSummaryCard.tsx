@@ -9,6 +9,7 @@ type Props = {
 }
 
 const portionSizes = { protein: 10, carbs: 15, fat: 5 }
+const formatInt = (value: number) => Math.round(value)
 
 const DayBankSummaryCard = ({ objectiveKcal, objectiveMacros, usedMacros }: Props) => {
   const budgetPortions = {
@@ -58,7 +59,7 @@ const DayBankSummaryCard = ({ objectiveKcal, objectiveMacros, usedMacros }: Prop
               Banco y presupuesto
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              Kcal objetivo: {objectiveKcal} kcal
+              Kcal objetivo: {formatInt(objectiveKcal)} kcal
             </Typography>
           </Stack>
 
@@ -74,9 +75,9 @@ const DayBankSummaryCard = ({ objectiveKcal, objectiveMacros, usedMacros }: Prop
                   gap: 1,
                 }}
               >
-                {pill('Prote', `${objectiveMacros.protein.toFixed(0)} g`, `Usado ${usedMacros.protein.toFixed(0)} g`)}
-                {pill('Carbs', `${objectiveMacros.carbs.toFixed(0)} g`, `Usado ${usedMacros.carbs.toFixed(0)} g`)}
-                {pill('Grasa', `${objectiveMacros.fat.toFixed(0)} g`, `Usado ${usedMacros.fat.toFixed(0)} g`)}
+                {pill('Prote', `${formatInt(objectiveMacros.protein)} g`, `Usado ${formatInt(usedMacros.protein)} g`)}
+                {pill('Carbs', `${formatInt(objectiveMacros.carbs)} g`, `Usado ${formatInt(usedMacros.carbs)} g`)}
+                {pill('Grasa', `${formatInt(objectiveMacros.fat)} g`, `Usado ${formatInt(usedMacros.fat)} g`)}
               </Box>
             </Stack>
 
@@ -95,18 +96,18 @@ const DayBankSummaryCard = ({ objectiveKcal, objectiveMacros, usedMacros }: Prop
               >
                 {pill(
                   'Prote',
-                  `${budgetPortions.protein.toFixed(1)} porciones`,
-                  `Restan ${remainingPortions.protein.toFixed(1)}`,
+                  `${formatInt(budgetPortions.protein)} porciones`,
+                  `Restan ${formatInt(remainingPortions.protein)}`,
                 )}
                 {pill(
                   'Carbs',
-                  `${budgetPortions.carbs.toFixed(1)} porciones`,
-                  `Restan ${remainingPortions.carbs.toFixed(1)}`,
+                  `${formatInt(budgetPortions.carbs)} porciones`,
+                  `Restan ${formatInt(remainingPortions.carbs)}`,
                 )}
                 {pill(
                   'Grasa',
-                  `${budgetPortions.fat.toFixed(1)} porciones`,
-                  `Restan ${remainingPortions.fat.toFixed(1)}`,
+                  `${formatInt(budgetPortions.fat)} porciones`,
+                  `Restan ${formatInt(remainingPortions.fat)}`,
                 )}
               </Box>
             </Stack>

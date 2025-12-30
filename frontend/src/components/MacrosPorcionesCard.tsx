@@ -27,8 +27,7 @@ const Row = ({
 }) => {
   const unitSize = isPortion ? 1 : macroKey === "protein" ? 10 : macroKey === "carbs" ? 15 : 5;
   const state = getMacroState(remaining, objective, macroKey, unitSize);
-  const formatValue = (value: number) =>
-    isPortion ? value.toFixed(1) : value.toFixed(0);
+  const formatValue = (value: number) => value.toFixed(0);
   const isExcess = state === "over";
   const isOk = state === "ok";
   const text =

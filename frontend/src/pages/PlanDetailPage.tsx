@@ -211,6 +211,8 @@ const PlanDetailPage = () => {
       { protein: 0, carbs: 0, fat: 0, kcal: 0 },
     );
 
+  const formatInt = (value: number) => Math.round(value);
+
   const buildMealTemplateName = (
     mealName: string,
     dateLabel: string,
@@ -533,6 +535,7 @@ const PlanDetailPage = () => {
     ];
 
     let offset = 0;
+    const kcalLabel = formatInt(kcal);
 
     return (
       <Box
@@ -578,14 +581,14 @@ const PlanDetailPage = () => {
             })
           )}
         </svg>
-        <Stack
-          alignItems="center"
-          justifyContent="center"
-          sx={{ position: "absolute", inset: 0, pointerEvents: "none" }}
-        >
-          <Typography variant="h6" fontWeight={800} lineHeight={1}>
-            {kcal}
-          </Typography>
+          <Stack
+            alignItems="center"
+            justifyContent="center"
+            sx={{ position: "absolute", inset: 0, pointerEvents: "none" }}
+          >
+            <Typography variant="h6" fontWeight={800} lineHeight={1}>
+              {kcalLabel}
+            </Typography>
           <Typography variant="caption" color="text.secondary">
             kcal
           </Typography>
@@ -688,16 +691,17 @@ const PlanDetailPage = () => {
             scrollSnapType: { xs: "x mandatory", md: "none" },
           }}
         >
-          {dates.map((date) => {
-            const day = dayjs(date);
-            const { outputs, dayType, trainingCount } = getDayData(date);
-            const isSelected = selectedDate === date;
-            const isTraining = trainingCount > 0 || dayType === "training";
-            const kcal = outputs?.kcalObjectiveDay;
-            const trainingLabel =
-              trainingCount > 1
-                ? `Entreno ${trainingCount}x`
-                : isTraining
+            {dates.map((date) => {
+              const day = dayjs(date);
+              const { outputs, dayType, trainingCount } = getDayData(date);
+              const isSelected = selectedDate === date;
+              const isTraining = trainingCount > 0 || dayType === "training";
+              const kcal = outputs?.kcalObjectiveDay;
+              const kcalLabel = kcal !== undefined ? formatInt(kcal) : null;
+              const trainingLabel =
+                trainingCount > 1
+                  ? `Entreno ${trainingCount}x`
+                  : isTraining
                 ? "Entreno"
                 : "Descanso";
             const dayMeals = getDayMeals(date);
@@ -744,12 +748,12 @@ const PlanDetailPage = () => {
                     borderColor: "primary.light",
                     bgcolor: "primary.main" + "0A",
                   },
-                }}
-                aria-label={`Seleccionar ${day.format("dddd")} ${
-                  isTraining ? trainingLabel : "descanso"
-                } ${kcal ?? ""} kcal`}
-              >
-                <Stack spacing={0.5} alignItems="center" width="100%">
+                  }}
+                  aria-label={`Seleccionar ${day.format("dddd")} ${
+                    isTraining ? trainingLabel : "descanso"
+                  } ${kcalLabel ?? ""} kcal`}
+                >
+                  <Stack spacing={0.5} alignItems="center" width="100%">
                   <Typography variant="caption" color="text.secondary">
                     {day.format("ddd").toUpperCase()}
                   </Typography>
@@ -770,12 +774,12 @@ const PlanDetailPage = () => {
                       transition: "all 0.2s ease",
                       position: "relative",
                     }}
-                    title={`${statusLabel}. P ${remainingPortions.protein.toFixed(
-                      1
-                    )}, C ${remainingPortions.carbs.toFixed(
-                      1
-                    )}, G ${remainingPortions.fat.toFixed(1)}`}
-                  >
+                      title={`${statusLabel}. P ${remainingPortions.protein.toFixed(
+                        0
+                      )}, C ${remainingPortions.carbs.toFixed(
+                        0
+                      )}, G ${remainingPortions.fat.toFixed(0)}`}
+                    >
                     {circleText}
                     <Box
                       sx={{
@@ -795,13 +799,13 @@ const PlanDetailPage = () => {
                     color={isTraining ? "primary" : "default"}
                     variant={isTraining ? "outlined" : "filled"}
                   />
-                  {kcal !== undefined && (
-                    <Typography variant="caption" color="text.secondary">
-                      {kcal} kcal
-                    </Typography>
-                  )}
-                </Stack>
-              </ButtonBase>
+                    {kcalLabel !== null && (
+                      <Typography variant="caption" color="text.secondary">
+                        {kcalLabel} kcal
+                      </Typography>
+                    )}
+                  </Stack>
+                </ButtonBase>
             );
           })}
         </Stack>
@@ -824,14 +828,14 @@ const PlanDetailPage = () => {
               alignItems={{ xs: "flex-start", sm: "center" }}
               spacing={1}
             >
-              <Box>
-                <Typography variant="subtitle1" fontWeight={800}>
-                  {dayjs(selectedDate).format("dddd, DD MMM YYYY")}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  EEE: {selectedOutputs.eee} kcal
-                </Typography>
-              </Box>
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={800}>
+                    {dayjs(selectedDate).format("dddd, DD MMM YYYY")}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    EEE: {formatInt(selectedOutputs.eee)} kcal
+                  </Typography>
+                </Box>
               <Chip
                 label={selectedTrainingLabel}
                 color={selectedDayType === "training" ? "primary" : "default"}
@@ -896,10 +900,10 @@ const PlanDetailPage = () => {
                       kcal={selectedOutputs.kcalObjectiveDay}
                     />
 
-                    <Stack spacing={1} width="100%">
-                      <Typography variant="body2" color="text.secondary">
-                        {`Consumidas: ${currentTotals.kcal.toFixed(0)} / ${selectedOutputs.kcalObjectiveDay} kcal`}
-                      </Typography>
+                      <Stack spacing={1} width="100%">
+                        <Typography variant="body2" color="text.secondary">
+                          {`Consumidas: ${currentTotals.kcal.toFixed(0)} / ${formatInt(selectedOutputs.kcalObjectiveDay)} kcal`}
+                        </Typography>
                       <Box
                         sx={{
                           display: "grid",
@@ -948,9 +952,9 @@ const PlanDetailPage = () => {
                           const isPending = state === "pending";
                           const isCompleted = state === "ok";
                           const statusText = isExcess
-                            ? `Exceso ${Math.abs(remaining).toFixed(1)}`
+                            ? `Exceso ${formatInt(Math.abs(remaining))}`
                             : isPending
-                            ? `Restan ${remaining.toFixed(1)}`
+                            ? `Restan ${formatInt(remaining)}`
                             : "Completado";
                           return (
                             <Box
@@ -982,7 +986,7 @@ const PlanDetailPage = () => {
                                 fontWeight={700}
                                 fontSize={13}
                               >
-                                {`${label} Obj: ${objective.toFixed(0)} g | ${budget.toFixed(1)} porciones`}
+                                {`${label} Obj: ${objective.toFixed(0)} g | ${formatInt(budget)} porciones`}
                               </Typography>
                               <Stack
                                 direction="row"
@@ -1000,7 +1004,7 @@ const PlanDetailPage = () => {
                                 <Chip
                                   size="small"
                                   color={isExcess ? "error" : "default"}
-                                  label={`de ${budget.toFixed(1)} porciones`}
+                                  label={`de ${formatInt(budget)} porciones`}
                                   variant={isExcess ? "filled" : "outlined"}
                                 />
                               </Stack>
@@ -1034,7 +1038,7 @@ const PlanDetailPage = () => {
                               />
                               {isExcess && (
                                 <Typography variant="caption" color="error.main">
-                                  Te pasaste en {Math.abs(remaining).toFixed(1)} porciones
+                                  Te pasaste en {formatInt(Math.abs(remaining))} porciones
                                 </Typography>
                               )}
                             </Box>
@@ -1088,9 +1092,9 @@ const PlanDetailPage = () => {
                                 variant="caption"
                                 color="text.secondary"
                               >
-                                Objetivo: {objective.toFixed(1)} g · Usado:{" "}
-                                {used.toFixed(1)} g · Restan:{" "}
-                                {remaining.toFixed(1)} g
+                                Objetivo: {objective.toFixed(0)} g · Usado:{" "}
+                                {used.toFixed(0)} g · Restan:{" "}
+                                {remaining.toFixed(0)} g
                               </Typography>
                             </Stack>
                           );

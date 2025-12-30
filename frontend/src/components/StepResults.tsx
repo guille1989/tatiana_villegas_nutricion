@@ -19,6 +19,8 @@ type ResultCardProps = {
   accent?: string
 }
 
+const formatInt = (value: number) => Math.round(value)
+
 const ResultCard = ({ title, value, subtitle, accent }: ResultCardProps) => (
   <Card elevation={0} sx={{ borderColor: accent ? `${accent}33` : 'divider', borderWidth: 1, borderStyle: 'solid' }}>
     <CardContent>
@@ -64,28 +66,28 @@ const StepResults = ({ onReset, onSaveAssessment, onGoPlans, hasSavedAssessment,
             gridTemplateColumns: { xs: 'repeat(1, minmax(0,1fr))', sm: 'repeat(2, minmax(0,1fr))', md: 'repeat(3, minmax(0,1fr))' },
           }}
         >
-          <ResultCard title="RMR" value={`${result.rmr} kcal`} subtitle="Metabolismo en reposo" />
-          <ResultCard title="PAL" value={result.pal.toFixed(2)} subtitle="Factor actividad" />
-          <ResultCard title="TDEE" value={`${result.tdee} kcal`} subtitle="Gasto diario estimado" />
-          <ResultCard title="Kcal objetivo base" value={`${result.kcalObjectiveBase} kcal`} />
-          <ResultCard title="EEE (si entrenas)" value={`${result.eee} kcal`} subtitle="Gasto de ejercicio" />
-          <ResultCard title="Kcal objetivo del dia" value={`${result.kcalObjectiveDay} kcal`} subtitle="Incluye ejercicio" accent="#2563eb" />
-          <ResultCard title="Proteina" value={`${result.protein} g`} subtitle={`~${Math.round(result.protein * 4)} kcal`} />
-          <ResultCard title="Grasas" value={`${result.fats} g`} subtitle={`~${Math.round(result.fats * 9)} kcal`} />
-          <ResultCard title="Carbohidratos" value={`${result.carbs} g`} subtitle={`~${Math.round(result.carbs * 4)} kcal`} />
+          <ResultCard title="RMR" value={`${formatInt(result.rmr)} kcal`} subtitle="Metabolismo en reposo" />
+          <ResultCard title="PAL" value={`${formatInt(result.pal)}`} subtitle="Factor actividad" />
+          <ResultCard title="TDEE" value={`${formatInt(result.tdee)} kcal`} subtitle="Gasto diario estimado" />
+          <ResultCard title="Kcal objetivo base" value={`${formatInt(result.kcalObjectiveBase)} kcal`} />
+          <ResultCard title="EEE (si entrenas)" value={`${formatInt(result.eee)} kcal`} subtitle="Gasto de ejercicio" />
+          <ResultCard title="Kcal objetivo del dia" value={`${formatInt(result.kcalObjectiveDay)} kcal`} subtitle="Incluye ejercicio" accent="#2563eb" />
+          <ResultCard title="Proteina" value={`${formatInt(result.protein)} g`} subtitle={`~${Math.round(result.protein * 4)} kcal`} />
+          <ResultCard title="Grasas" value={`${formatInt(result.fats)} g`} subtitle={`~${Math.round(result.fats * 9)} kcal`} />
+          <ResultCard title="Carbohidratos" value={`${formatInt(result.carbs)} g`} subtitle={`~${Math.round(result.carbs * 4)} kcal`} />
           <ResultCard
             title="Carbs ajustados"
-            value={`${result.carbsAdjusted} g`}
+            value={`${formatInt(result.carbsAdjusted)} g`}
             subtitle={values.dayType === 'training' ? 'Factor 1.2 por entreno' : 'Factor 0.85 por descanso'}
           />
           <ResultCard
             title="Grasas ajustadas"
-            value={`${result.fatsAdjusted} g`}
+            value={`${formatInt(result.fatsAdjusted)} g`}
             subtitle={values.dayType === 'training' ? 'Factor 0.85 por entreno' : 'Factor 1.2 por descanso'}
           />
-          {result.ffm !== undefined && <ResultCard title="FFM" value={`${result.ffm} kg`} subtitle="Masa libre de grasa" />}
+          {result.ffm !== undefined && <ResultCard title="FFM" value={`${formatInt(result.ffm)} kg`} subtitle="Masa libre de grasa" />}
           {result.ea !== undefined && (
-            <ResultCard title="EA (Energy Availability)" value={`${result.ea} kcal/kg FFM`} subtitle="(Kcal - EEE) / FFM" />
+            <ResultCard title="EA (Energy Availability)" value={`${formatInt(result.ea)} kcal/kg FFM`} subtitle="(Kcal - EEE) / FFM" />
           )}
         </Box>
 

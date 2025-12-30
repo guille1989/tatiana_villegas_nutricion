@@ -11,6 +11,8 @@ type Props = {
   onEdit: () => void
 }
 
+const formatInt = (value: number) => Math.round(value)
+
 const DayCard = ({ date, outputs, dayType, hasOverride, note, onEdit }: Props) => {
   const formatted = dayjs(date).format('dddd, DD MMM YYYY')
   const isTraining = dayType === 'training'
@@ -38,10 +40,10 @@ const DayCard = ({ date, outputs, dayType, hasOverride, note, onEdit }: Props) =
               Kcal objetivo
             </Typography>
             <Typography variant="h6" fontWeight={800}>
-              {outputs.kcalObjectiveDay} kcal
+              {formatInt(outputs.kcalObjectiveDay)} kcal
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              EEE: {outputs.eee} kcal
+              EEE: {formatInt(outputs.eee)} kcal
             </Typography>
           </Box>
           <Box flex={1}>
@@ -50,13 +52,13 @@ const DayCard = ({ date, outputs, dayType, hasOverride, note, onEdit }: Props) =
                 Proteina
               </Typography>
               <Typography variant="body1" fontWeight={700}>
-                {outputs.protein} g
+                {formatInt(outputs.protein)} g
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Carbs ajustados: {outputs.carbsAdjusted} g
+                Carbs ajustados: {formatInt(outputs.carbsAdjusted)} g
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Grasas ajustadas: {outputs.fatsAdjusted} g
+                Grasas ajustadas: {formatInt(outputs.fatsAdjusted)} g
               </Typography>
             </Stack>
           </Box>
