@@ -159,6 +159,12 @@ const PlanDetailPage = () => {
     );
   };
 
+  const calcKcalFromMacros = (macros: {
+    protein: number;
+    carbsAdjusted: number;
+    fatsAdjusted: number;
+  }) => Math.round(macros.protein * 4 + macros.carbsAdjusted * 4 + macros.fatsAdjusted * 9);
+
   const applyMacroOverride = (
     outputs: CalculationOutputs | undefined,
     date: string | null
@@ -166,9 +172,10 @@ const PlanDetailPage = () => {
     if (!outputs) return outputs;
     const override = getMacroOverrideForDate(date, plan?.macroOverrides);
     if (!override) return outputs;
+    const kcalObjectiveDay = calcKcalFromMacros(override.macros) + (outputs.eee ?? 0);
     return {
       ...outputs,
-      kcalObjectiveDay: override.macros.kcalObjectiveDay,
+      kcalObjectiveDay,
       protein: override.macros.protein,
       carbsAdjusted: override.macros.carbsAdjusted,
       fatsAdjusted: override.macros.fatsAdjusted,

@@ -290,7 +290,6 @@ export const getPlan = async (planId: string) => {
 export const upsertPlanMacroOverride = async (payload: {
   planId: string
   macros: {
-    kcalObjectiveDay: number
     protein: number
     carbsAdjusted: number
     fatsAdjusted: number

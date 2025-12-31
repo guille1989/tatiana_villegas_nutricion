@@ -22,7 +22,6 @@ const createPlanSchema = z.object({
 })
 
 const macroOverrideSchema = z.object({
-  kcalObjectiveDay: z.coerce.number().nonnegative(),
   protein: z.coerce.number().nonnegative(),
   carbsAdjusted: z.coerce.number().nonnegative(),
   fatsAdjusted: z.coerce.number().nonnegative(),
@@ -35,6 +34,9 @@ const macroOverrideBodySchema = z.object({
 
 type MacroOverrideValue = z.infer<typeof macroOverrideSchema>
 type MacroOverrideEntry = { effectiveFrom: string; macros?: MacroOverrideValue | null }
+
+const calcKcalFromMacros = (macros: MacroOverrideValue) =>
+  Math.round(macros.protein * 4 + macros.carbsAdjusted * 4 + macros.fatsAdjusted * 9)
 
 const normalizeMacroOverrides = (overrides: Array<MacroOverrideEntry> | undefined) =>
   (overrides ?? []).filter(
@@ -59,9 +61,11 @@ const applyMacroOverride = (
   override: { macros: MacroOverrideValue } | null,
 ) => {
   if (!override) return outputs
+  const extraKcal = outputs.eee ?? 0
+  const kcalObjectiveDay = calcKcalFromMacros(override.macros) + extraKcal
   return {
     ...outputs,
-    kcalObjectiveDay: override.macros.kcalObjectiveDay,
+    kcalObjectiveDay,
     protein: override.macros.protein,
     carbsAdjusted: override.macros.carbsAdjusted,
     fatsAdjusted: override.macros.fatsAdjusted,
@@ -135,7 +139,10 @@ router.put(
 
     const nextOverride = {
       effectiveFrom,
-      macros: parsed.data.macros,
+      macros: {
+        ...parsed.data.macros,
+        kcalObjectiveDay: calcKcalFromMacros(parsed.data.macros),
+      },
     }
 
     const existing = normalizeMacroOverrides(plan.macroOverrides)

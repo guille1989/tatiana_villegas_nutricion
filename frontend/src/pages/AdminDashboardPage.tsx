@@ -134,6 +134,12 @@ const formatWithUnit = (value: number | null | undefined, unit: string) => {
   return `${formatNumber(value)} ${unit}`
 }
 
+const calcKcalFromMacros = (macros: {
+  protein: number
+  carbsAdjusted: number
+  fatsAdjusted: number
+}) => Math.round(macros.protein * 4 + macros.carbsAdjusted * 4 + macros.fatsAdjusted * 9)
+
 const totalsFromMeals = (meals: Meal[]): MacroTotals =>
   meals.reduce(
     (acc, meal) => ({
@@ -193,9 +199,10 @@ const applyPlanMacroOverride = (
   if (!outputs) return outputs
   const override = getPlanMacroOverrideForDate(plan, date)
   if (!override) return outputs
+  const kcalObjectiveDay = calcKcalFromMacros(override.macros) + (outputs.eee ?? 0)
   return {
     ...outputs,
-    kcalObjectiveDay: override.macros.kcalObjectiveDay,
+    kcalObjectiveDay,
     protein: override.macros.protein,
     carbsAdjusted: override.macros.carbsAdjusted,
     fatsAdjusted: override.macros.fatsAdjusted,
@@ -555,7 +562,6 @@ const AdminDashboardPage = () => {
   const [macroSaving, setMacroSaving] = useState(false)
   const [macroError, setMacroError] = useState<string | null>(null)
   const [macroForm, setMacroForm] = useState({
-    kcalObjectiveDay: '',
     protein: '',
     carbsAdjusted: '',
     fatsAdjusted: '',
@@ -688,10 +694,14 @@ const AdminDashboardPage = () => {
     if (!outputs && !plan?.macroOverrides?.length) return null
     const todayLabel = dayjs().format('YYYY-MM-DD')
     const override = getPlanMacroOverrideForDate(plan, todayLabel)
-    if (override) return override.macros
+    if (override)
+      return {
+        protein: override.macros.protein,
+        carbsAdjusted: override.macros.carbsAdjusted,
+        fatsAdjusted: override.macros.fatsAdjusted,
+      }
     if (!outputs) return null
     return {
-      kcalObjectiveDay: outputs.kcalObjectiveDay,
       protein: outputs.protein,
       carbsAdjusted: outputs.carbsAdjusted,
       fatsAdjusted: outputs.fatsAdjusted,
@@ -705,6 +715,14 @@ const AdminDashboardPage = () => {
     return Number.isFinite(numberValue) ? numberValue : null
   }
 
+  const macroPreviewKcal = (() => {
+    const protein = parseMacroValue(macroForm.protein)
+    const carbsAdjusted = parseMacroValue(macroForm.carbsAdjusted)
+    const fatsAdjusted = parseMacroValue(macroForm.fatsAdjusted)
+    if (protein === null || carbsAdjusted === null || fatsAdjusted === null) return null
+    return calcKcalFromMacros({ protein, carbsAdjusted, fatsAdjusted })
+  })()
+
   const handleOpenMacroDialog = () => {
     setMacroError(null)
     const defaults = getMacroDefaults()
@@ -714,7 +732,6 @@ const AdminDashboardPage = () => {
       return
     }
     setMacroForm({
-      kcalObjectiveDay: Math.round(defaults.kcalObjectiveDay).toString(),
       protein: Math.round(defaults.protein).toString(),
       carbsAdjusted: Math.round(defaults.carbsAdjusted).toString(),
       fatsAdjusted: Math.round(defaults.fatsAdjusted).toString(),
@@ -730,16 +747,10 @@ const AdminDashboardPage = () => {
 
   const handleSaveMacroOverride = async () => {
     if (!selectedRecord?.plan) return
-    const kcalObjectiveDay = parseMacroValue(macroForm.kcalObjectiveDay)
     const protein = parseMacroValue(macroForm.protein)
     const carbsAdjusted = parseMacroValue(macroForm.carbsAdjusted)
     const fatsAdjusted = parseMacroValue(macroForm.fatsAdjusted)
-    if (
-      kcalObjectiveDay === null ||
-      protein === null ||
-      carbsAdjusted === null ||
-      fatsAdjusted === null
-    ) {
+    if (protein === null || carbsAdjusted === null || fatsAdjusted === null) {
       setMacroError('Completa los campos con numeros validos.')
       return
     }
@@ -751,7 +762,6 @@ const AdminDashboardPage = () => {
         planId: selectedRecord.plan.id,
         effectiveFrom: dayjs().format('YYYY-MM-DD'),
         macros: {
-          kcalObjectiveDay: Math.round(kcalObjectiveDay),
           protein: Math.round(protein),
           carbsAdjusted: Math.round(carbsAdjusted),
           fatsAdjusted: Math.round(fatsAdjusted),
@@ -1467,10 +1477,8 @@ const AdminDashboardPage = () => {
               size="small"
               type="number"
               label="Kcal objetivo (dia)"
-              value={macroForm.kcalObjectiveDay}
-              onChange={(event) =>
-                setMacroForm((prev) => ({ ...prev, kcalObjectiveDay: event.target.value }))
-              }
+              value={macroPreviewKcal ?? ''}
+              InputProps={{ readOnly: true }}
               inputProps={{ min: 0, step: 1 }}
               fullWidth
             />
