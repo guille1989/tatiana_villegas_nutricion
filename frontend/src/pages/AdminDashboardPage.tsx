@@ -68,6 +68,7 @@ type TrendPoint = {
 
 type MacroSummary = { protein: number; carbs: number; fat: number }
 type MacroTotals = MacroSummary & { kcal: number }
+type DayType = 'training' | 'rest'
 
 type SyncPoint = {
   date: string
@@ -146,6 +147,44 @@ const calcKcalFromMacros = (macros: {
   fatsAdjusted: number
 }) => Math.round(macros.protein * 4 + macros.carbsAdjusted * 4 + macros.fatsAdjusted * 9)
 
+const round1 = (value: number) => Math.round(value * 10) / 10
+
+const adjustCarbFat = ({
+  protein,
+  fats,
+  carbs,
+  kcalObjectiveDay,
+  dayType,
+}: {
+  protein: number
+  fats: number
+  carbs: number
+  kcalObjectiveDay: number
+  dayType: DayType
+}) => {
+  const carbFactor = dayType === 'training' ? 1.2 : 0.85
+  const fatFactor = dayType === 'training' ? 0.85 : 1.2
+
+  const protKcal = protein * 4
+  const remaining = Math.max(kcalObjectiveDay - protKcal, 0)
+
+  const baseCarbKcal = Math.max(carbs, 0) * 4
+  const baseFatKcal = Math.max(fats, 0) * 9
+
+  const targCarb = baseCarbKcal * carbFactor
+  const targFat = baseFatKcal * fatFactor
+  const denom = targCarb + targFat
+
+  if (denom <= 0) {
+    return { carbsAdjusted: 0, fatsAdjusted: 0 }
+  }
+
+  const scale = remaining / denom
+  const carbsAdjusted = round1((targCarb * scale) / 4)
+  const fatsAdjusted = round1((targFat * scale) / 9)
+  return { carbsAdjusted, fatsAdjusted }
+}
+
 const totalsFromMeals = (meals: Meal[]): MacroTotals =>
   meals.reduce(
     (acc, meal) => ({
@@ -197,21 +236,32 @@ const getPlanMacroOverrideForDate = (plan: Plan | null | undefined, date: string
   )
 }
 
+const getDayType = (override?: DayOverride | null, baseDayType?: DayType) =>
+  override?.overrides.dayType ?? baseDayType ?? 'rest'
+
 const applyPlanMacroOverride = (
   outputs: CalculationOutputs | null | undefined,
   plan: Plan | null | undefined,
   date: string,
+  dayType: DayType,
 ) => {
   if (!outputs) return outputs
   const override = getPlanMacroOverrideForDate(plan, date)
   if (!override) return outputs
   const kcalObjectiveDay = calcKcalFromMacros(override.macros) + (outputs.eee ?? 0)
+  const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
+    protein: override.macros.protein,
+    fats: override.macros.fatsAdjusted,
+    carbs: override.macros.carbsAdjusted,
+    kcalObjectiveDay,
+    dayType,
+  })
   return {
     ...outputs,
     kcalObjectiveDay,
     protein: override.macros.protein,
-    carbsAdjusted: override.macros.carbsAdjusted,
-    fatsAdjusted: override.macros.fatsAdjusted,
+    carbsAdjusted,
+    fatsAdjusted,
   }
 }
 
@@ -276,6 +326,7 @@ const buildSyncSeries = (
   overrides: DayOverride[],
   outputs: CalculationOutputs | undefined,
   plan?: Plan | null,
+  baseDayType?: DayType,
 ): SyncPoint[] => {
   const overrideMap = new Map(overrides.map((item) => [item.date, item]))
   const planStart = plan?.startDate
@@ -293,7 +344,8 @@ const buildSyncSeries = (
   return Array.from({ length: daysCount }, (_, idx) => {
     const date = rangeStart.add(idx, 'day').format('YYYY-MM-DD')
     const override = overrideMap.get(date)
-    const targetBase = applyPlanMacroOverride(override?.computed ?? outputs ?? null, plan, date)
+    const dayType = getDayType(override, baseDayType)
+    const targetBase = applyPlanMacroOverride(override?.computed ?? outputs ?? null, plan, date, dayType)
     const target = getTargetMacros(targetBase)
     const meals = getOverrideMeals(override)
     const totals = meals && meals.length > 0 ? totalsFromMeals(meals) : null
@@ -310,6 +362,7 @@ const buildTrend = (
   overrides: DayOverride[],
   outputs?: CalculationOutputs | null,
   plan?: Plan | null,
+  baseDayType?: DayType,
   days = 7,
 ): TrendPoint[] => {
   const today = dayjs().startOf('day')
@@ -343,7 +396,8 @@ const buildTrend = (
     const label = dayjs(date).format('D')
     const override = overrideMap.get(date)
     const meals = getOverrideMeals(override)
-    const baseOutputs = applyPlanMacroOverride(override?.computed ?? outputs ?? null, plan, date)
+    const dayType = getDayType(override, baseDayType)
+    const baseOutputs = applyPlanMacroOverride(override?.computed ?? outputs ?? null, plan, date, dayType)
     const summary = getAdherenceFromMeals(meals, baseOutputs)
     return {
       date,
@@ -594,10 +648,12 @@ const AdminDashboardPage = () => {
             })
             const latestMealsOverride = overridesWithMeals.sort((a, b) => dayjs(b.updatedAt).diff(a.updatedAt))[0]
             const adherenceDate = latestMealsOverride?.date ?? dayjs().format('YYYY-MM-DD')
+            const adherenceDayType = getDayType(latestMealsOverride, item.assessment?.inputs.dayType)
             const adherenceBase = applyPlanMacroOverride(
               latestMealsOverride?.computed ?? outputs,
               item.plan ?? null,
               adherenceDate,
+              adherenceDayType,
             )
             const adherence = getAdherenceFromMeals(getOverrideMeals(latestMealsOverride), adherenceBase)
 
@@ -610,7 +666,7 @@ const AdminDashboardPage = () => {
             overrides,
             lastUpdate: getLastUpdateDate(item.plan ?? null, overrides),
             adherence: latestMealsOverride ? { ...adherence, lastDate: latestMealsOverride.date } : adherence,
-            trend: buildTrend(overrides, outputs, item.plan ?? null),
+            trend: buildTrend(overrides, outputs, item.plan ?? null, item.assessment?.inputs.dayType),
           }
         })
 
@@ -663,6 +719,7 @@ const AdminDashboardPage = () => {
         selectedRecord.overrides,
         selectedRecord.latestAssessment?.outputs,
         selectedRecord.plan,
+        selectedRecord.latestAssessment?.inputs.dayType,
       )
     }, [selectedRecord])
   const syncLabels = syncSeries.map((item) => dayjs(item.date).format('DD/MM'))
@@ -809,17 +866,28 @@ const AdminDashboardPage = () => {
   const outputRows = useMemo<OutputRow[]>(() => {
     if (!assessment) return []
     const { outputs } = assessment
+    const dayType = assessment.inputs.dayType ?? 'rest'
     const macroOverride = getPlanMacroOverrideForDate(
       selectedRecord?.plan ?? null,
       dayjs().format('YYYY-MM-DD'),
     )
     const adjustedMacros = macroOverride
-      ? {
-          kcalObjectiveDay: calcKcalFromMacros(macroOverride.macros),
-          protein: macroOverride.macros.protein,
-          carbsAdjusted: macroOverride.macros.carbsAdjusted,
-          fatsAdjusted: macroOverride.macros.fatsAdjusted,
-        }
+      ? (() => {
+          const kcalObjectiveDay = calcKcalFromMacros(macroOverride.macros) + (outputs.eee ?? 0)
+          const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
+            protein: macroOverride.macros.protein,
+            fats: macroOverride.macros.fatsAdjusted,
+            carbs: macroOverride.macros.carbsAdjusted,
+            kcalObjectiveDay,
+            dayType,
+          })
+          return {
+            kcalObjectiveDay,
+            protein: macroOverride.macros.protein,
+            carbsAdjusted,
+            fatsAdjusted,
+          }
+        })()
       : null
 
     const adjustedValue = (value: number, unit: string) =>

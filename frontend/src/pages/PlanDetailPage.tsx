@@ -165,34 +165,81 @@ const PlanDetailPage = () => {
     fatsAdjusted: number;
   }) => Math.round(macros.protein * 4 + macros.carbsAdjusted * 4 + macros.fatsAdjusted * 9);
 
+  const round1 = (value: number) => Math.round(value * 10) / 10;
+
+  const adjustCarbFat = ({
+    protein,
+    fats,
+    carbs,
+    kcalObjectiveDay,
+    dayType,
+  }: {
+    protein: number;
+    fats: number;
+    carbs: number;
+    kcalObjectiveDay: number;
+    dayType: "training" | "rest";
+  }) => {
+    const carbFactor = dayType === "training" ? 1.2 : 0.85;
+    const fatFactor = dayType === "training" ? 0.85 : 1.2;
+
+    const protKcal = protein * 4;
+    const remaining = Math.max(kcalObjectiveDay - protKcal, 0);
+
+    const baseCarbKcal = Math.max(carbs, 0) * 4;
+    const baseFatKcal = Math.max(fats, 0) * 9;
+
+    const targCarb = baseCarbKcal * carbFactor;
+    const targFat = baseFatKcal * fatFactor;
+    const denom = targCarb + targFat;
+
+    if (denom <= 0) {
+      return { carbsAdjusted: 0, fatsAdjusted: 0 };
+    }
+
+    const scale = remaining / denom;
+    const carbsAdjusted = round1((targCarb * scale) / 4);
+    const fatsAdjusted = round1((targFat * scale) / 9);
+    return { carbsAdjusted, fatsAdjusted };
+  };
+
   const applyMacroOverride = (
     outputs: CalculationOutputs | undefined,
-    date: string | null
+    date: string | null,
+    dayType: "training" | "rest"
   ) => {
     if (!outputs) return outputs;
     const override = getMacroOverrideForDate(date, plan?.macroOverrides);
     if (!override) return outputs;
     const kcalObjectiveDay = calcKcalFromMacros(override.macros) + (outputs.eee ?? 0);
+    const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
+      protein: override.macros.protein,
+      fats: override.macros.fatsAdjusted,
+      carbs: override.macros.carbsAdjusted,
+      kcalObjectiveDay,
+      dayType,
+    });
     return {
       ...outputs,
       kcalObjectiveDay,
       protein: override.macros.protein,
-      carbsAdjusted: override.macros.carbsAdjusted,
-      fatsAdjusted: override.macros.fatsAdjusted,
+      carbsAdjusted,
+      fatsAdjusted,
     };
   };
 
   const computeOutputs = (date: string | null, override?: DayOverride) => {
-    if (!baseInputs) return applyMacroOverride(baseOutputs ?? undefined, date);
-    if (override?.computed) return applyMacroOverride(override.computed, date);
+    const dayType = override?.overrides.dayType ?? baseInputs?.dayType ?? "rest";
+    if (!baseInputs) return applyMacroOverride(baseOutputs ?? undefined, date, dayType);
+    if (override?.computed) return applyMacroOverride(override.computed, date, dayType);
     if (override) {
       try {
-        return applyMacroOverride(calculateDayFromBase(baseInputs, override.overrides), date);
+        return applyMacroOverride(calculateDayFromBase(baseInputs, override.overrides), date, dayType);
       } catch {
-        return applyMacroOverride(baseOutputs ?? undefined, date);
+        return applyMacroOverride(baseOutputs ?? undefined, date, dayType);
       }
     }
-    return applyMacroOverride(baseOutputs ?? undefined, date);
+    return applyMacroOverride(baseOutputs ?? undefined, date, dayType);
   };
 
   const getTrainingCount = (override?: DayOverride) => {
