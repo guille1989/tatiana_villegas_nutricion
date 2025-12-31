@@ -75,6 +75,12 @@ type SyncPoint = {
   consumedKcal: number | null
 }
 
+type OutputRow = {
+  label: string
+  value: string
+  adjustedValue?: string
+}
+
 type AdminRecord = {
   userId: string
   userName?: string
@@ -800,25 +806,57 @@ const AdminDashboardPage = () => {
     ]
   }, [assessment])
 
-  const outputRows = useMemo(() => {
+  const outputRows = useMemo<OutputRow[]>(() => {
     if (!assessment) return []
     const { outputs } = assessment
+    const macroOverride = getPlanMacroOverrideForDate(
+      selectedRecord?.plan ?? null,
+      dayjs().format('YYYY-MM-DD'),
+    )
+    const adjustedMacros = macroOverride
+      ? {
+          kcalObjectiveDay: calcKcalFromMacros(macroOverride.macros),
+          protein: macroOverride.macros.protein,
+          carbsAdjusted: macroOverride.macros.carbsAdjusted,
+          fatsAdjusted: macroOverride.macros.fatsAdjusted,
+        }
+      : null
+
+    const adjustedValue = (value: number, unit: string) =>
+      adjustedMacros ? formatWithUnit(value, unit) : undefined
+
     return [
       { label: 'RMR', value: formatWithUnit(outputs.rmr, 'kcal') },
       { label: 'PAL', value: formatValue(outputs.pal) },
       { label: 'TDEE', value: formatWithUnit(outputs.tdee, 'kcal') },
       { label: 'Kcal base', value: formatWithUnit(outputs.kcalObjectiveBase, 'kcal') },
-      { label: 'Proteina', value: formatWithUnit(outputs.protein, 'g') },
+      {
+        label: 'Proteina',
+        value: formatWithUnit(outputs.protein, 'g'),
+        adjustedValue: adjustedMacros ? adjustedValue(adjustedMacros.protein, 'g') : undefined,
+      },
       { label: 'Grasas', value: formatWithUnit(outputs.fats, 'g') },
       { label: 'Carbs', value: formatWithUnit(outputs.carbs, 'g') },
       { label: 'EEE', value: formatWithUnit(outputs.eee, 'kcal') },
-      { label: 'Kcal dia', value: formatWithUnit(outputs.kcalObjectiveDay, 'kcal') },
-      { label: 'Carbs ajustados', value: formatWithUnit(outputs.carbsAdjusted, 'g') },
-      { label: 'Grasas ajustadas', value: formatWithUnit(outputs.fatsAdjusted, 'g') },
+      {
+        label: 'Kcal dia',
+        value: formatWithUnit(outputs.kcalObjectiveDay, 'kcal'),
+        adjustedValue: adjustedMacros ? adjustedValue(adjustedMacros.kcalObjectiveDay, 'kcal') : undefined,
+      },
+      {
+        label: 'Carbs ajustados',
+        value: formatWithUnit(outputs.carbsAdjusted, 'g'),
+        adjustedValue: adjustedMacros ? adjustedValue(adjustedMacros.carbsAdjusted, 'g') : undefined,
+      },
+      {
+        label: 'Grasas ajustadas',
+        value: formatWithUnit(outputs.fatsAdjusted, 'g'),
+        adjustedValue: adjustedMacros ? adjustedValue(adjustedMacros.fatsAdjusted, 'g') : undefined,
+      },
       { label: 'FFM', value: formatValue(outputs.ffm ?? null) },
       { label: 'EA', value: formatValue(outputs.ea ?? null) },
     ]
-  }, [assessment])
+  }, [assessment, selectedRecord?.plan])
 
   const kpis = useMemo(() => {
     const total = records.length
@@ -1302,6 +1340,11 @@ const AdminDashboardPage = () => {
                                   {row.label}
                                 </Typography>
                                 <Typography fontWeight={700}>{row.value}</Typography>
+                                {row.adjustedValue && (
+                                  <Typography variant="caption" sx={{ color: theme.palette.success.main }}>
+                                    Ajustado por admin: {row.adjustedValue}
+                                  </Typography>
+                                )}
                               </Stack>
                             ))}
                           </Box>
