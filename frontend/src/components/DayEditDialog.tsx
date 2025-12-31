@@ -325,14 +325,26 @@ const DayEditDialog = ({
                     fullWidth
                     size="small"
                     value={trainingType}
-                    onChange={(event) => setValue(`trainings.${idx}.type`, event.target.value, { shouldDirty: true })}
+                    onChange={(event) => {
+                      const nextType = event.target.value
+                      setValue(`trainings.${idx}.type`, nextType, { shouldDirty: true })
+                      const nextOption = trainingOptions.find((item) => item.value === nextType)
+                      const metDirty = (dirtyFields.trainings as any)?.[idx]?.met
+                      if (!metDirty) {
+                        setValue(
+                          `trainings.${idx}.met`,
+                          nextOption ? nextOption.met : undefined,
+                          { shouldDirty: false },
+                        )
+                      }
+                    }}
                     required
                     error={!!errors.trainings?.[idx]?.type}
                     helperText={(errors.trainings?.[idx] as any)?.type?.message}
                   >
                     {trainingOptions.map((option) => (
                       <MenuItem key={option.value} value={option.value}>
-                        {option.label} - MET {option.met}
+                        {option.label}
                       </MenuItem>
                     ))}
                   </TextField>
@@ -371,6 +383,7 @@ const DayEditDialog = ({
                           required
                           inputProps={{ min: 1, max: 30, step: 0.1 }}
                           value={field.value ?? ''}
+                          disabled
                           onChange={(event) =>
                             field.onChange(event.target.value === '' ? undefined : Number(event.target.value))
                           }
