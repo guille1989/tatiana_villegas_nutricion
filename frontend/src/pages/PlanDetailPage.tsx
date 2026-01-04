@@ -820,26 +820,6 @@ const PlanDetailPage = () => {
               </Typography>
             )}
           </Stack>
-          <Stack
-            direction={{ xs: "column", sm: "row" }}
-            spacing={1}
-            width={{ xs: "100%", md: "auto" }}
-          >
-            <Button
-              variant="outlined"
-              onClick={() => navigate("/plans")}
-              fullWidth={!isDesktop}
-            >
-              Volver
-            </Button>
-            <Button
-              variant="contained"
-              onClick={() => navigate("/wizard")}
-              fullWidth={!isDesktop}
-            >
-              Abrir wizard
-            </Button>
-          </Stack>
         </Stack>
 
         {!baseOutputs && (

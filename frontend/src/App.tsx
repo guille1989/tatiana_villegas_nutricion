@@ -86,9 +86,6 @@ const AppShell = () => {
           <Stack direction="row" spacing={1}>
             {token ? (
               <>
-                <Button component={RouterLink} to="/wizard" color="primary">
-                  Wizard
-                </Button>
                 <Button component={RouterLink} to="/plans" color="primary">
                   Planes
                 </Button>
