@@ -395,7 +395,7 @@ const PlansPage = () => {
   const [snackbar, setSnackbar] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Plan | null>(null)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
-  const [createDays, setCreateDays] = useState<Plan['days']>(7)
+  const [createDays, setCreateDays] = useState<Plan['days']>(30)
   const [createLoading, setCreateLoading] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [missingAssessment, setMissingAssessment] = useState(false)

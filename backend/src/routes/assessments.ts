@@ -38,7 +38,7 @@ router.post(
 
     // Upsert a 7-day plan for this user based on the latest assessment
     const startDate = new Date()
-    const existingPlan = await PlanModel.findOne({ userId, days: 7 }).sort({
+    const existingPlan = await PlanModel.findOne({ userId, days: 30 }).sort({
       createdAt: -1,
     })
 
@@ -50,15 +50,15 @@ router.post(
         userId,
         baseAssessmentId: new Types.ObjectId(assessment._id),
         startDate,
-        days: 7,
+        days: 30,
         status: 'draft',
-        title: 'Plan 7 dias',
+        title: 'Plan 30 dias',
       })
 
     plan.baseAssessmentId = new Types.ObjectId(assessment._id)
     plan.startDate = startDate
     plan.status = 'active'
-    if (!plan.title) plan.title = 'Plan 7 dias'
+    if (!plan.title) plan.title = 'Plan 30 dias'
     await plan.save()
 
     res.status(201).json({ assessment, plan })

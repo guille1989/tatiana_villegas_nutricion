@@ -83,7 +83,7 @@ const WizardPage = () => {
     try {
       const { assessment, plan } = await createAssessment(inputs)
       assessment // keep for potential future use
-      setSnackbar('Plan de 7 dias guardado')
+      setSnackbar('Plan de 30 dias guardado')
       if (plan) navigate(`/plans/${plan.id}`)
       else navigate('/plans')
     } catch (err) {

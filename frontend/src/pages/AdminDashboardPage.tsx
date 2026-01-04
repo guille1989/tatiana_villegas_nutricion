@@ -1044,7 +1044,7 @@ const AdminDashboardPage = () => {
               <Card elevation={0} sx={{ flex: 1 }}>
                 <CardContent>
                   <Typography variant="overline" color="text.secondary">
-                    Sin update +7 dias
+                    Sin update +30 dias
                   </Typography>
                   <Typography variant="h5" fontWeight={800}>
                     {kpis.stale}

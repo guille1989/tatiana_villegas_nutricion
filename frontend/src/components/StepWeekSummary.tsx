@@ -93,7 +93,7 @@ const StepWeekSummary = ({
         title={
           <Stack spacing={0.5} alignItems="flex-start">
             <Typography variant="h6" fontWeight={800}>
-              Plan de 7 dias
+              Plan de 30 dias
             </Typography>
             <Typography variant="body2" color="text.secondary">
               Vista rapida de tu semana con dias de descanso por defecto.
@@ -293,7 +293,7 @@ const StepWeekSummary = ({
           <>
             <Divider sx={{ my: 2 }} />
             <Typography variant="body2" color="text.secondary">
-              Al guardar se crea o actualiza tu plan base de 7 dias y podras editar overrides por dia.
+              Al guardar se crea o actualiza tu plan base de 30 dias y podras editar overrides por dia.
             </Typography>
           </>
         )}
@@ -323,7 +323,7 @@ const StepWeekSummary = ({
             Reiniciar
           </Button>
           <Button variant="contained" onClick={() => onFinalize(week)} disabled={isSaving}>
-            {isSaving ? 'Guardando...' : 'Guardar y ver plan de 7 dias'}
+            {isSaving ? 'Guardando...' : 'Guardar y ver plan de 30 dias'}
           </Button>
         </Stack>
       </Paper>
