@@ -18,7 +18,6 @@ import {
   Snackbar,
   Stack,
   Typography,
-  useMediaQuery,
   Chip,
   LinearProgress,
   ToggleButton,

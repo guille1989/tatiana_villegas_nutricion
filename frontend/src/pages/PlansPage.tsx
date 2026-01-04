@@ -207,7 +207,7 @@ const buildSyncSeries = (
   })
 }
 
-const MacroDonut = ({ outputs }: { outputs?: CalculationOutputs }) => {
+const MacroDonut = ({ outputs }: { outputs?: CalculationOutputs | null }) => {
   const theme = useTheme()
   const size = 44
   const stroke = 6

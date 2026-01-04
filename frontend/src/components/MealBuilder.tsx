@@ -216,7 +216,6 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
   const [builderOpen, setBuilderOpen] = useState(false);
   const [activeMealKey, setActiveMealKey] = useState<Meal["key"] | null>(null);
   const [draftMeal, setDraftMeal] = useState<Meal | null>(null);
-  const [ingredientsMeal, setIngredientsMeal] = useState<Meal | null>(null);
   const [activeCategory, setActiveCategory] =
     useState<BlockCategory>("protein");
   const [selectedGroup, setSelectedGroup] = useState<FoodGroupFilter>("proteinas");
@@ -344,14 +343,6 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
     onChange(nextMeals);
     onSave?.(nextMeals);
     handleCloseBuilder();
-  };
-
-  const handleOpenIngredients = (meal: Meal) => {
-    setIngredientsMeal(meal);
-  };
-
-  const handleCloseIngredients = () => {
-    setIngredientsMeal(null);
   };
 
   const addFoodToDraft = (
@@ -612,55 +603,46 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
                           Clonar plato
                         </Button>
                       )}
-                      <Button
-                        size="small"
-                        variant="text"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          event.preventDefault();
-                          handleOpenIngredients(meal);
-                        }}
-                      >
-                        Ver ingredientes
-                      </Button>
                     </Stack>
                   </Stack>
                 </Stack>
               </AccordionSummary>
               <AccordionDetails sx={{ px: 1.5, pb: 1.5, pt: 0.5 }}>
                 <Stack spacing={1.5}>
-                  <Typography variant="subtitle2" fontWeight={700}>
-                    Macros de la comida
-                  </Typography>
-                  <Box
-                    sx={{
-                      display: "grid",
-                      gap: 1,
-                      gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-                    }}
-                  >
-                    <MacroGauge
-                      label="Proteina"
-                      consumedGrams={meal.totals.protein}
-                      targetGrams={targets.protein}
-                      gramsPerPortion={10}
-                      macroKey="protein"
-                    />
-                    <MacroGauge
-                      label="Carbohidratos"
-                      consumedGrams={meal.totals.carbs}
-                      targetGrams={targets.carbs}
-                      gramsPerPortion={15}
-                      macroKey="carbs"
-                    />
-                    <MacroGauge
-                      label="Grasas"
-                      consumedGrams={meal.totals.fat}
-                      targetGrams={targets.fat}
-                      gramsPerPortion={5}
-                      macroKey="fat"
-                    />
-                  </Box>
+                  <Stack spacing={1}>
+                    <Typography variant="subtitle2" fontWeight={700}>
+                      Ingredientes
+                    </Typography>
+                    {meal.items.length ? (
+                      <Stack spacing={1}>
+                        {meal.items.map((item, idx) => (
+                          <Box
+                            key={`${item.foodId}-${idx}-ingredients`}
+                            sx={{
+                              p: 1,
+                              borderRadius: 2,
+                              border: "1px solid",
+                              borderColor: "divider",
+                            }}
+                          >
+                            <Typography variant="body2" fontWeight={700}>
+                              {item.nameSnapshot}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {item.grams.toFixed(0)} g | {item.kcal.toFixed(0)} kcal | P{" "}
+                              {item.macros.protein.toFixed(0)} C{" "}
+                              {item.macros.carbs.toFixed(0)} G{" "}
+                              {item.macros.fat.toFixed(0)}
+                            </Typography>
+                          </Box>
+                        ))}
+                      </Stack>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Sin alimentos.
+                      </Typography>
+                    )}
+                  </Stack>
                   <Button
                     variant="contained"
                     onClick={() => handleOpenBuilder(meal.key)}
@@ -842,51 +824,6 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
           </Stack>
         </Stack>
       </Drawer>
-
-      <Dialog
-        open={!!ingredientsMeal}
-        onClose={handleCloseIngredients}
-        fullWidth
-        maxWidth="sm"
-      >
-        <DialogTitle>
-          Ingredientes{ingredientsMeal ? ` de ${ingredientsMeal.name}` : ""}
-        </DialogTitle>
-        <DialogContent>
-          <Stack spacing={1.25} sx={{ mt: 0.5 }}>
-            {ingredientsMeal?.items.length ? (
-              ingredientsMeal.items.map((item, idx) => (
-                <Box
-                  key={`${item.foodId}-${idx}-ingredients`}
-                  sx={{
-                    p: 1,
-                    borderRadius: 2,
-                    border: "1px solid",
-                    borderColor: "divider",
-                  }}
-                >
-                  <Typography variant="body2" fontWeight={700}>
-                    {item.nameSnapshot}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {item.grams.toFixed(0)} g | {item.kcal.toFixed(0)} kcal | P{" "}
-                    {item.macros.protein.toFixed(0)} C{" "}
-                    {item.macros.carbs.toFixed(0)} G{" "}
-                    {item.macros.fat.toFixed(0)}
-                  </Typography>
-                </Box>
-              ))
-            ) : (
-              <Typography variant="caption" color="text.secondary">
-                Sin alimentos.
-              </Typography>
-            )}
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseIngredients}>Cerrar</Button>
-        </DialogActions>
-      </Dialog>
 
       <Dialog open={catalogAddOpen} onClose={handleCloseCatalogAdd} fullWidth maxWidth="xs">
         <DialogTitle>Agregar porciones</DialogTitle>
