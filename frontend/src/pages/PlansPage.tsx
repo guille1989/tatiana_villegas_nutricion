@@ -26,9 +26,10 @@ import dayjs from 'dayjs'
 import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createPlan, deletePlan, getLatestAssessment, getPlan, listPlans } from '../lib/api'
-import type { CalculationOutputs, DayOverride, Meal, Plan } from '../types'
+import type { Assessment, CalculationOutputs, DayOverride, Meal, Plan } from '../types'
 
 type PlanDetail = {
+  assessment?: Assessment
   outputs?: CalculationOutputs
   overrides: DayOverride[]
 }
@@ -42,6 +43,89 @@ type SyncPoint = {
   consumedKcal: number | null
   targetMacros: MacroSummary | null
   consumedMacros: MacroSummary | null
+}
+
+type DayType = 'training' | 'rest'
+
+const calcKcalFromMacros = (macros: {
+  protein: number
+  carbsAdjusted: number
+  fatsAdjusted: number
+}) => Math.round(macros.protein * 4 + macros.carbsAdjusted * 4 + macros.fatsAdjusted * 9)
+
+const round1 = (value: number) => Math.round(value * 10) / 10
+
+const adjustCarbFat = ({
+  protein,
+  fats,
+  carbs,
+  kcalObjectiveDay,
+  dayType,
+}: {
+  protein: number
+  fats: number
+  carbs: number
+  kcalObjectiveDay: number
+  dayType: DayType
+}) => {
+  const carbFactor = dayType === 'training' ? 1.2 : 0.85
+  const fatFactor = dayType === 'training' ? 0.85 : 1.2
+
+  const protKcal = protein * 4
+  const remaining = Math.max(kcalObjectiveDay - protKcal, 0)
+
+  const baseCarbKcal = Math.max(carbs, 0) * 4
+  const baseFatKcal = Math.max(fats, 0) * 9
+
+  const targCarb = baseCarbKcal * carbFactor
+  const targFat = baseFatKcal * fatFactor
+  const denom = targCarb + targFat
+
+  if (denom <= 0) {
+    return { carbsAdjusted: 0, fatsAdjusted: 0 }
+  }
+
+  const scale = remaining / denom
+  const carbsAdjusted = round1((targCarb * scale) / 4)
+  const fatsAdjusted = round1((targFat * scale) / 9)
+  return { carbsAdjusted, fatsAdjusted }
+}
+
+const getPlanMacroOverrideForDate = (plan: Plan | null | undefined, date: string) => {
+  const overrides = plan?.macroOverrides ?? []
+  if (overrides.length === 0) return null
+  const filtered = overrides.filter((item) => item.effectiveFrom <= date)
+  if (filtered.length === 0) return null
+  return filtered.reduce((latest, item) => (item.effectiveFrom > latest.effectiveFrom ? item : latest))
+}
+
+const getDayType = (override?: DayOverride | null, baseDayType?: DayType | null) =>
+  override?.overrides.dayType ?? baseDayType ?? 'rest'
+
+const applyPlanMacroOverride = (
+  outputs: CalculationOutputs | null | undefined,
+  plan: Plan | null | undefined,
+  date: string,
+  dayType: DayType,
+) => {
+  if (!outputs) return outputs
+  const override = getPlanMacroOverrideForDate(plan, date)
+  if (!override) return outputs
+  const kcalObjectiveDay = calcKcalFromMacros(override.macros) + (outputs.eee ?? 0)
+  const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
+    protein: override.macros.protein,
+    fats: override.macros.fatsAdjusted,
+    carbs: override.macros.carbsAdjusted,
+    kcalObjectiveDay,
+    dayType,
+  })
+  return {
+    ...outputs,
+    kcalObjectiveDay,
+    protein: override.macros.protein,
+    carbsAdjusted,
+    fatsAdjusted,
+  }
 }
 
 const getMacroPercentages = (outputs?: CalculationOutputs | null) => {
@@ -88,10 +172,12 @@ const getOverrideMeals = (override?: DayOverride | null) =>
 const buildSyncSeries = (
   overrides: DayOverride[],
   outputs: CalculationOutputs | undefined,
-  planStart: string | undefined,
-  planDays: number | undefined,
+  plan: Plan | null | undefined,
+  baseDayType?: DayType | null,
 ): SyncPoint[] => {
   const overrideMap = new Map(overrides.map((item) => [item.date, item]))
+  const planStart = plan?.startDate
+  const planDays = plan?.days
   if (!planStart || !planDays) return []
 
   const planStartDate = dayjs(planStart)
@@ -101,7 +187,8 @@ const buildSyncSeries = (
   return Array.from({ length: daysCount }, (_, idx) => {
     const date = rangeStart.add(idx, 'day').format('YYYY-MM-DD')
     const override = overrideMap.get(date)
-    const targetBase = override?.computed ?? outputs ?? null
+    const dayType = getDayType(override, baseDayType)
+    const targetBase = applyPlanMacroOverride(override?.computed ?? outputs ?? null, plan, date, dayType)
     const target = getTargetMacros(targetBase)
     const meals = getOverrideMeals(override)
     const totals = meals && meals.length > 0 ? totalsFromMeals(meals) : null
@@ -432,6 +519,7 @@ const PlansPage = () => {
       results.forEach((result, index) => {
         if (result.status === 'fulfilled') {
           details[plans[index].id] = {
+            assessment: result.value.assessment,
             outputs: result.value.assessment?.outputs,
             overrides: result.value.overrides ?? [],
           }
@@ -471,8 +559,8 @@ const PlansPage = () => {
     return buildSyncSeries(
       selectedPlanDetail.overrides,
       selectedPlanDetail.outputs,
-      selectedPlan?.startDate,
-      selectedPlan?.days,
+      selectedPlan,
+      selectedPlanDetail.assessment?.inputs?.dayType ?? null,
     )
   }, [selectedPlan, selectedPlanDetail])
 
@@ -645,8 +733,24 @@ const PlansPage = () => {
                 <Stack spacing={1.5} sx={{ flex: 1, overflowY: 'auto', pr: 0.5 }}>
                   {planItems.map((plan) => {
                     const detail = planDetails[plan.id]
-                    const planKcal = detail?.outputs?.kcalObjectiveDay
-                    const macros = getMacroPercentages(detail?.outputs)
+                    const planStartDate = dayjs(plan.startDate)
+                    const planEndDate = planStartDate.add(plan.days - 1, 'day')
+                    const today = dayjs()
+                    const displayDate = (today.isBefore(planStartDate, 'day')
+                      ? planStartDate
+                      : today.isAfter(planEndDate, 'day')
+                        ? planEndDate
+                        : today
+                    ).format('YYYY-MM-DD')
+                    const baseDayType = detail?.assessment?.inputs?.dayType ?? null
+                    const adjustedOutputs = applyPlanMacroOverride(
+                      detail?.outputs,
+                      plan,
+                      displayDate,
+                      baseDayType ?? 'rest',
+                    )
+                    const planKcal = adjustedOutputs?.kcalObjectiveDay
+                    const macros = getMacroPercentages(adjustedOutputs)
                     const isActive = plan.status === 'active'
                     const isSelected = plan.id === selectedPlanId
                     const statusColor =
@@ -715,7 +819,7 @@ const PlansPage = () => {
                           </Stack>
 
                           <Stack direction="row" spacing={1.5} alignItems="center">
-                            <MacroDonut outputs={detail?.outputs} />
+                            <MacroDonut outputs={adjustedOutputs} />
                             <Stack spacing={0.5} flex={1}>
                               {macros ? (
                                 <Typography variant="body2" color="text.secondary">

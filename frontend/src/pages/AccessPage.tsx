@@ -59,7 +59,7 @@ const AccessPage = () => {
         password,
       })
       login(result.token, result.user)
-      const nextRoute = result.user.role === 'admin' ? '/admin' : '/wizard'
+      const nextRoute = result.user.role === 'admin' ? '/admin' : '/'
       navigate(nextRoute, { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo validar')
@@ -79,7 +79,7 @@ const AccessPage = () => {
     try {
       const result = await loginApi({ email: trimmedEmail, password: loginPassword })
       login(result.token, result.user)
-      const nextRoute = result.user.role === 'admin' ? '/admin' : '/wizard'
+      const nextRoute = result.user.role === 'admin' ? '/admin' : '/'
       navigate(nextRoute, { replace: true })
     } catch (err) {
       setLoginError(err instanceof Error ? err.message : 'No se pudo iniciar sesion')
