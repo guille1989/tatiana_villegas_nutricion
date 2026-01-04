@@ -336,10 +336,8 @@ const buildSyncSeries = (
   const planStartDate = dayjs(planStart)
   const planEndDate = planStartDate.add(planDays - 1, 'day')
   const rangeStart = planStartDate
-  const rangeEnd = planEndDate.isBefore(planStartDate.add(6, 'day'), 'day')
-    ? planEndDate
-    : planStartDate.add(6, 'day')
-  const daysCount = rangeEnd.diff(rangeStart, 'day') + 1
+  const rangeEnd = planEndDate
+  const daysCount = planDays
 
   return Array.from({ length: daysCount }, (_, idx) => {
     const date = rangeStart.add(idx, 'day').format('YYYY-MM-DD')

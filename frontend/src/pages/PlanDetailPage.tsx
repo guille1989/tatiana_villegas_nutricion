@@ -6,6 +6,7 @@ import {
   Box,
   Button,
   ButtonBase,
+  IconButton,
   Card,
   Container,
   Dialog,
@@ -24,13 +25,20 @@ import {
   ToggleButtonGroup,
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ChevronLeftRoundedIcon from "@mui/icons-material/ChevronLeftRounded";
+import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@mui/material/styles";
 import { useNavigate, useParams } from "react-router-dom";
 import DayEditDialog from "../components/DayEditDialog";
 import { calculateDayFromBase } from "../lib/calc";
-import { createMealTemplate, getPlan, listMealTemplates, upsertOverride } from "../lib/api";
+import {
+  createMealTemplate,
+  getPlan,
+  listMealTemplates,
+  upsertOverride,
+} from "../lib/api";
 import MealBuilder from "../components/MealBuilder";
 import { getMacroState, getTol, macroStateColor } from "../lib/macroStatus";
 import {
@@ -59,6 +67,7 @@ const PlanDetailPage = () => {
   const [assessment, setAssessment] = useState<Assessment | null>(null);
   const [overrides, setOverrides] = useState<DayOverride[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [weekIndex, setWeekIndex] = useState(0);
   const [editingDate, setEditingDate] = useState<string | null>(null);
   const [snackbar, setSnackbar] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,10 +79,16 @@ const PlanDetailPage = () => {
   const [cloneSaving, setCloneSaving] = useState(false);
   const [cloneError, setCloneError] = useState<string | null>(null);
   const [cloneSourceId, setCloneSourceId] = useState<string | null>(null);
-  const [cloneTargetPlanId, setCloneTargetPlanId] = useState<string | null>(null);
+  const [cloneTargetPlanId, setCloneTargetPlanId] = useState<string | null>(
+    null
+  );
   const [cloneTargetDate, setCloneTargetDate] = useState<string | null>(null);
-  const [cloneTargetMealKey, setCloneTargetMealKey] = useState<Meal["key"] | null>(null);
-  const [cloneTargetMealName, setCloneTargetMealName] = useState<string | null>(null);
+  const [cloneTargetMealKey, setCloneTargetMealKey] = useState<
+    Meal["key"] | null
+  >(null);
+  const [cloneTargetMealName, setCloneTargetMealName] = useState<string | null>(
+    null
+  );
   const [cloneExpandedId, setCloneExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -110,11 +125,40 @@ const PlanDetailPage = () => {
     );
   }, [plan]);
 
+  const weeks = useMemo(() => {
+    const chunks: string[][] = [];
+    for (let i = 0; i < dates.length; i += 7) {
+      chunks.push(dates.slice(i, i + 7));
+    }
+    return chunks;
+  }, [dates]);
+
+  const visibleDates = weeks[weekIndex] ?? [];
+
   useEffect(() => {
-    if (dates.length && !selectedDate) {
+    if (!dates.length) return;
+    if (!selectedDate || !dates.includes(selectedDate)) {
       setSelectedDate(dates[0]);
     }
   }, [dates, selectedDate]);
+
+  useEffect(() => {
+    if (weeks.length === 0) {
+      if (weekIndex !== 0) setWeekIndex(0);
+      return;
+    }
+    if (weekIndex > weeks.length - 1) {
+      setWeekIndex(weeks.length - 1);
+    }
+  }, [weeks.length, weekIndex]);
+
+  useEffect(() => {
+    if (!selectedDate) return;
+    const idx = weeks.findIndex((week) => week.includes(selectedDate));
+    if (idx !== -1 && idx !== weekIndex) {
+      setWeekIndex(idx);
+    }
+  }, [selectedDate, weeks, weekIndex]);
 
   useEffect(() => {
     if (selectedDate && detailRef.current) {
@@ -163,7 +207,10 @@ const PlanDetailPage = () => {
     protein: number;
     carbsAdjusted: number;
     fatsAdjusted: number;
-  }) => Math.round(macros.protein * 4 + macros.carbsAdjusted * 4 + macros.fatsAdjusted * 9);
+  }) =>
+    Math.round(
+      macros.protein * 4 + macros.carbsAdjusted * 4 + macros.fatsAdjusted * 9
+    );
 
   const round1 = (value: number) => Math.round(value * 10) / 10;
 
@@ -211,7 +258,8 @@ const PlanDetailPage = () => {
     if (!outputs) return outputs;
     const override = getMacroOverrideForDate(date, plan?.macroOverrides);
     if (!override) return outputs;
-    const kcalObjectiveDay = calcKcalFromMacros(override.macros) + (outputs.eee ?? 0);
+    const kcalObjectiveDay =
+      calcKcalFromMacros(override.macros) + (outputs.eee ?? 0);
     const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
       protein: override.macros.protein,
       fats: override.macros.fatsAdjusted,
@@ -229,12 +277,19 @@ const PlanDetailPage = () => {
   };
 
   const computeOutputs = (date: string | null, override?: DayOverride) => {
-    const dayType = override?.overrides.dayType ?? baseInputs?.dayType ?? "rest";
-    if (!baseInputs) return applyMacroOverride(baseOutputs ?? undefined, date, dayType);
-    if (override?.computed) return applyMacroOverride(override.computed, date, dayType);
+    const dayType =
+      override?.overrides.dayType ?? baseInputs?.dayType ?? "rest";
+    if (!baseInputs)
+      return applyMacroOverride(baseOutputs ?? undefined, date, dayType);
+    if (override?.computed)
+      return applyMacroOverride(override.computed, date, dayType);
     if (override) {
       try {
-        return applyMacroOverride(calculateDayFromBase(baseInputs, override.overrides), date, dayType);
+        return applyMacroOverride(
+          calculateDayFromBase(baseInputs, override.overrides),
+          date,
+          dayType
+        );
       } catch {
         return applyMacroOverride(baseOutputs ?? undefined, date, dayType);
       }
@@ -272,6 +327,19 @@ const PlanDetailPage = () => {
         : "Entreno"
       : "Descanso";
 
+  const canGoPrevWeek = weekIndex > 0;
+  const canGoNextWeek = weekIndex < weeks.length - 1;
+
+  const handleWeekChange = (nextIndex: number) => {
+    if (weeks.length === 0) return;
+    const clamped = Math.max(0, Math.min(nextIndex, weeks.length - 1));
+    if (clamped === weekIndex) return;
+    setWeekIndex(clamped);
+    const nextDates = weeks[clamped];
+    if (nextDates?.length) {
+      setSelectedDate(nextDates[0]);
+    }
+  };
 
   const getMealCount = (meals?: Meal[]): MealCount | null => {
     if (!meals) return null;
@@ -281,7 +349,10 @@ const PlanDetailPage = () => {
     return null;
   };
 
-  const mergeMealsWithTemplate = (meals: Meal[] | undefined, template: Meal[]) => {
+  const mergeMealsWithTemplate = (
+    meals: Meal[] | undefined,
+    template: Meal[]
+  ) => {
     const map = new Map((meals ?? []).map((m) => [m.key, m]));
     return template.map((tpl) => {
       const existing = map.get(tpl.key);
@@ -298,7 +369,7 @@ const PlanDetailPage = () => {
         fat: acc.fat + meal.totals.fat,
         kcal: acc.kcal + meal.totals.kcal,
       }),
-      { protein: 0, carbs: 0, fat: 0, kcal: 0 },
+      { protein: 0, carbs: 0, fat: 0, kcal: 0 }
     );
 
   const formatInt = (value: number) => Math.round(value);
@@ -331,8 +402,8 @@ const PlanDetailPage = () => {
     remaining: { protein: number; carbs: number; fat: number },
     budget: { protein: number; carbs: number; fat: number }
   ): DayStatus => {
-    const states: DayStatus[] = (["protein", "carbs", "fat"] as const).map((key) =>
-      getMacroState(remaining[key], budget[key], key)
+    const states: DayStatus[] = (["protein", "carbs", "fat"] as const).map(
+      (key) => getMacroState(remaining[key], budget[key], key)
     ) as DayStatus[];
     if (states.includes("over")) return "over";
     if (states.every((s) => s === "ok")) return "ok";
@@ -349,7 +420,9 @@ const PlanDetailPage = () => {
     (selectedOverride?.meals as Meal[] | undefined);
   const mealCount = getMealCount(rawMeals);
   const mealTemplate = mealCount ? getMealsByCount(mealCount) : [];
-  const currentMeals = mealCount ? mergeMealsWithTemplate(rawMeals, mealTemplate) : [];
+  const currentMeals = mealCount
+    ? mergeMealsWithTemplate(rawMeals, mealTemplate)
+    : [];
   const currentTotals = totalsFromMeals(currentMeals);
   const dailyMacros = selectedOutputs
     ? {
@@ -370,7 +443,6 @@ const PlanDetailPage = () => {
     !cloneTargetPlanId ||
     !cloneTargetDate ||
     !cloneTargetMealKey;
-
 
   const handleMealsChange = (meals: Meal[]) => {
     if (!selectedDate) return;
@@ -397,7 +469,9 @@ const PlanDetailPage = () => {
       setSnackbar("Selecciona cuantas comidas haras hoy");
       return;
     }
-    const mealsToSave = Array.isArray(mealsOverride) ? mealsOverride : currentMeals;
+    const mealsToSave = Array.isArray(mealsOverride)
+      ? mealsOverride
+      : currentMeals;
     const baseOverride = selectedOverride?.overrides ?? {
       dayType: baseInputs.dayType,
       activityLevel: baseInputs.activityLevel,
@@ -497,7 +571,12 @@ const PlanDetailPage = () => {
   };
 
   const handleConfirmClone = async () => {
-    if (!cloneSourceId || !cloneTargetPlanId || !cloneTargetDate || !cloneTargetMealKey) {
+    if (
+      !cloneSourceId ||
+      !cloneTargetPlanId ||
+      !cloneTargetDate ||
+      !cloneTargetMealKey
+    ) {
       setCloneError("Completa los campos requeridos.");
       return;
     }
@@ -671,14 +750,14 @@ const PlanDetailPage = () => {
             })
           )}
         </svg>
-          <Stack
-            alignItems="center"
-            justifyContent="center"
-            sx={{ position: "absolute", inset: 0, pointerEvents: "none" }}
-          >
-            <Typography variant="h6" fontWeight={800} lineHeight={1}>
-              {kcalLabel}
-            </Typography>
+        <Stack
+          alignItems="center"
+          justifyContent="center"
+          sx={{ position: "absolute", inset: 0, pointerEvents: "none" }}
+        >
+          <Typography variant="h6" fontWeight={800} lineHeight={1}>
+            {kcalLabel}
+          </Typography>
           <Typography variant="caption" color="text.secondary">
             kcal
           </Typography>
@@ -771,27 +850,57 @@ const PlanDetailPage = () => {
         )}
 
         {/* Week switcher */}
-        <Stack
-          direction="row"
-          spacing={1.25}
-          sx={{
-            overflowX: "auto",
-            pb: 0.5,
-            "&::-webkit-scrollbar": { display: "none" },
-            scrollSnapType: { xs: "x mandatory", md: "none" },
-          }}
-        >
-            {dates.map((date) => {
-              const day = dayjs(date);
-              const { outputs, dayType, trainingCount } = getDayData(date);
-              const isSelected = selectedDate === date;
-              const isTraining = trainingCount > 0 || dayType === "training";
-              const kcal = outputs?.kcalObjectiveDay;
-              const kcalLabel = kcal !== undefined ? formatInt(kcal) : null;
-              const trainingLabel =
-                trainingCount > 1
-                  ? `Entreno ${trainingCount}x`
-                  : isTraining
+        <Stack spacing={1.5}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between">
+            <Stack direction="row" spacing={1} alignItems="center">
+              <IconButton
+                size="small"
+                onClick={() => handleWeekChange(weekIndex - 1)}
+                disabled={!canGoPrevWeek}
+                aria-label="Semana anterior"
+              >
+                <ChevronLeftRoundedIcon />
+              </IconButton>
+              <Typography variant="subtitle2" fontWeight={700}>
+                Semana {weekIndex + 1} de {weeks.length}
+              </Typography>
+              <IconButton
+                size="small"
+                onClick={() => handleWeekChange(weekIndex + 1)}
+                disabled={!canGoNextWeek}
+                aria-label="Semana siguiente"
+              >
+                <ChevronRightRoundedIcon />
+              </IconButton>
+            </Stack>
+            {visibleDates.length > 0 && (
+              <Typography variant="caption" color="text.secondary">
+                {dayjs(visibleDates[0]).format("DD MMM")} -{" "}
+                {dayjs(visibleDates[visibleDates.length - 1]).format("DD MMM")}
+              </Typography>
+            )}
+          </Stack>
+          <Stack
+            direction="row"
+            spacing={1.25}
+            sx={{
+              overflowX: "auto",
+              pb: 0.5,
+              "&::-webkit-scrollbar": { display: "none" },
+              scrollSnapType: { xs: "x mandatory", md: "none" },
+            }}
+          >
+            {visibleDates.map((date) => {
+            const day = dayjs(date);
+            const { outputs, dayType, trainingCount } = getDayData(date);
+            const isSelected = selectedDate === date;
+            const isTraining = trainingCount > 0 || dayType === "training";
+            const kcal = outputs?.kcalObjectiveDay;
+            const kcalLabel = kcal !== undefined ? formatInt(kcal) : null;
+            const trainingLabel =
+              trainingCount > 1
+                ? `Entreno ${trainingCount}x`
+                : isTraining
                 ? "Entreno"
                 : "Descanso";
             const dayMeals = getDayMeals(date);
@@ -838,12 +947,12 @@ const PlanDetailPage = () => {
                     borderColor: "primary.light",
                     bgcolor: "primary.main" + "0A",
                   },
-                  }}
-                  aria-label={`Seleccionar ${day.format("dddd")} ${
-                    isTraining ? trainingLabel : "descanso"
-                  } ${kcalLabel ?? ""} kcal`}
-                >
-                  <Stack spacing={0.5} alignItems="center" width="100%">
+                }}
+                aria-label={`Seleccionar ${day.format("dddd")} ${
+                  isTraining ? trainingLabel : "descanso"
+                } ${kcalLabel ?? ""} kcal`}
+              >
+                <Stack spacing={0.5} alignItems="center" width="100%">
                   <Typography variant="caption" color="text.secondary">
                     {day.format("ddd").toUpperCase()}
                   </Typography>
@@ -864,12 +973,12 @@ const PlanDetailPage = () => {
                       transition: "all 0.2s ease",
                       position: "relative",
                     }}
-                      title={`${statusLabel}. P ${remainingPortions.protein.toFixed(
-                        0
-                      )}, C ${remainingPortions.carbs.toFixed(
-                        0
-                      )}, G ${remainingPortions.fat.toFixed(0)}`}
-                    >
+                    title={`${statusLabel}. P ${remainingPortions.protein.toFixed(
+                      0
+                    )}, C ${remainingPortions.carbs.toFixed(
+                      0
+                    )}, G ${remainingPortions.fat.toFixed(0)}`}
+                  >
                     {circleText}
                     <Box
                       sx={{
@@ -889,15 +998,16 @@ const PlanDetailPage = () => {
                     color={isTraining ? "primary" : "default"}
                     variant={isTraining ? "outlined" : "filled"}
                   />
-                    {kcalLabel !== null && (
-                      <Typography variant="caption" color="text.secondary">
-                        {kcalLabel} kcal
-                      </Typography>
-                    )}
-                  </Stack>
-                </ButtonBase>
+                  {kcalLabel !== null && (
+                    <Typography variant="caption" color="text.secondary">
+                      {kcalLabel} kcal
+                    </Typography>
+                  )}
+                </Stack>
+              </ButtonBase>
             );
           })}
+          </Stack>
         </Stack>
 
         {/* Summary card */}
@@ -918,14 +1028,14 @@ const PlanDetailPage = () => {
               alignItems={{ xs: "flex-start", sm: "center" }}
               spacing={1}
             >
-                <Box>
-                  <Typography variant="subtitle1" fontWeight={800}>
-                    {dayjs(selectedDate).format("dddd, DD MMM YYYY")}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    EEE: {formatInt(selectedOutputs.eee)} kcal
-                  </Typography>
-                </Box>
+              <Box>
+                <Typography variant="subtitle1" fontWeight={800}>
+                  {dayjs(selectedDate).format("dddd, DD MMM YYYY")}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  EEE: {formatInt(selectedOutputs.eee)} kcal
+                </Typography>
+              </Box>
               <Chip
                 label={selectedTrainingLabel}
                 color={selectedDayType === "training" ? "primary" : "default"}
@@ -990,10 +1100,14 @@ const PlanDetailPage = () => {
                       kcal={selectedOutputs.kcalObjectiveDay}
                     />
 
-                      <Stack spacing={1} width="100%">
-                        <Typography variant="body2" color="text.secondary">
-                          {`Consumidas: ${currentTotals.kcal.toFixed(0)} / ${formatInt(selectedOutputs.kcalObjectiveDay)} kcal`}
-                        </Typography>
+                    <Stack spacing={1} width="100%">
+                      <Typography variant="body2" color="text.secondary">
+                        {`Consumidas: ${currentTotals.kcal.toFixed(
+                          0
+                        )} / ${formatInt(
+                          selectedOutputs.kcalObjectiveDay
+                        )} kcal`}
+                      </Typography>
                       <Box
                         sx={{
                           display: "grid",
@@ -1025,7 +1139,11 @@ const PlanDetailPage = () => {
                             budget > 0
                               ? Math.min((used / budget) * 100, 140)
                               : 0;
-                          const state = getMacroState(remainingRaw, budget, key);
+                          const state = getMacroState(
+                            remainingRaw,
+                            budget,
+                            key
+                          );
                           const label =
                             key === "protein"
                               ? "Proteína"
@@ -1076,7 +1194,9 @@ const PlanDetailPage = () => {
                                 fontWeight={700}
                                 fontSize={13}
                               >
-                                {`${label} Obj: ${objective.toFixed(0)} g | ${formatInt(budget)} porciones`}
+                                {`${label} Obj: ${objective.toFixed(
+                                  0
+                                )} g | ${formatInt(budget)} porciones`}
                               </Typography>
                               <Stack
                                 direction="row"
@@ -1087,7 +1207,9 @@ const PlanDetailPage = () => {
                                 <Typography
                                   variant="body1"
                                   fontWeight={700}
-                                  color={isExcess ? "error.main" : "text.primary"}
+                                  color={
+                                    isExcess ? "error.main" : "text.primary"
+                                  }
                                 >
                                   {statusText}
                                 </Typography>
@@ -1127,15 +1249,19 @@ const PlanDetailPage = () => {
                                 }}
                               />
                               {isExcess && (
-                                <Typography variant="caption" color="error.main">
-                                  Te pasaste en {formatInt(Math.abs(remaining))} porciones
+                                <Typography
+                                  variant="caption"
+                                  color="error.main"
+                                >
+                                  Te pasaste en {formatInt(Math.abs(remaining))}{" "}
+                                  porciones
                                 </Typography>
                               )}
                             </Box>
                           );
                         })}
                       </Box>
-                      
+
                       {/* 
                       <Stack spacing={1} sx={{ mt: 1 }}>
                         {(
@@ -1252,7 +1378,8 @@ const PlanDetailPage = () => {
                     </ToggleButton>
                   </ToggleButtonGroup>
                   <Typography variant="caption" color="text.secondary">
-                    Selecciona 3, 4 o 5 comidas para distribuir las macros del dia.
+                    Selecciona 3, 4 o 5 comidas para distribuir las macros del
+                    dia.
                   </Typography>
                 </Stack>
                 {!mealCount ? (
@@ -1298,7 +1425,12 @@ const PlanDetailPage = () => {
         )}
       </Stack>
 
-      <Dialog open={cloneOpen} onClose={handleCloseClone} fullWidth maxWidth="sm">
+      <Dialog
+        open={cloneOpen}
+        onClose={handleCloseClone}
+        fullWidth
+        maxWidth="sm"
+      >
         <DialogTitle>Clonar plato</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 0.5 }}>
@@ -1314,107 +1446,124 @@ const PlanDetailPage = () => {
                 <Typography variant="caption" color="text.secondary">
                   No hay platos guardados en la biblioteca.
                 </Typography>
-                ) : (
-                  <Stack spacing={1}>
-                    {mealLibrary.map((item) => {
-                      const isSelected = cloneSourceId === item.id;
-                      const isExpanded = cloneExpandedId === item.id;
-                      return (
-                        <Accordion
-                          key={item.id}
-                          expanded={isExpanded}
-                          onChange={(_, expanded) =>
-                            setCloneExpandedId(expanded ? item.id : null)
-                          }
-                          disableGutters
-                          elevation={0}
+              ) : (
+                <Stack spacing={1}>
+                  {mealLibrary.map((item) => {
+                    const isSelected = cloneSourceId === item.id;
+                    const isExpanded = cloneExpandedId === item.id;
+                    return (
+                      <Accordion
+                        key={item.id}
+                        expanded={isExpanded}
+                        onChange={(_, expanded) =>
+                          setCloneExpandedId(expanded ? item.id : null)
+                        }
+                        disableGutters
+                        elevation={0}
+                        sx={{
+                          borderRadius: 2,
+                          border: "1px solid",
+                          borderColor: isSelected ? "primary.main" : "divider",
+                          "&:before": { display: "none" },
+                        }}
+                      >
+                        <AccordionSummary
+                          expandIcon={<ExpandMoreIcon />}
                           sx={{
-                            borderRadius: 2,
-                            border: "1px solid",
-                            borderColor: isSelected ? "primary.main" : "divider",
-                            "&:before": { display: "none" },
+                            px: 1.5,
+                            py: 1,
+                            "& .MuiAccordionSummary-content": {
+                              my: 0,
+                            },
                           }}
                         >
-                          <AccordionSummary
-                            expandIcon={<ExpandMoreIcon />}
-                            sx={{
-                              px: 1.5,
-                              py: 1,
-                              "& .MuiAccordionSummary-content": {
-                                my: 0,
-                              },
-                            }}
+                          <Stack
+                            direction={{ xs: "column", sm: "row" }}
+                            spacing={1}
+                            alignItems={{ xs: "flex-start", sm: "center" }}
+                            justifyContent="space-between"
+                            width="100%"
                           >
+                            <Stack spacing={0.25} alignItems="flex-start">
+                              <Typography variant="body2" fontWeight={700}>
+                                {item.name}
+                              </Typography>
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
+                                {item.items.length} items |{" "}
+                                {item.totals.kcal.toFixed(0)} kcal
+                              </Typography>
+                            </Stack>
                             <Stack
-                              direction={{ xs: "column", sm: "row" }}
+                              direction="row"
                               spacing={1}
-                              alignItems={{ xs: "flex-start", sm: "center" }}
-                              justifyContent="space-between"
-                              width="100%"
+                              alignItems="center"
                             >
-                              <Stack spacing={0.25} alignItems="flex-start">
-                                <Typography variant="body2" fontWeight={700}>
-                                  {item.name}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                  {item.items.length} items | {item.totals.kcal.toFixed(0)} kcal
-                                </Typography>
-                              </Stack>
-                              <Stack direction="row" spacing={1} alignItems="center">
-                                <Typography variant="caption" color="text.secondary">
-                                  Ver ingredientes
-                                </Typography>
-                                <Button
-                                  size="small"
-                                  variant={isSelected ? "contained" : "outlined"}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    event.preventDefault();
-                                    setCloneSourceId(item.id);
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
+                                Ver ingredientes
+                              </Typography>
+                              <Button
+                                size="small"
+                                variant={isSelected ? "contained" : "outlined"}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  event.preventDefault();
+                                  setCloneSourceId(item.id);
+                                }}
+                              >
+                                {isSelected ? "Seleccionado" : "Seleccionar"}
+                              </Button>
+                            </Stack>
+                          </Stack>
+                        </AccordionSummary>
+                        <AccordionDetails sx={{ pt: 0, pb: 1.5, px: 1.5 }}>
+                          <Stack spacing={1}>
+                            {item.items.length ? (
+                              item.items.map((mealItem, idx) => (
+                                <Box
+                                  key={`${mealItem.foodId}-${idx}-clone`}
+                                  sx={{
+                                    p: 1,
+                                    borderRadius: 2,
+                                    border: "1px solid",
+                                    borderColor: "divider",
                                   }}
                                 >
-                                  {isSelected ? "Seleccionado" : "Seleccionar"}
-                                </Button>
-                              </Stack>
-                            </Stack>
-                          </AccordionSummary>
-                          <AccordionDetails sx={{ pt: 0, pb: 1.5, px: 1.5 }}>
-                            <Stack spacing={1}>
-                              {item.items.length ? (
-                                item.items.map((mealItem, idx) => (
-                                  <Box
-                                    key={`${mealItem.foodId}-${idx}-clone`}
-                                    sx={{
-                                      p: 1,
-                                      borderRadius: 2,
-                                      border: "1px solid",
-                                      borderColor: "divider",
-                                    }}
+                                  <Typography variant="body2" fontWeight={700}>
+                                    {mealItem.nameSnapshot}
+                                  </Typography>
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
                                   >
-                                    <Typography variant="body2" fontWeight={700}>
-                                      {mealItem.nameSnapshot}
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                      {mealItem.grams.toFixed(0)} g |{" "}
-                                      {mealItem.kcal.toFixed(0)} kcal | P{" "}
-                                      {mealItem.macros.protein.toFixed(0)} C{" "}
-                                      {mealItem.macros.carbs.toFixed(0)} G{" "}
-                                      {mealItem.macros.fat.toFixed(0)}
-                                    </Typography>
-                                  </Box>
-                                ))
-                              ) : (
-                                <Typography variant="caption" color="text.secondary">
-                                  Sin alimentos.
-                                </Typography>
-                              )}
-                            </Stack>
-                          </AccordionDetails>
-                        </Accordion>
-                      );
-                    })}
-                  </Stack>
-                )}
+                                    {mealItem.grams.toFixed(0)} g |{" "}
+                                    {mealItem.kcal.toFixed(0)} kcal | P{" "}
+                                    {mealItem.macros.protein.toFixed(0)} C{" "}
+                                    {mealItem.macros.carbs.toFixed(0)} G{" "}
+                                    {mealItem.macros.fat.toFixed(0)}
+                                  </Typography>
+                                </Box>
+                              ))
+                            ) : (
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
+                                Sin alimentos.
+                              </Typography>
+                            )}
+                          </Stack>
+                        </AccordionDetails>
+                      </Accordion>
+                    );
+                  })}
+                </Stack>
+              )}
               {mealLibraryError && (
                 <Typography variant="caption" color="error">
                   {mealLibraryError}
@@ -1425,7 +1574,10 @@ const PlanDetailPage = () => {
             {cloneSource && (
               <Typography variant="caption" color="text.secondary">
                 Se clonara en {cloneTargetMealName ?? "la comida seleccionada"}{" "}
-                {cloneTargetDate ? `| ${dayjs(cloneTargetDate).format("DD MMM YYYY")}` : ""}.
+                {cloneTargetDate
+                  ? `| ${dayjs(cloneTargetDate).format("DD MMM YYYY")}`
+                  : ""}
+                .
               </Typography>
             )}
             {cloneError && (
@@ -1437,7 +1589,11 @@ const PlanDetailPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseClone}>Cancelar</Button>
-          <Button variant="contained" onClick={handleConfirmClone} disabled={cloneDisabled}>
+          <Button
+            variant="contained"
+            onClick={handleConfirmClone}
+            disabled={cloneDisabled}
+          >
             {cloneSaving ? "Clonando..." : "Clonar"}
           </Button>
         </DialogActions>
@@ -1467,6 +1623,3 @@ const PlanDetailPage = () => {
 };
 
 export default PlanDetailPage;
-
-
-
