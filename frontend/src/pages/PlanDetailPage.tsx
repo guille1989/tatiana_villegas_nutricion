@@ -61,7 +61,6 @@ const PlanDetailPage = () => {
   const { planId } = useParams<{ planId: string }>();
   const navigate = useNavigate();
   const theme = useTheme();
-  const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
   const detailRef = useRef<HTMLDivElement | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [assessment, setAssessment] = useState<Assessment | null>(null);
