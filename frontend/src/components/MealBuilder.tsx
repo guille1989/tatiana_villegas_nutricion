@@ -79,6 +79,14 @@ const calcMealTotals = (items: MealItem[]) =>
     { protein: 0, carbs: 0, fat: 0, kcal: 0 }
   );
 
+const calcProteinFromProteinFoods = (items: MealItem[]) =>
+  items.reduce((acc, item) => {
+    if (!item.group || item.group === "proteinas") {
+      return acc + item.macros.protein;
+    }
+    return acc;
+  }, 0);
+
 const cloneItem = (item: MealItem): MealItem => ({
   ...item,
   macros: { ...item.macros },
@@ -378,6 +386,7 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
     const newItem: MealItem = {
       foodId: food.id,
       nameSnapshot: food.name,
+      group: food.group,
       grams,
       amount: nextAmount,
       mode: usedMode,
@@ -509,12 +518,17 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
   const activeTargets: MacroTargets =
     (activeMealKey && mealTargets[activeMealKey]) ??
     ({ protein: 0, carbs: 0, fat: 0 } as MacroTargets);
-  const activeTotals = draftMeal?.totals ?? {
-    protein: 0,
-    carbs: 0,
-    fat: 0,
-    kcal: 0,
-  };
+  const activeTotals = draftMeal
+    ? {
+        ...draftMeal.totals,
+        protein: calcProteinFromProteinFoods(draftMeal.items),
+      }
+    : {
+        protein: 0,
+        carbs: 0,
+        fat: 0,
+        kcal: 0,
+      };
 
   const drawerPaperSx = isDesktop
     ? { width: 420 }

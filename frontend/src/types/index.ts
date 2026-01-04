@@ -88,6 +88,7 @@ export type DayOverride = {
 export type MealItem = {
   foodId: string
   nameSnapshot: string
+  group?: Food['group']
   grams: number
   amount?: number
   mode?: 'grams' | 'portions'

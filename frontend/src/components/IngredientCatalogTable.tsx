@@ -15,6 +15,7 @@ import {
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import type { Food } from "../types";
+import { calcFoodMacrosFromGrams, gramsFromPortions } from "../lib/foods";
 
 type Props = {
   items: Food[];
@@ -37,6 +38,17 @@ const IngredientCatalogTable = ({
   onLoadMore,
   emptyLabel = "No hay ingredientes para esta categoria.",
 }: Props) => {
+  const formatValue = (value?: number | null) =>
+    Number.isFinite(value) ? value!.toFixed(0) : "-";
+
+  const getPortionMacros = (food: Food) => {
+    const portionGrams = gramsFromPortions(food, 1);
+    if (!portionGrams || !Number.isFinite(portionGrams) || portionGrams <= 0) {
+      return null;
+    }
+    return calcFoodMacrosFromGrams(food, portionGrams);
+  };
+
   const showEmpty = !isLoading && items.length === 0 && !error;
   const skeletonRows = Array.from({ length: 4 }, (_, idx) => (
     <TableRow key={`skeleton-${idx}`}>
@@ -63,56 +75,58 @@ const IngredientCatalogTable = ({
             <TableRow>
               <TableCell sx={{ fontWeight: 700, width: 100 }}>Nombre</TableCell>
               <TableCell sx={{ fontWeight: 700 }} align="right">
-                Kcal
+                Kcal porcion
               </TableCell>
-              <TableCell sx={{ fontWeight: 700, width: 200 }}>Macros P,C,G</TableCell>
+              <TableCell sx={{ fontWeight: 700, width: 200 }}>Macros porcion</TableCell>
               <TableCell sx={{ width: 10 }} />
             </TableRow>
           </TableHead>
           <TableBody>
-            {items.map((food) => (
-              <TableRow key={food.id}>
-                <TableCell sx={{ py: 0.75, width: 100 }}>
-                  <Typography variant="body2" fontWeight={600}>
-                    {food.name}
-                  </Typography>
-                </TableCell>
-                <TableCell align="right" sx={{ py: 0.75 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    {Number.isFinite(food.kcal_100g)
-                      ? food.kcal_100g.toFixed(0)
-                      : "-"}
-                  </Typography>
-                </TableCell>
-                <TableCell sx={{ py: 0.75, width: 200 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    P {food.prot_100g.toFixed(0)} | C{" "}
-                    {food.cho_100g.toFixed(0)} | G {food.fat_100g.toFixed(0)}
-                  </Typography>
-                </TableCell>
-                <TableCell align="right" sx={{ py: 0.75, width: 10 }}>
-                  {isDesktop ? (
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      startIcon={<AddIcon />}
-                      onClick={() => onAdd(food)}
-                    >
-                      Anadir
-                    </Button>
-                  ) : (
-                    <IconButton
-                      size="small"
-                      color="primary"
-                      onClick={() => onAdd(food)}
-                      aria-label={`Anadir ${food.name}`}
-                    >
-                      <AddIcon fontSize="small" />
-                    </IconButton>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
+            {items.map((food) => {
+              const portionMacros = getPortionMacros(food);
+              return (
+                <TableRow key={food.id}>
+                  <TableCell sx={{ py: 0.75, width: 100 }}>
+                    <Typography variant="body2" fontWeight={600}>
+                      {food.name}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="right" sx={{ py: 0.75 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      {formatValue(portionMacros?.kcal)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={{ py: 0.75, width: 200 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      P {formatValue(portionMacros?.protein)} | C{" "}
+                      {formatValue(portionMacros?.carbs)} | G{" "}
+                      {formatValue(portionMacros?.fat)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="right" sx={{ py: 0.75, width: 10 }}>
+                    {isDesktop ? (
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<AddIcon />}
+                        onClick={() => onAdd(food)}
+                      >
+                        Anadir
+                      </Button>
+                    ) : (
+                      <IconButton
+                        size="small"
+                        color="primary"
+                        onClick={() => onAdd(food)}
+                        aria-label={`Anadir ${food.name}`}
+                      >
+                        <AddIcon fontSize="small" />
+                      </IconButton>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
             {isLoading && skeletonRows}
             {showEmpty && (
               <TableRow>
