@@ -62,6 +62,7 @@ export type Food = {
   cho_100g: number
   fat_100g: number
   kcal_100g: number
+  max_portion_in_meal?: number | null
 }
 
 export type DayOverrideInputs = {
@@ -94,6 +95,7 @@ export type MealItem = {
   mode?: 'grams' | 'portions'
   macros: { protein: number; carbs: number; fat: number }
   kcal: number
+  max_portion_in_meal?: number | null
 }
 
 export type Meal = {

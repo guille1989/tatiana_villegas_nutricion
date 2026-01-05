@@ -1178,9 +1178,11 @@ const PlanDetailPage = () => {
                       >
                         {(["protein", "carbs", "fat"] as const).map((key) => {
                           const macroSource = currentMacroSources[key];
-                          const usedGrams = macroSource.total;
                           const directGrams = macroSource.direct;
                           const indirectGrams = macroSource.indirect;
+                          const totalGrams = macroSource.total;
+                          const usedGrams =
+                            key === "protein" ? directGrams : totalGrams;
                           const budget =
                             key === "protein"
                               ? selectedOutputs.protein / 10
@@ -1221,11 +1223,10 @@ const PlanDetailPage = () => {
                             : isPending
                             ? `Restan ${formatInt(remaining)}`
                             : "Completado";
-                          const originTotal = usedGrams;
-                          const directRatio =
-                            originTotal > 0 ? directGrams / originTotal : 0;
                           const indirectRatio =
-                            originTotal > 0 ? indirectGrams / originTotal : 0;
+                            objective > 0
+                              ? Math.min(indirectGrams / objective, 1)
+                              : 0;
                           const macroColor = macroColors[key];
                           return (
                             <Box
@@ -1369,12 +1370,6 @@ const PlanDetailPage = () => {
                                     bgcolor: "grey.200",
                                   }}
                                 >
-                                  <Box
-                                    sx={{
-                                      width: `${directRatio * 100}%`,
-                                      bgcolor: macroColor,
-                                    }}
-                                  />
                                   <Box
                                     sx={{
                                       width: `${indirectRatio * 100}%`,

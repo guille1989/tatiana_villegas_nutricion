@@ -119,6 +119,12 @@ const parseNumberInput = (value: string) => {
   return Number.isFinite(numberValue) ? numberValue : null;
 };
 
+const getMaxPortions = (value?: number | null) => {
+  if (value === null || value === undefined) return null;
+  if (!Number.isFinite(value)) return null;
+  return value > 0 ? value : null;
+};
+
 const MacroGauge = ({
   label,
   consumedGrams,
@@ -392,6 +398,7 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
       mode: usedMode,
       macros: { protein: macros.protein, carbs: macros.carbs, fat: macros.fat },
       kcal: macros.kcal,
+      max_portion_in_meal: food.max_portion_in_meal,
     };
 
     const nextItems = [...draftMeal.items, newItem];
@@ -421,6 +428,11 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
     const portions = parseNumberInput(catalogAddPortions);
     if (!portions || portions <= 0) {
       setCatalogAddError("Cantidad invalida");
+      return;
+    }
+    const maxPortions = getMaxPortions(catalogAddFood.max_portion_in_meal);
+    if (maxPortions && portions > maxPortions) {
+      setCatalogAddError(`Maximo ${maxPortions} porciones`);
       return;
     }
     const added = addFoodToDraft(catalogAddFood, "portions", portions);
@@ -469,6 +481,11 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
       return;
     }
     const currentItem = editingItem.item;
+    const maxPortions = getMaxPortions(currentItem.max_portion_in_meal);
+    if (editMode === "portions" && maxPortions && nextAmount > maxPortions) {
+      setEditError(`Maximo ${maxPortions} porciones`);
+      return;
+    }
     let newGrams = nextAmount;
     if (editMode === "portions") {
       const baseAmount = currentItem.amount ?? 0;
@@ -511,9 +528,38 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
 
   const editModeLabel = editMode === "grams" ? "Gramos" : "Porciones";
   const editAmountValue = parseNumberInput(editAmount);
-  const editAmountInvalid = !editAmountValue || editAmountValue <= 0;
+  const editMaxPortions =
+    editMode === "portions"
+      ? getMaxPortions(editingItem?.item.max_portion_in_meal ?? null)
+      : null;
+  const editExceeds =
+    editMode === "portions" &&
+    editMaxPortions !== null &&
+    editAmountValue !== null &&
+    editAmountValue > editMaxPortions;
+  const editAmountInvalid = !editAmountValue || editAmountValue <= 0 || editExceeds;
+  const editHelperText =
+    editError ??
+    (editAmountInvalid
+      ? editExceeds
+        ? `Maximo ${editMaxPortions} porciones`
+        : "Cantidad invalida"
+      : " ");
   const catalogAddValue = parseNumberInput(catalogAddPortions);
-  const catalogAddInvalid = !catalogAddValue || catalogAddValue <= 0;
+  const catalogAddMax = getMaxPortions(catalogAddFood?.max_portion_in_meal ?? null);
+  const catalogAddExceeds =
+    catalogAddMax !== null &&
+    catalogAddValue !== null &&
+    catalogAddValue > catalogAddMax;
+  const catalogAddInvalid =
+    !catalogAddValue || catalogAddValue <= 0 || catalogAddExceeds;
+  const catalogAddHelperText =
+    catalogAddError ??
+    (catalogAddInvalid
+      ? catalogAddExceeds
+        ? `Maximo ${catalogAddMax} porciones`
+        : "Cantidad invalida"
+      : " ");
 
   const activeTargets: MacroTargets =
     (activeMealKey && mealTargets[activeMealKey]) ??
@@ -856,18 +902,23 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
                 setCatalogAddError(null);
               }}
               error={catalogAddInvalid || !!catalogAddError}
-              helperText={
-                catalogAddError ??
-                (catalogAddInvalid ? "Cantidad invalida" : " ")
-              }
-              inputProps={{ min: 0, step: 0.25 }}
+              helperText={catalogAddHelperText}
+              inputProps={{
+                min: 0,
+                step: 0.25,
+                ...(catalogAddMax ? { max: catalogAddMax } : {}),
+              }}
               fullWidth
             />
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseCatalogAdd}>Cancelar</Button>
-          <Button variant="contained" onClick={handleConfirmCatalogAdd}>
+          <Button
+            variant="contained"
+            onClick={handleConfirmCatalogAdd}
+            disabled={catalogAddInvalid}
+          >
             Agregar
           </Button>
         </DialogActions>
@@ -891,8 +942,14 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
                 setEditError(null);
               }}
               error={editAmountInvalid || !!editError}
-              helperText={editError ?? (editAmountInvalid ? "Cantidad invalida" : " ")}
-              inputProps={{ min: 0, step: editMode === "grams" ? 10 : 0.25 }}
+              helperText={editHelperText}
+              inputProps={{
+                min: 0,
+                step: editMode === "grams" ? 10 : 0.25,
+                ...(editMode === "portions" && editMaxPortions
+                  ? { max: editMaxPortions }
+                  : {}),
+              }}
               fullWidth
             />
           </Stack>

@@ -387,5 +387,6 @@ export const searchFoodsApi = async (
     cho_100g: f.cho_100g,
     fat_100g: f.fat_100g,
     kcal_100g: f.kcal_100g,
+    max_portion_in_meal: (f as any).max_portion_in_meal,
   }))
 }
