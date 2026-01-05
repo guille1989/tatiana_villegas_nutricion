@@ -1226,8 +1226,6 @@ const PlanDetailPage = () => {
                             originTotal > 0 ? directGrams / originTotal : 0;
                           const indirectRatio =
                             originTotal > 0 ? indirectGrams / originTotal : 0;
-                          const showInsight =
-                            originTotal > 0 && indirectRatio >= 0.3;
                           const macroColor = macroColors[key];
                           return (
                             <Box
