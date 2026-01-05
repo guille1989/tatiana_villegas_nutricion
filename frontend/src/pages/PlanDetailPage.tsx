@@ -22,10 +22,12 @@ import {
   LinearProgress,
   ToggleButton,
   ToggleButtonGroup,
+  Tooltip,
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ChevronLeftRoundedIcon from "@mui/icons-material/ChevronLeftRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@mui/material/styles";
@@ -39,7 +41,12 @@ import {
   upsertOverride,
 } from "../lib/api";
 import MealBuilder from "../components/MealBuilder";
-import { getMacroState, getTol, macroStateColor } from "../lib/macroStatus";
+import {
+  getMacroState,
+  getTol,
+  macroStateColor,
+  type MacroKey,
+} from "../lib/macroStatus";
 import {
   distributeMacros,
   getMealsByCount,
@@ -51,6 +58,7 @@ import type {
   CalculationOutputs,
   DayOverride,
   Meal,
+  MealItem,
   MealTemplate,
   Plan,
   PlanMacroOverride,
@@ -370,6 +378,57 @@ const PlanDetailPage = () => {
       { protein: 0, carbs: 0, fat: 0, kcal: 0 }
     );
 
+  const MACRO_GROUP_MAP: Record<NonNullable<MealItem["group"]>, MacroKey> = {
+    proteinas: "protein",
+    carbohidratos: "carbs",
+    grasas: "fat",
+  };
+
+  type MacroSources = {
+    direct: number;
+    indirect: number;
+    total: number;
+  };
+
+  type MacroSourceSummary = Record<MacroKey, MacroSources> & { kcal: number };
+
+  const buildMacroSources = (): MacroSources => ({
+    direct: 0,
+    indirect: 0,
+    total: 0,
+  });
+
+  const calcMacroSources = (meals: Meal[]): MacroSourceSummary => {
+    const summary: MacroSourceSummary = {
+      protein: buildMacroSources(),
+      carbs: buildMacroSources(),
+      fat: buildMacroSources(),
+      kcal: 0,
+    };
+
+    meals.forEach((meal) => {
+      summary.kcal += meal.totals.kcal;
+      meal.items.forEach((item) => {
+        const groupKey = item.group ? MACRO_GROUP_MAP[item.group] : null;
+        (["protein", "carbs", "fat"] as const).forEach((key) => {
+          const value = item.macros[key];
+          if (!groupKey || groupKey === key) {
+            // Treat legacy items without group as direct to avoid mislabeling.
+            summary[key].direct += value;
+          } else {
+            summary[key].indirect += value;
+          }
+        });
+      });
+    });
+
+    (["protein", "carbs", "fat"] as const).forEach((key) => {
+      summary[key].total = summary[key].direct + summary[key].indirect;
+    });
+
+    return summary;
+  };
+
   const formatInt = (value: number) => Math.round(value);
 
   const buildMealTemplateName = (
@@ -422,6 +481,27 @@ const PlanDetailPage = () => {
     ? mergeMealsWithTemplate(rawMeals, mealTemplate)
     : [];
   const currentTotals = totalsFromMeals(currentMeals);
+  const currentMacroSources = calcMacroSources(currentMeals);
+  const macroLabels: Record<MacroKey, string> = {
+    protein: "Proteina",
+    carbs: "Carbohidratos",
+    fat: "Grasas",
+  };
+  const macroPlural: Record<MacroKey, string> = {
+    protein: "proteinas",
+    carbs: "carbohidratos",
+    fat: "grasas",
+  };
+  const macroIndirect: Record<MacroKey, string> = {
+    protein: "indirectas",
+    carbs: "indirectos",
+    fat: "indirectas",
+  };
+  const macroColors: Record<MacroKey, string> = {
+    protein: theme.palette.primary.main,
+    carbs: theme.palette.success.main,
+    fat: theme.palette.warning.main,
+  };
   const dailyMacros = selectedOutputs
     ? {
         protein: selectedOutputs.protein,
@@ -1097,37 +1177,36 @@ const PlanDetailPage = () => {
                         }}
                       >
                         {(["protein", "carbs", "fat"] as const).map((key) => {
+                          const macroSource = currentMacroSources[key];
+                          const usedGrams = macroSource.total;
+                          const directGrams = macroSource.direct;
+                          const indirectGrams = macroSource.indirect;
                           const budget =
                             key === "protein"
                               ? selectedOutputs.protein / 10
                               : key === "carbs"
                               ? selectedOutputs.carbsAdjusted / 15
                               : selectedOutputs.fatsAdjusted / 5;
-                          const used =
+                          const usedPortions =
                             key === "protein"
-                              ? currentTotals.protein / 10
+                              ? usedGrams / 10
                               : key === "carbs"
-                              ? currentTotals.carbs / 15
-                              : currentTotals.fat / 5;
-                          const remainingRaw = budget - used;
+                              ? usedGrams / 15
+                              : usedGrams / 5;
+                          const remainingRaw = budget - usedPortions;
                           const tol = getTol(budget, key);
                           const remaining =
                             Math.abs(remainingRaw) <= tol ? 0 : remainingRaw;
                           const percent =
                             budget > 0
-                              ? Math.min((used / budget) * 100, 140)
+                              ? Math.min((usedPortions / budget) * 100, 140)
                               : 0;
                           const state = getMacroState(
                             remainingRaw,
                             budget,
                             key
                           );
-                          const label =
-                            key === "protein"
-                              ? "Proteína"
-                              : key === "carbs"
-                              ? "Carbohidratos"
-                              : "Grasas";
+                          const label = macroLabels[key];
                           const objective =
                             key === "protein"
                               ? selectedOutputs.protein
@@ -1142,6 +1221,14 @@ const PlanDetailPage = () => {
                             : isPending
                             ? `Restan ${formatInt(remaining)}`
                             : "Completado";
+                          const originTotal = usedGrams;
+                          const directRatio =
+                            originTotal > 0 ? directGrams / originTotal : 0;
+                          const indirectRatio =
+                            originTotal > 0 ? indirectGrams / originTotal : 0;
+                          const showInsight =
+                            originTotal > 0 && indirectRatio >= 0.3;
+                          const macroColor = macroColors[key];
                           return (
                             <Box
                               key={key}
@@ -1172,9 +1259,11 @@ const PlanDetailPage = () => {
                                 fontWeight={700}
                                 fontSize={13}
                               >
-                                {`${label} Obj: ${objective.toFixed(
-                                  0
-                                )} g | ${formatInt(budget)} porciones`}
+                                {`${label}: ${formatInt(
+                                  usedGrams
+                                )} / ${objective.toFixed(0)} g | ${formatInt(
+                                  budget
+                                )} porciones`}
                               </Typography>
                               <Stack
                                 direction="row"
@@ -1235,6 +1324,76 @@ const PlanDetailPage = () => {
                                   porciones
                                 </Typography>
                               )}
+                              <Stack spacing={0.5} sx={{ mt: 1 }}>
+                                <Stack
+                                  direction="row"
+                                  alignItems="center"
+                                  justifyContent="space-between"
+                                >
+                                  <Stack
+                                    direction="row"
+                                    alignItems="center"
+                                    spacing={0.5}
+                                  >
+                                    <Typography
+                                      variant="caption"
+                                      color="text.secondary"
+                                      fontWeight={600}
+                                    >
+                                      Origen (informativo)
+                                    </Typography>
+                                    <Tooltip
+                                      title="Los macros indirectos corresponden a aportes secundarios de alimentos que no pertenecen a esta categoria principal. Forman parte del total diario."
+                                      arrow
+                                    >
+                                      <InfoOutlinedIcon
+                                        sx={{
+                                          fontSize: 14,
+                                          color: "text.secondary",
+                                        }}
+                                      />
+                                    </Tooltip>
+                                  </Stack>
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                  >
+                                    Directo {formatInt(directGrams)} g | Indirecto{" "}
+                                    {formatInt(indirectGrams)} g
+                                  </Typography>
+                                </Stack>
+                                <Box
+                                  sx={{
+                                    height: 6,
+                                    borderRadius: 999,
+                                    overflow: "hidden",
+                                    display: "flex",
+                                    bgcolor: "grey.200",
+                                  }}
+                                >
+                                  <Box
+                                    sx={{
+                                      width: `${directRatio * 100}%`,
+                                      bgcolor: macroColor,
+                                    }}
+                                  />
+                                  <Box
+                                    sx={{
+                                      width: `${indirectRatio * 100}%`,
+                                      bgcolor: macroColor,
+                                      opacity: 0.35,
+                                    }}
+                                  />
+                                </Box>
+                                <Typography
+                                  variant="caption"
+                                  color="text.secondary"
+                                >
+                                  Incluye {formatInt(indirectGrams)} g de{" "}
+                                  {macroPlural[key]} {macroIndirect[key]} provenientes
+                                  de otros alimentos.
+                                </Typography>
+                              </Stack>
                             </Box>
                           );
                         })}
