@@ -7,6 +7,7 @@ import {
   Button,
   ButtonBase,
   IconButton,
+  Collapse,
   Card,
   Container,
   Dialog,
@@ -20,6 +21,9 @@ import {
   Typography,
   Chip,
   LinearProgress,
+  InputAdornment,
+  MenuItem,
+  TextField,
   ToggleButton,
   ToggleButtonGroup,
   Tooltip,
@@ -28,6 +32,7 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ChevronLeftRoundedIcon from "@mui/icons-material/ChevronLeftRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import SearchIcon from "@mui/icons-material/Search";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@mui/material/styles";
@@ -64,6 +69,52 @@ import type {
   PlanMacroOverride,
 } from "../types";
 
+const CLONE_PAGE_SIZE = 6;
+const TEMPLATE_DATE_REGEX = /\d{4}-\d{2}-\d{2}/;
+const MEAL_TYPE_OPTIONS = [
+  "Desayuno",
+  "Comida",
+  "Cena",
+  "Merienda",
+  "Merienda 1",
+  "Merienda 2",
+];
+
+const getTemplateMealName = (name: string) => {
+  const [mealName] = name.split(" - ");
+  return (mealName ?? "").trim();
+};
+
+const getTemplateDateKey = (template: MealTemplate) => {
+  const match = template.name.match(TEMPLATE_DATE_REGEX);
+  if (match) return match[0];
+  return dayjs(template.createdAt).format("YYYY-MM-DD");
+};
+
+const getTemplateDisplayName = (template: MealTemplate) => {
+  const base = getTemplateMealName(template.name);
+  return base || `Plato #${template.id}`;
+};
+
+const matchesMealType = (template: MealTemplate, mealType: string | null) => {
+  if (!mealType) return true;
+  const templateType = getTemplateMealName(template.name).toLowerCase();
+  const selected = mealType.toLowerCase();
+  if (selected === "merienda") return templateType.startsWith("merienda");
+  return templateType === selected;
+};
+
+const matchesTemplateSearch = (template: MealTemplate, query: string) => {
+  if (!query.trim()) return true;
+  const lowered = query.toLowerCase();
+  if (getTemplateDisplayName(template).toLowerCase().includes(lowered)) {
+    return true;
+  }
+  return template.items.some((item) =>
+    item.nameSnapshot.toLowerCase().includes(lowered)
+  );
+};
+
 const PlanDetailPage = () => {
   const { planId } = useParams<{ planId: string }>();
   const navigate = useNavigate();
@@ -96,6 +147,11 @@ const PlanDetailPage = () => {
     null
   );
   const [cloneExpandedId, setCloneExpandedId] = useState<string | null>(null);
+  const [cloneShowAllId, setCloneShowAllId] = useState<string | null>(null);
+  const [cloneMealType, setCloneMealType] = useState<string | null>(null);
+  const [cloneMealTypeLocked, setCloneMealTypeLocked] = useState(true);
+  const [cloneSearch, setCloneSearch] = useState("");
+  const [cloneVisibleCount, setCloneVisibleCount] = useState(CLONE_PAGE_SIZE);
 
   useEffect(() => {
     if (!planId) return;
@@ -178,6 +234,18 @@ const PlanDetailPage = () => {
       void loadMealLibrary();
     }
   }, [cloneOpen, mealLibraryLoading, mealLibrary.length]);
+
+  useEffect(() => {
+    if (!cloneOpen) return;
+    setCloneVisibleCount(CLONE_PAGE_SIZE);
+    setCloneExpandedId(null);
+    setCloneShowAllId(null);
+  }, [cloneOpen, cloneMealType, cloneSearch]);
+
+  useEffect(() => {
+    if (!cloneOpen) return;
+    setCloneSourceId(null);
+  }, [cloneMealType, cloneOpen]);
 
   const baseOutputs = assessment?.outputs;
   const baseInputs = assessment?.inputs;
@@ -521,6 +589,44 @@ const PlanDetailPage = () => {
     !cloneTargetPlanId ||
     !cloneTargetDate ||
     !cloneTargetMealKey;
+  const cloneMealTypeLabel = cloneMealType ?? cloneTargetMealName ?? "";
+  const cloneSortedTemplates = useMemo(() => {
+    const filteredByType = mealLibrary.filter((item) =>
+      matchesMealType(item, cloneMealType)
+    );
+    const filteredBySearch = cloneSearch.trim()
+      ? filteredByType.filter((item) =>
+          matchesTemplateSearch(item, cloneSearch)
+        )
+      : filteredByType;
+    return filteredBySearch
+      .slice()
+      .sort((a, b) => {
+        const dateDiff = dayjs(getTemplateDateKey(b)).diff(
+          dayjs(getTemplateDateKey(a))
+        );
+        if (dateDiff !== 0) return dateDiff;
+        return dayjs(b.createdAt).diff(dayjs(a.createdAt));
+      });
+  }, [cloneMealType, cloneSearch, mealLibrary]);
+  const cloneVisibleTemplates = cloneSortedTemplates.slice(0, cloneVisibleCount);
+  const cloneHasMore = cloneSortedTemplates.length > cloneVisibleCount;
+  const cloneGroupedTemplates = useMemo(() => {
+    const groups = new Map<string, MealTemplate[]>();
+    cloneVisibleTemplates.forEach((item) => {
+      const dateKey = getTemplateDateKey(item);
+      if (!groups.has(dateKey)) {
+        groups.set(dateKey, []);
+      }
+      groups.get(dateKey)?.push(item);
+    });
+    return Array.from(groups.entries()).map(([dateKey, items]) => ({
+      dateKey,
+      items,
+    }));
+  }, [cloneVisibleTemplates]);
+  const cloneEmpty =
+    !mealLibraryLoading && cloneSortedTemplates.length === 0;
 
   const handleMealsChange = (meals: Meal[]) => {
     if (!selectedDate) return;
@@ -629,11 +735,16 @@ const PlanDetailPage = () => {
     setCloneError(null);
     setCloneOpen(true);
     setCloneSourceId(null);
+    setCloneMealType(meal.name);
+    setCloneMealTypeLocked(true);
+    setCloneSearch("");
+    setCloneVisibleCount(CLONE_PAGE_SIZE);
     setCloneTargetPlanId(plan?.id ?? null);
     setCloneTargetDate(selectedDate ?? null);
     setCloneTargetMealKey(meal.key);
     setCloneTargetMealName(meal.name);
     setCloneExpandedId(null);
+    setCloneShowAllId(null);
   };
 
   const handleCloseClone = () => {
@@ -641,11 +752,16 @@ const PlanDetailPage = () => {
     setCloneSaving(false);
     setCloneError(null);
     setCloneSourceId(null);
+    setCloneMealType(null);
+    setCloneMealTypeLocked(true);
+    setCloneSearch("");
+    setCloneVisibleCount(CLONE_PAGE_SIZE);
     setCloneTargetPlanId(null);
     setCloneTargetDate(null);
     setCloneTargetMealKey(null);
     setCloneTargetMealName(null);
     setCloneExpandedId(null);
+    setCloneShowAllId(null);
   };
 
   const handleConfirmClone = async () => {
@@ -1563,145 +1679,233 @@ const PlanDetailPage = () => {
         fullWidth
         maxWidth="sm"
       >
-        <DialogTitle>Clonar plato</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 0.5 }}>
-            <Stack spacing={1}>
-              <Typography variant="subtitle2" fontWeight={700}>
-                Platos guardados
+        <DialogTitle sx={{ pb: 1 }}>
+          <Stack spacing={0.75}>
+            <Stack
+              direction="row"
+              alignItems="center"
+              spacing={1}
+              flexWrap="wrap"
+            >
+              <Typography variant="h6" fontWeight={700}>
+                Clonar plato
               </Typography>
-              {mealLibraryLoading ? (
-                <Typography variant="caption" color="text.secondary">
-                  Cargando biblioteca...
-                </Typography>
-              ) : mealLibrary.length === 0 ? (
-                <Typography variant="caption" color="text.secondary">
-                  No hay platos guardados en la biblioteca.
-                </Typography>
-              ) : (
-                <Stack spacing={1}>
-                  {mealLibrary.map((item) => {
-                    const isSelected = cloneSourceId === item.id;
-                    const isExpanded = cloneExpandedId === item.id;
-                    return (
-                      <Accordion
-                        key={item.id}
-                        expanded={isExpanded}
-                        onChange={(_, expanded) =>
-                          setCloneExpandedId(expanded ? item.id : null)
-                        }
-                        disableGutters
-                        elevation={0}
-                        sx={{
-                          borderRadius: 2,
-                          border: "1px solid",
-                          borderColor: isSelected ? "primary.main" : "divider",
-                          "&:before": { display: "none" },
-                        }}
-                      >
-                        <AccordionSummary
-                          expandIcon={<ExpandMoreIcon />}
-                          sx={{
-                            px: 1.5,
-                            py: 1,
-                            "& .MuiAccordionSummary-content": {
-                              my: 0,
-                            },
-                          }}
-                        >
-                          <Stack
-                            direction={{ xs: "column", sm: "row" }}
-                            spacing={1}
-                            alignItems={{ xs: "flex-start", sm: "center" }}
-                            justifyContent="space-between"
-                            width="100%"
-                          >
-                            <Stack spacing={0.25} alignItems="flex-start">
-                              <Typography variant="body2" fontWeight={700}>
-                                {item.name}
-                              </Typography>
-                              <Typography
-                                variant="caption"
-                                color="text.secondary"
-                              >
-                                {item.items.length} items |{" "}
-                                {item.totals.kcal.toFixed(0)} kcal
-                              </Typography>
-                            </Stack>
-                            <Stack
-                              direction="row"
-                              spacing={1}
-                              alignItems="center"
-                            >
-                              <Typography
-                                variant="caption"
-                                color="text.secondary"
-                              >
-                                Ver ingredientes
-                              </Typography>
-                              <Button
-                                size="small"
-                                variant={isSelected ? "contained" : "outlined"}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  event.preventDefault();
-                                  setCloneSourceId(item.id);
-                                }}
-                              >
-                                {isSelected ? "Seleccionado" : "Seleccionar"}
-                              </Button>
-                            </Stack>
-                          </Stack>
-                        </AccordionSummary>
-                        <AccordionDetails sx={{ pt: 0, pb: 1.5, px: 1.5 }}>
-                          <Stack spacing={1}>
-                            {item.items.length ? (
-                              item.items.map((mealItem, idx) => (
-                                <Box
-                                  key={`${mealItem.foodId}-${idx}-clone`}
-                                  sx={{
-                                    p: 1,
-                                    borderRadius: 2,
-                                    border: "1px solid",
-                                    borderColor: "divider",
-                                  }}
-                                >
-                                  <Typography variant="body2" fontWeight={700}>
-                                    {mealItem.nameSnapshot}
-                                  </Typography>
-                                  <Typography
-                                    variant="caption"
-                                    color="text.secondary"
-                                  >
-                                    {mealItem.grams.toFixed(0)} g |{" "}
-                                    {mealItem.kcal.toFixed(0)} kcal | P{" "}
-                                    {mealItem.macros.protein.toFixed(0)} C{" "}
-                                    {mealItem.macros.carbs.toFixed(0)} G{" "}
-                                    {mealItem.macros.fat.toFixed(0)}
-                                  </Typography>
-                                </Box>
-                              ))
-                            ) : (
-                              <Typography
-                                variant="caption"
-                                color="text.secondary"
-                              >
-                                Sin alimentos.
-                              </Typography>
-                            )}
-                          </Stack>
-                        </AccordionDetails>
-                      </Accordion>
-                    );
-                  })}
-                </Stack>
-              )}
-              {mealLibraryError && (
-                <Typography variant="caption" color="error">
-                  {mealLibraryError}
-                </Typography>
+              {cloneMealTypeLabel && (
+                <Chip size="small" label={cloneMealTypeLabel} />
               )}
             </Stack>
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={1}
+              alignItems={{ xs: "flex-start", sm: "center" }}
+            >
+              <Typography variant="body2" color="text.secondary">
+                {cloneMealTypeLabel
+                  ? `Elige un plato de ${cloneMealTypeLabel} para clonar`
+                  : "Elige un plato para clonar"}
+              </Typography>
+              {cloneMealTypeLocked && cloneMealTypeLabel && (
+                <Button
+                  size="small"
+                  variant="text"
+                  onClick={() => setCloneMealTypeLocked(false)}
+                >
+                  Cambiar tipo
+                </Button>
+              )}
+            </Stack>
+          </Stack>
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 0.5 }}>
+            {!cloneMealTypeLocked && (
+              <TextField
+                select
+                size="small"
+                label="Tipo de comida"
+                value={cloneMealType ?? ""}
+                onChange={(event) =>
+                  setCloneMealType(event.target.value || null)
+                }
+                fullWidth
+              >
+                {MEAL_TYPE_OPTIONS.map((option) => (
+                  <MenuItem key={option} value={option}>
+                    {option}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
+
+            <TextField
+              size="small"
+              placeholder="Buscar por nombre o ingredientes..."
+              value={cloneSearch}
+              onChange={(event) => setCloneSearch(event.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              }}
+              fullWidth
+            />
+
+            {mealLibraryLoading ? (
+              <Typography variant="caption" color="text.secondary">
+                Cargando biblioteca...
+              </Typography>
+            ) : cloneEmpty ? (
+              <Stack spacing={1} sx={{ p: 1.5, borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+                <Typography variant="subtitle2" fontWeight={700}>
+                  Aun no tienes platos guardados para {cloneMealTypeLabel || "este tipo"}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Guarda un plato para reutilizarlo rapidamente.
+                </Typography>
+                <Stack direction="row" spacing={1}>
+                  <Button size="small" variant="outlined" onClick={handleCloseClone}>
+                    Volver
+                  </Button>
+                  <Button size="small" variant="contained" onClick={handleCloseClone}>
+                    Crear un plato
+                  </Button>
+                </Stack>
+              </Stack>
+            ) : (
+              <Stack spacing={2}>
+                {cloneGroupedTemplates.map((group) => (
+                  <Stack key={group.dateKey} spacing={1}>
+                    <Typography variant="caption" color="text.secondary" fontWeight={700}>
+                      {dayjs(group.dateKey).format("ddd, DD MMM YYYY")}
+                    </Typography>
+                    <Stack spacing={1}>
+                      {group.items.map((item) => {
+                        const isSelected = cloneSourceId === item.id;
+                        const isExpanded = cloneExpandedId === item.id;
+                        const showAll = cloneShowAllId === item.id;
+                        const visibleItems = showAll ? item.items : item.items.slice(0, 4);
+                        const hasMoreItems = item.items.length > 4;
+                        const displayName = getTemplateDisplayName(item);
+                        return (
+                          <Box
+                            key={item.id}
+                            sx={{
+                              p: 1.5,
+                              borderRadius: 2,
+                              border: "1px solid",
+                              borderColor: isSelected ? "primary.main" : "divider",
+                              bgcolor: isSelected ? "primary.main" + "0D" : "transparent",
+                            }}
+                          >
+                            <Stack spacing={1}>
+                              <Stack
+                                direction={{ xs: "column", sm: "row" }}
+                                spacing={1}
+                                alignItems={{ xs: "flex-start", sm: "center" }}
+                                justifyContent="space-between"
+                              >
+                                <Stack spacing={0.25}>
+                                  <Typography variant="body2" fontWeight={700}>
+                                    {displayName}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    {item.items.length} items | {item.totals.kcal.toFixed(0)} kcal
+                                  </Typography>
+                                </Stack>
+                                <Stack direction="row" spacing={1} alignItems="center">
+                                  <Button
+                                    size="small"
+                                    variant="text"
+                                    onClick={() => {
+                                      setCloneExpandedId(isExpanded ? null : item.id);
+                                      if (isExpanded) {
+                                        setCloneShowAllId(null);
+                                      }
+                                    }}
+                                  >
+                                    {isExpanded ? "Ocultar ingredientes" : "Ver ingredientes"}
+                                  </Button>
+                                  <Button
+                                    size="small"
+                                    variant={isSelected ? "contained" : "outlined"}
+                                    onClick={() => setCloneSourceId(item.id)}
+                                  >
+                                    {isSelected ? "Seleccionado" : "Seleccionar"}
+                                  </Button>
+                                </Stack>
+                              </Stack>
+
+                              <Collapse in={isExpanded}>
+                                <Stack spacing={1}>
+                                  {visibleItems.length ? (
+                                    visibleItems.map((mealItem, idx) => (
+                                      <Box
+                                        key={`${item.id}-${mealItem.foodId}-${idx}`}
+                                        sx={{
+                                          p: 1,
+                                          borderRadius: 2,
+                                          border: "1px solid",
+                                          borderColor: "divider",
+                                        }}
+                                      >
+                                        <Typography variant="body2" fontWeight={700}>
+                                          {mealItem.nameSnapshot}
+                                        </Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                          {mealItem.grams.toFixed(0)} g |{" "}
+                                          {mealItem.kcal.toFixed(0)} kcal | P{" "}
+                                          {mealItem.macros.protein.toFixed(0)} C{" "}
+                                          {mealItem.macros.carbs.toFixed(0)} G{" "}
+                                          {mealItem.macros.fat.toFixed(0)}
+                                        </Typography>
+                                      </Box>
+                                    ))
+                                  ) : (
+                                    <Typography variant="caption" color="text.secondary">
+                                      Sin alimentos.
+                                    </Typography>
+                                  )}
+                                  {hasMoreItems && (
+                                    <Button
+                                      size="small"
+                                      variant="text"
+                                      onClick={() =>
+                                        setCloneShowAllId(showAll ? null : item.id)
+                                      }
+                                    >
+                                      {showAll ? "Ver menos" : "Ver todos"}
+                                    </Button>
+                                  )}
+                                </Stack>
+                              </Collapse>
+                            </Stack>
+                          </Box>
+                        );
+                      })}
+                    </Stack>
+                  </Stack>
+                ))}
+                {cloneHasMore && (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() =>
+                      setCloneVisibleCount((prev) => prev + CLONE_PAGE_SIZE)
+                    }
+                  >
+                    Ver mas
+                  </Button>
+                )}
+              </Stack>
+            )}
+
+            {mealLibraryError && (
+              <Typography variant="caption" color="error">
+                {mealLibraryError}
+              </Typography>
+            )}
 
             {cloneSource && (
               <Typography variant="caption" color="text.secondary">

@@ -154,7 +154,8 @@ const getIndirectProteinLimit = (targetProtein: number) => {
 };
 
 const formatIndirectProteinLimit = () =>
-  `Para equilibrar el plato, elige ahora un carbohidrato con menos proteína.`;
+  `Estás invirtiendo todo tu presupuesto de carbohidratos en una sola fuente.
+Para un mejor equilibrio nutricional, reparte la inversión entre varias fuentes.`;
 
 const MacroGauge = ({
   label,
