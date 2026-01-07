@@ -125,7 +125,7 @@ const getMaxPortions = (value?: number | null) => {
   return value > 0 ? value : null;
 };
 
-const INDIRECT_PROTEIN_LIMIT_PCT = 0.15;
+const INDIRECT_PROTEIN_LIMIT_PCT = 0.25;
 const INDIRECT_PROTEIN_EPS = 1e-6;
 const CARB_PROTEIN_LIMIT_PER_100G = 1;
 
