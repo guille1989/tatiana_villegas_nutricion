@@ -1223,9 +1223,11 @@ const PlanDetailPage = () => {
                             : isPending
                             ? `Restan ${formatInt(remaining)}`
                             : "Completado";
+                          const indirectLimit =
+                            key === "protein" ? objective * 0.15 : objective;
                           const indirectRatio =
-                            objective > 0
-                              ? Math.min(indirectGrams / objective, 1)
+                            indirectLimit > 0
+                              ? Math.min(indirectGrams / indirectLimit, 1)
                               : 0;
                           const macroColor = macroColors[key];
                           return (
@@ -1259,7 +1261,7 @@ const PlanDetailPage = () => {
                                 fontSize={13}
                               >
                                 {`${label}: ${formatInt(
-                                  usedGrams
+                                  totalGrams
                                 )} / ${objective.toFixed(0)} g | ${formatInt(
                                   budget
                                 )} porciones`}
@@ -1323,7 +1325,7 @@ const PlanDetailPage = () => {
                                   porciones
                                 </Typography>
                               )}
-                              <Stack spacing={0.5} sx={{ mt: 1 }}>
+                              <Stack spacing={0.5} sx={{ mt: 1 }} display="none">
                                 <Stack
                                   direction="row"
                                   alignItems="center"
@@ -1374,7 +1376,7 @@ const PlanDetailPage = () => {
                                     sx={{
                                       width: `${indirectRatio * 100}%`,
                                       bgcolor: macroColor,
-                                      opacity: 0.35,
+                                      opacity: 0.50,
                                     }}
                                   />
                                 </Box>

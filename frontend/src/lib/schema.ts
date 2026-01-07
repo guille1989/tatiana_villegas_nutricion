@@ -11,10 +11,10 @@ export const profileOptions = [
 ] as const
 
 export const activityOptions = [
-  { value: 'sedentary', label: 'Sedentario' },
-  { value: 'light', label: 'Ligero' },
-  { value: 'moderate', label: 'Moderado' },
-  { value: 'high', label: 'Alto' },
+  { value: 'sedentary', label: '𝐒𝐞𝐝𝐞𝐧𝐭𝐚𝐫𝐢𝐨: Trabajo sentado, me muevo poco' },
+  { value: 'light', label: '𝐋𝐢𝐠𝐞𝐫𝐨: Algo de movimiento durante el día' },
+  { value: 'moderate', label: '𝐌𝐨𝐝𝐞𝐫𝐚𝐝𝐨: Paso bastante tiempo activo o de pie' },
+  { value: 'high', label: '𝐀𝐥𝐭𝐨: Trabajo físico o muy activo' },
 ] as const
 
 export const goalOptions = [

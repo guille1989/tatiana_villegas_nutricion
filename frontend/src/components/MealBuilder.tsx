@@ -125,6 +125,37 @@ const getMaxPortions = (value?: number | null) => {
   return value > 0 ? value : null;
 };
 
+const INDIRECT_PROTEIN_LIMIT_PCT = 0.15;
+const INDIRECT_PROTEIN_EPS = 1e-6;
+const CARB_PROTEIN_LIMIT_PER_100G = 1;
+
+const getProteinPer100g = (item: MealItem) => {
+  if (!Number.isFinite(item.grams) || item.grams <= 0) return 0;
+  return (item.macros.protein / item.grams) * 100;
+};
+
+const isHighProteinCarb = (item: MealItem) =>
+  item.group === "carbohidratos" &&
+  getProteinPer100g(item) >= CARB_PROTEIN_LIMIT_PER_100G;
+
+const isLowProteinCarbFood = (food: Food) =>
+  food.group === "carbohidratos" &&
+  food.prot_100g < CARB_PROTEIN_LIMIT_PER_100G;
+
+const calcIndirectProtein = (items: MealItem[]) =>
+  items.reduce((acc, item) => {
+    if (!isHighProteinCarb(item)) return acc;
+    return acc + item.macros.protein;
+  }, 0);
+
+const getIndirectProteinLimit = (targetProtein: number) => {
+  if (!Number.isFinite(targetProtein) || targetProtein <= 0) return null;
+  return targetProtein * INDIRECT_PROTEIN_LIMIT_PCT;
+};
+
+const formatIndirectProteinLimit = () =>
+  `Para equilibrar el plato, elige ahora un carbohidrato con menos proteína.`;
+
 const MacroGauge = ({
   label,
   consumedGrams,
@@ -435,6 +466,25 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
       setCatalogAddError(`Maximo ${maxPortions} porciones`);
       return;
     }
+    const indirectLimit = getIndirectProteinLimit(activeTargets.protein);
+    if (
+      indirectLimit !== null &&
+      catalogAddFood.group === "carbohidratos" &&
+      catalogAddFood.prot_100g >= CARB_PROTEIN_LIMIT_PER_100G
+    ) {
+      const grams = gramsFromPortions(catalogAddFood, portions);
+      if (grams === null) {
+        setCatalogAddError("No se puede calcular porciones para este alimento");
+        return;
+      }
+      const macros = calcFoodMacrosFromGrams(catalogAddFood, grams);
+      const currentIndirect = calcIndirectProtein(draftMeal?.items ?? []);
+      const nextIndirect = currentIndirect + macros.protein;
+      if (nextIndirect > indirectLimit + INDIRECT_PROTEIN_EPS) {
+        setCatalogAddError(formatIndirectProteinLimit());
+        return;
+      }
+    }
     const added = addFoodToDraft(catalogAddFood, "portions", portions);
     if (added) {
       handleCloseCatalogAdd();
@@ -518,6 +568,18 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
     const nextItems = draftMeal.items.map((item, idx) =>
       idx === editingItem.index ? updatedItem : item
     );
+    const indirectLimit = getIndirectProteinLimit(activeTargets.protein);
+    if (indirectLimit !== null) {
+      const currentIndirect = calcIndirectProtein(draftMeal.items);
+      const nextIndirect = calcIndirectProtein(nextItems);
+      if (
+        nextIndirect > indirectLimit + INDIRECT_PROTEIN_EPS &&
+        nextIndirect > currentIndirect + INDIRECT_PROTEIN_EPS
+      ) {
+        setEditError(formatIndirectProteinLimit());
+        return;
+      }
+    }
     setDraftMeal({
       ...draftMeal,
       items: nextItems,
@@ -575,6 +637,15 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
         fat: 0,
         kcal: 0,
       };
+  const indirectLimit = getIndirectProteinLimit(activeTargets.protein);
+  const indirectProteinUsed = calcIndirectProtein(draftMeal?.items ?? []);
+  const restrictCarbCatalog =
+    activeCategory === "carb" &&
+    indirectLimit !== null &&
+    indirectProteinUsed > indirectLimit + INDIRECT_PROTEIN_EPS;
+  const filteredCatalogItems = restrictCarbCatalog
+    ? catalogItems.filter(isLowProteinCarbFood)
+    : catalogItems;
 
   const drawerPaperSx = isDesktop
     ? { width: 420 }
@@ -808,7 +879,7 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
               }}
             />
             <IngredientCatalogTable
-              items={catalogItems}
+              items={filteredCatalogItems}
               isLoading={catalogLoading}
               error={catalogError}
               isDesktop={isDesktop}
@@ -917,7 +988,7 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
           <Button
             variant="contained"
             onClick={handleConfirmCatalogAdd}
-            disabled={catalogAddInvalid}
+            disabled={catalogAddInvalid || !!catalogAddError}
           >
             Agregar
           </Button>
