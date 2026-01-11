@@ -1,17 +1,21 @@
 import {
   AppBar,
   Button,
+  Box,
   CssBaseline,
+  Fab,
   Stack,
   ThemeProvider,
   Toolbar,
   Typography,
+  Tooltip,
   createTheme,
 } from '@mui/material'
 import { LocalizationProvider } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import { useEffect, useState, type PropsWithChildren } from 'react'
 import { BrowserRouter, Link as RouterLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
+import WhatsAppIcon from '@mui/icons-material/WhatsApp'
 import './App.css'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { listPlans } from './lib/api'
@@ -59,6 +63,19 @@ type PlanGateState = {
   hasPlans: boolean | null
   error: string | null
   reload: () => void
+}
+
+const WHATSAPP_SUPPORT_NUMBER = (import.meta.env.VITE_WHATSAPP_NUMBER ?? '').trim()
+const WHATSAPP_SUPPORT_MESSAGE = 'Hola, necesito ayuda con mi plan nutricional.'
+const WHATSAPP_BUTTON_OFFSET = { xs: 16, sm: 24 }
+const WHATSAPP_BUTTON_ENABLED = true
+
+const buildWhatsAppLink = (rawNumber: string, message: string) => {
+  const digits = rawNumber.replace(/[^\d]/g, '')
+  const encoded = encodeURIComponent(message)
+  return digits
+    ? `https://wa.me/${digits}?text=${encoded}`
+    : `https://wa.me/?text=${encoded}`
 }
 
 const useMemberPlanStatus = (enabled: boolean): PlanGateState => {
@@ -164,6 +181,7 @@ const AppShell = () => {
   const { token, isAdmin, logout } = useAuth()
   const navigate = useNavigate()
   const planGate = useMemberPlanStatus(!!token && !isAdmin)
+  const whatsappHref = buildWhatsAppLink(WHATSAPP_SUPPORT_NUMBER, WHATSAPP_SUPPORT_MESSAGE)
 
   const renderMemberLanding = () => {
     if (!token) return <Navigate to="/access" replace />
@@ -252,6 +270,59 @@ const AppShell = () => {
         />
         <Route path="*" element={renderMemberLanding()} />
       </Routes>
+      {WHATSAPP_BUTTON_ENABLED && (
+        <Box
+          sx={{
+            position: 'fixed',
+            right: WHATSAPP_BUTTON_OFFSET,
+            bottom: WHATSAPP_BUTTON_OFFSET,
+            zIndex: (theme) => theme.zIndex.appBar - 1,
+          }}
+        >
+          {/* WhatsApp support entry point; adjust offsets or toggle flag to move/hide. */}
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Box
+              sx={{
+                display: { xs: 'none', sm: 'flex' },
+                px: 1.25,
+                py: 0.5,
+                borderRadius: 999,
+                bgcolor: 'background.paper',
+                border: '1px solid',
+                borderColor: 'divider',
+              }}
+            >
+              <Typography variant="caption" color="text.secondary">
+                Necesitas ayuda?
+              </Typography>
+            </Box>
+            <Tooltip title="Necesitas ayuda?" arrow>
+              <Fab
+                color="primary"
+                size="medium"
+                component="a"
+                href={whatsappHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Abrir WhatsApp"
+                sx={{
+                  bgcolor: '#25D366',
+                  color: 'common.white',
+                  boxShadow: '0 10px 24px rgba(37, 211, 102, 0.3)',
+                  transition: 'transform 150ms ease, box-shadow 150ms ease',
+                  '&:hover': {
+                    bgcolor: '#20c05a',
+                    transform: 'translateY(-2px)',
+                    boxShadow: '0 14px 30px rgba(37, 211, 102, 0.35)',
+                  },
+                }}
+              >
+                <WhatsAppIcon />
+              </Fab>
+            </Tooltip>
+          </Stack>
+        </Box>
+      )}
     </div>
   )
 }
