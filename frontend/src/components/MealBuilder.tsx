@@ -276,6 +276,12 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
 
   const plateRef = useRef<HTMLDivElement | null>(null);
   const chipRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const isBreakfast = draftMeal?.name?.toLowerCase().startsWith("desayuno") ?? false;
+  const visibleGroupOptions = isBreakfast
+    ? FOOD_GROUP_OPTIONS.filter(
+        (cat) => cat.value !== "vegetales" && cat.value !== "extras"
+      )
+    : FOOD_GROUP_OPTIONS;
 
   useEffect(() => {
     const node = chipRefs.current[selectedGroup];
@@ -283,6 +289,13 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
       node.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
     }
   }, [selectedGroup]);
+
+  useEffect(() => {
+    if (!isBreakfast) return;
+    if (selectedGroup === "vegetales" || selectedGroup === "extras") {
+      setSelectedGroup(DEFAULT_GROUP);
+    }
+  }, [isBreakfast, selectedGroup]);
 
   const updateCategory = (value: FoodGroupFilter) => {
     setSelectedGroup(value);
@@ -866,9 +879,9 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
                   mx: -0.25,
                 }}
               >
-                {FOOD_GROUP_OPTIONS.map((cat) => {
-                  const isActive = selectedGroup === cat.value;
-                  return (
+              {visibleGroupOptions.map((cat) => {
+                const isActive = selectedGroup === cat.value;
+                return (
                     <Button
                       key={cat.value}
                       ref={(node) => {
