@@ -77,7 +77,7 @@ const StepMeasurements = () => {
                   label="% grasa corporal (opcional)"
                   fullWidth
                   inputMode="decimal"
-                  inputProps={{ min: 3, max: 60, step: 0.1, pattern: '[0-9]*[.,]?[0-9]*' }}
+                  inputProps={{ min: 0, max: 60, step: 0.1, pattern: '[0-9]*[.,]?[0-9]*' }}
                   value={field.value ?? ''}
                   onFocus={(e) => e.target.select()}
                   onChange={handleNumberChange(field.onChange)}
