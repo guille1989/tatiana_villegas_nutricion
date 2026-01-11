@@ -29,6 +29,8 @@ import {
   calcFoodMacrosFromGrams,
   fetchFoodsCatalog,
   gramsFromPortions,
+  FOOD_GROUP_OPTIONS,
+  type FoodGroupFilter,
 } from "../lib/foods";
 import { getMacroState, macroStateColor, type MacroKey } from "../lib/macroStatus";
 import type { MacroTargets } from "../lib/meals";
@@ -46,24 +48,7 @@ type Props = {
   onCloneMeal?: (meal: Meal) => void;
 };
 
-type BlockCategory = "protein" | "carb" | "fat";
-
-type FoodGroupFilter =
-  | "all"
-  | "proteinas"
-  | "carbohidratos"
-  | "grasas";
-
-const CATEGORY_OPTIONS: {
-  value: BlockCategory;
-  label: string;
-  searchGroup: FoodGroupFilter;
-  catalogGroup: FoodGroupFilter;
-}[] = [
-  { value: "protein", label: "Proteina", searchGroup: "proteinas", catalogGroup: "proteinas" },
-  { value: "carb", label: "Carbo", searchGroup: "carbohidratos", catalogGroup: "carbohidratos" },
-  { value: "fat", label: "Grasas", searchGroup: "grasas", catalogGroup: "grasas" },
-];
+const DEFAULT_GROUP = FOOD_GROUP_OPTIONS[0]?.value ?? "proteinas";
 
 const CATALOG_DEBOUNCE_MS = 300;
 const CATALOG_LIMIT = 25;
@@ -128,6 +113,9 @@ const getMaxPortions = (value?: number | null) => {
 const INDIRECT_PROTEIN_LIMIT_PCT = 0.25;
 const INDIRECT_PROTEIN_EPS = 1e-6;
 const CARB_PROTEIN_LIMIT_PER_100G = 1;
+
+const isCarbGroup = (group: FoodGroupFilter) =>
+  group === "carbohidratos" || group === "vegetales";
 
 const getProteinPer100g = (item: MealItem) => {
   if (!Number.isFinite(item.grams) || item.grams <= 0) return 0;
@@ -262,9 +250,8 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
   const [builderOpen, setBuilderOpen] = useState(false);
   const [activeMealKey, setActiveMealKey] = useState<Meal["key"] | null>(null);
   const [draftMeal, setDraftMeal] = useState<Meal | null>(null);
-  const [activeCategory, setActiveCategory] =
-    useState<BlockCategory>("protein");
-  const [selectedGroup, setSelectedGroup] = useState<FoodGroupFilter>("proteinas");
+  const [selectedGroup, setSelectedGroup] =
+    useState<FoodGroupFilter>(DEFAULT_GROUP);
 
   const [catalogQuery, setCatalogQuery] = useState("");
   const [catalogDebouncedQuery, setCatalogDebouncedQuery] = useState("");
@@ -288,10 +275,8 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
 
   const plateRef = useRef<HTMLDivElement | null>(null);
 
-  const updateCategory = (value: BlockCategory) => {
-    const config = CATEGORY_OPTIONS.find((cat) => cat.value === value);
-    setActiveCategory(value);
-    setSelectedGroup(config?.catalogGroup ?? "all");
+  const updateCategory = (value: FoodGroupFilter) => {
+    setSelectedGroup(value);
   };
 
   useEffect(() => {
@@ -364,7 +349,7 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
     setActiveMealKey(mealKey);
     setDraftMeal(cloneMeal(meal));
     setBuilderOpen(true);
-    updateCategory("protein");
+    updateCategory(DEFAULT_GROUP);
     resetCatalog(true);
   };
 
@@ -641,7 +626,7 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
   const indirectLimit = getIndirectProteinLimit(activeTargets.protein);
   const indirectProteinUsed = calcIndirectProtein(draftMeal?.items ?? []);
   const restrictCarbCatalog =
-    activeCategory === "carb" &&
+    isCarbGroup(selectedGroup) &&
     indirectLimit !== null &&
     indirectProteinUsed > indirectLimit + INDIRECT_PROTEIN_EPS;
   const filteredCatalogItems = restrictCarbCatalog
@@ -852,10 +837,10 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
               Banco de bloques
             </Typography>
             <Stack direction="row" spacing={1} flexWrap="wrap">
-              {CATEGORY_OPTIONS.map((cat) => (
+              {FOOD_GROUP_OPTIONS.map((cat) => (
                 <Button
                   key={cat.value}
-                  variant={activeCategory === cat.value ? "contained" : "outlined"}
+                  variant={selectedGroup === cat.value ? "contained" : "outlined"}
                   size="small"
                   onClick={() => updateCategory(cat.value)}
                 >

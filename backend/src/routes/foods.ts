@@ -25,15 +25,16 @@ router.get(
     if (!parsed.success) throw badRequest('Parámetros inválidos', parsed.error.flatten())
     const { q, group, limit = 100, offset = 0 } = parsed.data
 
-    const normalizedGroup =
-      group === 'vegetales' ? 'carbohidratos' : group === 'extras' ? undefined : group
-
     const filter: Record<string, unknown> = {}
     if (q) {
       filter.name = { $regex: q, $options: 'i' }
     }
-    if (normalizedGroup) {
-      filter.group = normalizedGroup
+    if (group) {
+      if (group === 'proteinas' || group === 'carbohidratos' || group === 'grasas') {
+        filter.group = group
+      } else {
+        filter.$or = [{ group }, { sub_group: group }]
+      }
     }
 
     const foods = await FoodModel.find(filter).skip(offset).limit(limit).sort({ name: 1 })

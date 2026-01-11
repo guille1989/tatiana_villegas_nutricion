@@ -7,18 +7,33 @@ const localFoods: Food[] = (foodsLocal as Food[]).map((f) => ({
   sub_group: (f as any).sub_group ?? null,
 }))
 
-type FoodGroupFilter = Food['group'] | 'all' | 'vegetales' | 'extras'
+export const FOOD_GROUP_OPTIONS = [
+  { value: 'proteinas', label: 'Proteina' },
+  { value: 'carbohidratos', label: 'Carbohidratos' },
+  { value: 'grasas', label: 'Grasas' },
+  { value: 'vegetales', label: 'Vegetales' },
+  { value: 'extras', label: 'Extras' },
+] as const
 
-const normalizeGroup = (group?: FoodGroupFilter): Food['group'] | undefined => {
-  if (!group || group === 'all' || group === 'extras') return undefined
-  if (group === 'vegetales') return 'carbohidratos'
-  return group
+export type FoodGroupFilter = (typeof FOOD_GROUP_OPTIONS)[number]['value'] | 'all'
+
+const CORE_GROUPS = new Set<Food['group']>(['proteinas', 'carbohidratos', 'grasas'])
+
+const normalizeKey = (value?: string | null) => value?.trim().toLowerCase() ?? ''
+
+const isCoreGroup = (group: FoodGroupFilter): group is Food['group'] =>
+  CORE_GROUPS.has(group as Food['group'])
+
+const matchesGroup = (food: Food, group?: FoodGroupFilter) => {
+  if (!group || group === 'all') return true
+  if (food.group === group) return true
+  if (isCoreGroup(group)) return false
+  return normalizeKey(food.sub_group) === normalizeKey(group)
 }
 
 const applyGroupFilter = (foods: Food[], group?: FoodGroupFilter) => {
-  const normalized = normalizeGroup(group)
-  if (!normalized) return foods
-  return foods.filter((food) => food.group === normalized)
+  if (!group || group === 'all') return foods
+  return foods.filter((food) => matchesGroup(food, group))
 }
 
 export const searchFoods = async (
@@ -73,17 +88,18 @@ export const calcFoodMacrosFromGrams = (food: Food, grams: number) => {
 
 export const gramsFromPortions = (food: Food, portions: number) => {
   if (portions <= 0) return 0
+  const fallback = () => portions * 100
   if (food.group === 'proteinas') {
-    if (!food.prot_100g) return null
+    if (!food.prot_100g) return fallback()
     return (portions * 10 * 100) / food.prot_100g
   }
   if (food.group === 'carbohidratos') {
-    if (!food.cho_100g) return null
+    if (!food.cho_100g) return fallback()
     return (portions * 15 * 100) / food.cho_100g
   }
   if (food.group === 'grasas') {
-    if (!food.fat_100g) return null
+    if (!food.fat_100g) return fallback()
     return (portions * 5 * 100) / food.fat_100g
   }
-  return null
+  return fallback()
 }
