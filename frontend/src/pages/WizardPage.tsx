@@ -112,7 +112,7 @@ const WizardPage = () => {
         <Stack spacing={3}>
           <Box textAlign="center">
             <Typography variant="h4" fontWeight={800} gutterBottom>
-              Tati Nutricion Extrema Ninja
+              UPGRADE
             </Typography>
             <Typography variant="body1" color="text.secondary">
               Completa el wizard para obtener tus calorias, macros y ajustes por tipo de dia.

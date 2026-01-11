@@ -98,7 +98,8 @@ const useMemberPlanStatus = (enabled: boolean): PlanGateState => {
     listPlans()
       .then((plans) => {
         if (!active) return
-        setHasPlans(plans.length > 0)
+        const hasActive = plans.some((plan) => plan.status === 'active' || !plan.status)
+        setHasPlans(hasActive)
       })
       .catch((err) => {
         if (!active) return

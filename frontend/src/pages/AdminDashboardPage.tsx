@@ -36,6 +36,7 @@ import {
   getAdminOverview,
   listInvites,
   upsertPlanMacroOverride,
+  updatePlanStatus,
   type AdminOverviewItem,
   type Invite,
 } from '../lib/api'
@@ -617,6 +618,9 @@ const AdminDashboardPage = () => {
   const [macroDialogOpen, setMacroDialogOpen] = useState(false)
   const [macroSaving, setMacroSaving] = useState(false)
   const [macroError, setMacroError] = useState<string | null>(null)
+  const [closePlanOpen, setClosePlanOpen] = useState(false)
+  const [closePlanLoading, setClosePlanLoading] = useState(false)
+  const [closePlanError, setClosePlanError] = useState<string | null>(null)
   const [macroForm, setMacroForm] = useState({
     protein: '',
     carbsAdjusted: '',
@@ -706,6 +710,7 @@ const AdminDashboardPage = () => {
 
   const selectedRecord = records.find((record) => record.userId === selectedUserId) ?? null
   const assessment = selectedRecord?.latestAssessment ?? null
+  const canClosePlan = !!selectedRecord?.plan && selectedRecord.plan.status !== 'archived'
   const trendPoints = selectedRecord
     ? [...selectedRecord.trend].sort((a, b) => dayjs(a.date).diff(dayjs(b.date)))
     : []
@@ -836,6 +841,39 @@ const AdminDashboardPage = () => {
       setMacroError(err instanceof Error ? err.message : 'No se pudo guardar')
     } finally {
       setMacroSaving(false)
+    }
+  }
+
+  const handleOpenClosePlan = () => {
+    setClosePlanError(null)
+    setClosePlanOpen(true)
+  }
+
+  const handleClosePlanDialog = () => {
+    if (closePlanLoading) return
+    setClosePlanOpen(false)
+    setClosePlanError(null)
+  }
+
+  const handleConfirmClosePlan = async () => {
+    if (!selectedRecord?.plan) return
+    setClosePlanLoading(true)
+    setClosePlanError(null)
+    try {
+      const plan = await updatePlanStatus({
+        planId: selectedRecord.plan.id,
+        status: 'archived',
+      })
+      setRecords((prev) =>
+        prev.map((record) =>
+          record.userId === selectedRecord.userId ? { ...record, plan } : record,
+        ),
+      )
+      setClosePlanOpen(false)
+    } catch (err) {
+      setClosePlanError(err instanceof Error ? err.message : 'No se pudo cerrar el plan')
+    } finally {
+      setClosePlanLoading(false)
     }
   }
 
@@ -1353,6 +1391,15 @@ const AdminDashboardPage = () => {
                           <Button size="small" variant="outlined" onClick={handleOpenMacroDialog}>
                             Editar macros
                           </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="warning"
+                            onClick={handleOpenClosePlan}
+                            disabled={!canClosePlan}
+                          >
+                            Cerrar plan
+                          </Button>
                         </Stack>
                       )}
                     </Stack>
@@ -1572,6 +1619,32 @@ const AdminDashboardPage = () => {
           </Card>
         </Stack>
       </Stack>
+
+      <Dialog open={closePlanOpen} onClose={handleClosePlanDialog} fullWidth maxWidth="xs">
+        <DialogTitle>Cerrar plan</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ mt: 0.5 }}>
+            <Typography variant="body2">
+              Este plan quedara como archivado. El cliente sera enviado al wizard en su proximo ingreso para
+              crear un nuevo plan.
+            </Typography>
+            {closePlanError && <Alert severity="warning">{closePlanError}</Alert>}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleClosePlanDialog} disabled={closePlanLoading}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={handleConfirmClosePlan}
+            disabled={!canClosePlan || closePlanLoading}
+          >
+            {closePlanLoading ? 'Cerrando...' : 'Cerrar plan'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={macroDialogOpen} onClose={handleCloseMacroDialog} fullWidth maxWidth="xs">
         <DialogTitle>Editar macros del plan</DialogTitle>

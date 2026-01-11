@@ -33,6 +33,10 @@ const macroOverrideBodySchema = z.object({
   macros: macroOverrideSchema,
 })
 
+const planStatusSchema = z.object({
+  status: z.enum(['archived']),
+})
+
 type MacroOverrideValue = z.infer<typeof macroOverrideSchema>
 type MacroOverrideEntry = { effectiveFrom: string; macros?: MacroOverrideValue | null }
 
@@ -159,6 +163,26 @@ router.put(
       (item: { effectiveFrom: string }) => item.effectiveFrom !== effectiveFrom,
     )
     plan.set('macroOverrides', [...filtered, nextOverride])
+    await plan.save()
+
+    res.json({ plan })
+  }),
+)
+
+router.put(
+  '/:planId/status',
+  asyncHandler(async (req, res) => {
+    const { planId } = req.params
+    if (!Types.ObjectId.isValid(planId)) throw badRequest('planId invalido')
+    const parsed = planStatusSchema.safeParse(req.body)
+    if (!parsed.success) throw badRequest('Validation failed', parsed.error.flatten())
+
+    const plan = await PlanModel.findById(planId)
+    if (!plan) throw notFound('Plan no encontrado')
+    const isAdmin = req.user?.role === 'admin'
+    if (!isAdmin) throw badRequest('Acceso no permitido')
+
+    plan.status = parsed.data.status
     await plan.save()
 
     res.json({ plan })
