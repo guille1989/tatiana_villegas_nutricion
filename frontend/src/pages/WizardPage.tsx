@@ -145,7 +145,7 @@ const WizardPage = () => {
 
             {!isLastStep && (
               <Button variant="contained" onClick={handleNext} fullWidth disabled={saving}>
-                {activeStep === steps.length - 2 ? 'Generar plan' : 'Siguiente'}
+                {activeStep === steps.length - 1 ? 'Generar plan' : 'Siguiente'}
               </Button>
             )}
             {isLastStep && (
