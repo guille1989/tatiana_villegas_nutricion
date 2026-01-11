@@ -918,17 +918,18 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
             />
             <Fade in timeout={200} key={`${selectedGroup}-${catalogDebouncedQuery}`}>
               <Box>
-                <IngredientCatalogTable
-                  items={filteredCatalogItems}
-                  isLoading={catalogLoading}
-                  error={catalogError}
-                  isDesktop={isDesktop}
-                  onAdd={handleRequestAddFromCatalog}
-                  hasMore={catalogHasMore}
-                  onLoadMore={() =>
-                    setCatalogOffset((prev) => prev + CATALOG_LIMIT)
-                  }
-                />
+            <IngredientCatalogTable
+              items={filteredCatalogItems}
+              isLoading={catalogLoading}
+              error={catalogError}
+              isDesktop={isDesktop}
+              onAdd={handleRequestAddFromCatalog}
+              selectedGroup={selectedGroup}
+              hasMore={catalogHasMore}
+              onLoadMore={() =>
+                setCatalogOffset((prev) => prev + CATALOG_LIMIT)
+              }
+            />
               </Box>
             </Fade>
           </Stack>

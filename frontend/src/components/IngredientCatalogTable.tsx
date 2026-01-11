@@ -15,7 +15,11 @@ import {
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import type { Food } from "../types";
-import { calcFoodMacrosFromGrams, gramsFromPortions } from "../lib/foods";
+import {
+  calcFoodMacrosFromGrams,
+  gramsFromPortions,
+  type FoodGroupFilter,
+} from "../lib/foods";
 
 type Props = {
   items: Food[];
@@ -23,6 +27,7 @@ type Props = {
   error?: string | null;
   isDesktop: boolean;
   onAdd: (food: Food) => void;
+  selectedGroup?: FoodGroupFilter;
   hasMore?: boolean;
   onLoadMore?: () => void;
   emptyLabel?: string;
@@ -34,6 +39,7 @@ const IngredientCatalogTable = ({
   error,
   isDesktop,
   onAdd,
+  selectedGroup,
   hasMore,
   onLoadMore,
   emptyLabel = "No hay ingredientes para esta categoria.",
@@ -41,8 +47,23 @@ const IngredientCatalogTable = ({
   const formatValue = (value?: number | null) =>
     Number.isFinite(value) ? value!.toFixed(0) : "-";
 
+  const getDefaultPortionGrams = (food: Food) => {
+    const parsed = Number(food.default_portion_g);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  };
+
+  const getPortionGrams = (food: Food) => {
+    const defaultGrams = getDefaultPortionGrams(food);
+    const useDefault =
+      selectedGroup === "vegetales" || selectedGroup === "extras";
+    if (useDefault && defaultGrams !== null) {
+      return defaultGrams;
+    }
+    return gramsFromPortions(food, 1);
+  };
+
   const getPortionInfo = (food: Food) => {
-    const portionGrams = gramsFromPortions(food, 1);
+    const portionGrams = getPortionGrams(food);
     if (!portionGrams || !Number.isFinite(portionGrams) || portionGrams <= 0) {
       return null;
     }

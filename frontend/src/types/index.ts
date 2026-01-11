@@ -63,6 +63,7 @@ export type Food = {
   fat_100g: number
   kcal_100g: number
   max_portion_in_meal?: number | null
+  default_portion_g?: number | null
 }
 
 export type DayOverrideInputs = {

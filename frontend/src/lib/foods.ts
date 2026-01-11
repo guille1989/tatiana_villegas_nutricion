@@ -5,6 +5,7 @@ import { searchFoodsApi } from './api'
 const localFoods: Food[] = (foodsLocal as Food[]).map((f) => ({
   ...f,
   sub_group: (f as any).sub_group ?? null,
+  default_portion_g: (f as any).default_portion_g ?? null,
 }))
 
 export const FOOD_GROUP_OPTIONS = [
@@ -18,8 +19,26 @@ export const FOOD_GROUP_OPTIONS = [
 export type FoodGroupFilter = (typeof FOOD_GROUP_OPTIONS)[number]['value'] | 'all'
 
 const CORE_GROUPS = new Set<Food['group']>(['proteinas', 'carbohidratos', 'grasas'])
+const DEFAULT_PORTION_GRAMS = 100
 
 const normalizeKey = (value?: string | null) => value?.trim().toLowerCase() ?? ''
+
+const getDefaultPortionGrams = (food: Food) => {
+  const parsed = Number(food.default_portion_g)
+  if (Number.isFinite(parsed) && parsed > 0) return parsed
+  return DEFAULT_PORTION_GRAMS
+}
+
+const isNonMacroGroup = (food: Food) => {
+  const groupKey = normalizeKey((food as { group?: string | null }).group)
+  const subGroupKey = normalizeKey(food.sub_group)
+  return (
+    groupKey === 'vegetales' ||
+    groupKey === 'extras' ||
+    subGroupKey === 'vegetales' ||
+    subGroupKey === 'extras'
+  )
+}
 
 const isCoreGroup = (group: FoodGroupFilter): group is Food['group'] =>
   CORE_GROUPS.has(group as Food['group'])
@@ -79,16 +98,19 @@ export const fetchFoodsCatalog = async ({
   })
 
 export const calcFoodMacrosFromGrams = (food: Food, grams: number) => {
-  const protein = (grams * food.prot_100g) / 100
-  const carbs = (grams * food.cho_100g) / 100
-  const fat = (grams * food.fat_100g) / 100
-  const kcal = (grams * food.kcal_100g) / 100
+  const baseGrams = isNonMacroGroup(food) ? getDefaultPortionGrams(food) : 100
+  const ratio = baseGrams > 0 ? grams / baseGrams : 0
+  const protein = ratio * food.prot_100g
+  const carbs = ratio * food.cho_100g
+  const fat = ratio * food.fat_100g
+  const kcal = ratio * food.kcal_100g
   return { protein, carbs, fat, kcal }
 }
 
 export const gramsFromPortions = (food: Food, portions: number) => {
   if (portions <= 0) return 0
-  const fallback = () => portions * 100
+  const fallback = () => portions * getDefaultPortionGrams(food)
+  if (isNonMacroGroup(food)) return fallback()
   if (food.group === 'proteinas') {
     if (!food.prot_100g) return fallback()
     return (portions * 10 * 100) / food.prot_100g
