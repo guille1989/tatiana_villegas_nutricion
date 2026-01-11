@@ -10,6 +10,7 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
+  Fade,
   Drawer,
   IconButton,
   InputAdornment,
@@ -274,6 +275,14 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
   const [editError, setEditError] = useState<string | null>(null);
 
   const plateRef = useRef<HTMLDivElement | null>(null);
+  const chipRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  useEffect(() => {
+    const node = chipRefs.current[selectedGroup];
+    if (node) {
+      node.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+    }
+  }, [selectedGroup]);
 
   const updateCategory = (value: FoodGroupFilter) => {
     setSelectedGroup(value);
@@ -832,23 +841,66 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
 
           <Divider />
 
-          <Stack spacing={1}>
-            <Typography variant="subtitle2" fontWeight={700}>
-              Banco de bloques
-            </Typography>
-            <Stack direction="row" spacing={1} flexWrap="wrap">
-              {FOOD_GROUP_OPTIONS.map((cat) => (
-                <Button
-                  key={cat.value}
-                  variant={selectedGroup === cat.value ? "contained" : "outlined"}
-                  size="small"
-                  onClick={() => updateCategory(cat.value)}
-                >
-                  {cat.label}
-                </Button>
-              ))}
+          <Box
+            sx={{
+              position: "sticky",
+              top: 0,
+              zIndex: 2,
+              bgcolor: "background.paper",
+              pt: 0.5,
+              pb: 1,
+            }}
+          >
+            <Stack spacing={1}>
+              <Typography variant="subtitle2" fontWeight={700}>
+                Banco de bloques
+              </Typography>
+              <Box
+                sx={{
+                  display: "flex",
+                  gap: 1,
+                  overflowX: "auto",
+                  flexWrap: "nowrap",
+                  py: 0.25,
+                  px: 0.25,
+                  mx: -0.25,
+                }}
+              >
+                {FOOD_GROUP_OPTIONS.map((cat) => {
+                  const isActive = selectedGroup === cat.value;
+                  return (
+                    <Button
+                      key={cat.value}
+                      ref={(node) => {
+                        chipRefs.current[cat.value] = node;
+                      }}
+                      variant={isActive ? "contained" : "outlined"}
+                      color={isActive ? "primary" : "inherit"}
+                      size="small"
+                      onClick={() => updateCategory(cat.value)}
+                      sx={{
+                        borderRadius: 999,
+                        textTransform: "none",
+                        px: 1.5,
+                        minHeight: 32,
+                        fontWeight: 600,
+                        whiteSpace: "nowrap",
+                        ...(isActive
+                          ? {}
+                          : {
+                              borderColor: "divider",
+                              color: "text.secondary",
+                              bgcolor: "background.default",
+                            }),
+                      }}
+                    >
+                      {cat.label}
+                    </Button>
+                  );
+                })}
+              </Box>
             </Stack>
-          </Stack>
+          </Box>
 
           <Stack spacing={1}>
             <TextField
@@ -864,15 +916,21 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
                 ),
               }}
             />
-            <IngredientCatalogTable
-              items={filteredCatalogItems}
-              isLoading={catalogLoading}
-              error={catalogError}
-              isDesktop={isDesktop}
-              onAdd={handleRequestAddFromCatalog}
-              hasMore={catalogHasMore}
-              onLoadMore={() => setCatalogOffset((prev) => prev + CATALOG_LIMIT)}
-            />
+            <Fade in timeout={200} key={`${selectedGroup}-${catalogDebouncedQuery}`}>
+              <Box>
+                <IngredientCatalogTable
+                  items={filteredCatalogItems}
+                  isLoading={catalogLoading}
+                  error={catalogError}
+                  isDesktop={isDesktop}
+                  onAdd={handleRequestAddFromCatalog}
+                  hasMore={catalogHasMore}
+                  onLoadMore={() =>
+                    setCatalogOffset((prev) => prev + CATALOG_LIMIT)
+                  }
+                />
+              </Box>
+            </Fade>
           </Stack>
 
           <Stack spacing={1} ref={plateRef}>
