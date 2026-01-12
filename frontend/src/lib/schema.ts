@@ -160,6 +160,6 @@ export const DEFAULT_VALUES: WizardFormData = {
   activityLevel: 'moderate',
   goal: 'recomp',
   dayType: 'rest',
-  trainingType: 'strength_light',
-  duration: 45,
+  trainingType: undefined,
+  duration: undefined,
 }
