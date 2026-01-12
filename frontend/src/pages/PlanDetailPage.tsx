@@ -997,7 +997,7 @@ const PlanDetailPage = () => {
         >
           <Stack spacing={0.5}>
             <Typography variant="h5" fontWeight={800}>
-              Plan {plan.days} dias
+              Planificación 1
             </Typography>
             <Typography variant="body2" color="text.secondary">
               Inicio: {dayjs(plan.startDate).format("DD MMM YYYY")} · Duracion:{" "}

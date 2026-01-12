@@ -115,7 +115,7 @@ export const wizardSchema = z
     age: requiredNumber('Edad', 10, 90),
     weight: requiredNumber('Peso', 30, 250),
     height: requiredNumber('Talla', 120, 230),
-    bodyFat: optionalNumber('% grasa corporal', 3, 60),
+    bodyFat: optionalNumber('% grasa corporal', 0, 60),
     profile: z.enum(profileOptions.map((p) => p.value) as [Profile, ...Profile[]], 'Selecciona un perfil'),
     activityLevel: z.enum(
       activityOptions.map((a) => a.value) as [ActivityLevel, ...ActivityLevel[]],

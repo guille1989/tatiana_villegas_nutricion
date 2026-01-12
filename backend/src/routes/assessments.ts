@@ -13,6 +13,15 @@ const router = Router()
 
 router.use(authMiddleware)
 
+const formatPlanDate = (date: Date) => {
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  return `${day}/${month}/${year}`
+}
+
+const buildDefaultPlanTitle = (date: Date) => `Planificación 1 - ${formatPlanDate(date)}`
+
 const assessmentBodySchema = z.object({
   inputs: wizardInputsSchema,
 })
@@ -38,6 +47,7 @@ router.post(
 
     // Upsert a 7-day plan for this user based on the latest assessment
     const startDate = new Date()
+    const defaultTitle = buildDefaultPlanTitle(startDate)
     const existingPlan = await PlanModel.findOne({ userId, days: 30 }).sort({
       createdAt: -1,
     })
@@ -52,13 +62,17 @@ router.post(
         startDate,
         days: 30,
         status: 'draft',
-        title: 'Plan 30 dias',
+        title: defaultTitle,
       })
 
     plan.baseAssessmentId = new Types.ObjectId(assessment._id)
     plan.startDate = startDate
     plan.status = 'active'
-    if (!plan.title) plan.title = 'Plan 30 dias'
+    const shouldResetTitle =
+      !plan.title ||
+      plan.title.trim().length === 0 ||
+      plan.title === 'Planificación 1'
+    if (shouldResetTitle) plan.title = defaultTitle
     await plan.save()
 
     res.status(201).json({ assessment, plan })

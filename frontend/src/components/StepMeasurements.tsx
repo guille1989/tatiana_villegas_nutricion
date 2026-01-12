@@ -1,13 +1,26 @@
 import { Card, CardContent, CardHeader, MenuItem, Stack, TextField } from '@mui/material'
-import type { ChangeEvent } from 'react'
-import { Controller, useFormContext } from 'react-hook-form'
+import { useEffect, type ChangeEvent } from 'react'
+import { Controller, useFormContext, useWatch } from 'react-hook-form'
 import { profileOptions, type WizardFormData } from '../lib/schema'
 
 const StepMeasurements = () => {
   const {
     control,
+    setValue,
     formState: { errors },
   } = useFormContext<WizardFormData>()
+  const bodyFatValue = useWatch({ control, name: 'bodyFat' })
+  const profileValue = useWatch({ control, name: 'profile' })
+  const bodyFatProvided =
+    typeof bodyFatValue === 'number' &&
+    Number.isFinite(bodyFatValue) &&
+    bodyFatValue > 0
+
+  useEffect(() => {
+    if (!bodyFatProvided && profileValue !== 'general') {
+      setValue('profile', 'general', { shouldValidate: true, shouldDirty: true })
+    }
+  }, [bodyFatProvided, profileValue, setValue])
 
   const handleNumberChange =
     (onChange: (value: number | undefined) => void) => (event: ChangeEvent<HTMLInputElement>) => {
@@ -96,8 +109,13 @@ const StepMeasurements = () => {
                   label="Perfil"
                   fullWidth
                   required
+                  disabled={!bodyFatProvided}
                   error={!!errors.profile}
-                  helperText={errors.profile?.message}
+                  helperText={
+                    bodyFatProvided
+                      ? errors.profile?.message
+                      : 'Disponible al ingresar % grasa.'
+                  }
                 >
                   {profileOptions.map((option) => (
                     <MenuItem key={option.value} value={option.value}>

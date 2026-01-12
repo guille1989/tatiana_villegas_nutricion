@@ -204,7 +204,7 @@ const getOverrideMeals = (override?: DayOverride | null) => {
 
 const getPlanLabel = (plan?: Plan | null) => {
   if (!plan) return 'Sin plan'
-  return plan.title ?? `Plan ${plan.days} dias`
+  return plan.title ?? `Planificación 1`
 }
 
 const getTargetMacros = (outputs?: CalculationOutputs | null) => {

@@ -15,6 +15,15 @@ const router = Router()
 
 router.use(authMiddleware)
 
+const formatPlanDate = (date: Date) => {
+  const year = date.getFullYear()
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  return `${day}/${month}/${year}`
+}
+
+const buildDefaultPlanTitle = (date: Date) => `Planificación 1 - ${formatPlanDate(date)}`
+
 const createPlanSchema = z.object({
   baseAssessmentId: z.string().min(1),
   startDate: z.string().min(1),
@@ -95,13 +104,15 @@ router.post(
     if (!userId) throw unauthorized('Usuario no autenticado')
 
     const { baseAssessmentId, startDate, days, title } = parsed.data
+    const startDateValue = new Date(startDate)
+    const planTitle = title && title.trim().length > 0 ? title : buildDefaultPlanTitle(startDateValue)
     await PlanModel.updateMany({ userId, status: 'active' }, { status: 'archived' })
     const plan = await PlanModel.create({
       userId,
       baseAssessmentId: new Types.ObjectId(baseAssessmentId),
-      startDate: new Date(startDate),
+      startDate: startDateValue,
       days,
-      title,
+      title: planTitle,
       status: 'active',
     })
     res.status(201).json({ plan })

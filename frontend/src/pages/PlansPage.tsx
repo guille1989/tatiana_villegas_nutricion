@@ -1,4 +1,4 @@
-﻿import {
+import {
   Alert,
   Box,
   Button,
@@ -655,7 +655,7 @@ const PlansPage = () => {
         baseAssessmentId: assessment.id,
         startDate: dayjs().toISOString(),
         days: createDays,
-        title: `Plan ${createDays} dias`,
+        title: `Planificación 1 - ${dayjs().format('DD/MM/YYYY')}`,
       })
       navigate(`/plans/${newPlan.id}`)
     } catch (err) {
@@ -759,7 +759,7 @@ const PlansPage = () => {
                         : plan.status === 'archived'
                           ? theme.palette.grey[400]
                           : theme.palette.warning.main
-                    const planLabel = `Plan ${plan.days} dias + ${dayjs(plan.startDate).format('DD/MM/YYYY')}`
+                    const planLabel = `Planificación 1 - ${dayjs(plan.startDate).format('DD/MM/YYYY')}`
                     return (
                       <Box
                         key={plan.id}

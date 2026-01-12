@@ -31,7 +31,7 @@ export const wizardInputsSchema = z
     age: z.number().min(10).max(100),
     weight: z.number().min(30).max(250),
     height: z.number().min(120).max(230),
-    bodyFat: z.number().min(3).max(60).optional(),
+    bodyFat: z.number().min(0).max(60).optional(),
     profile: profileEnum,
     activityLevel: activityEnum,
     goal: goalEnum,
