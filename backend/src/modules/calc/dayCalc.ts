@@ -52,6 +52,7 @@ export const calculateDayFromBase = (baseInputs: WizardInputs, overrides: DayOve
   // Calculate base outputs without forcing single-session EEE
   const baseCalc = calculateInitials({
     ...baseInputs,
+    activityLevel: merged.activityLevel,
     dayType: merged.dayType,
     training: undefined,
     trainingType: merged.trainingType,

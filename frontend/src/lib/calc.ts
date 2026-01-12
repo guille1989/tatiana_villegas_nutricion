@@ -189,6 +189,7 @@ export const calculateDayFromBase = (
 
   const baseOutputs = calculateInitials({
     ...baseInputs,
+    activityLevel: merged.activityLevel,
     dayType: merged.dayType,
     trainingType: merged.trainingType,
     duration: undefined,
