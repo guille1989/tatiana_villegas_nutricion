@@ -84,7 +84,7 @@ export const calculateInitials = (inputs: WizardInputs): { outputs: CalculationO
   const pal = palMap[inputs.activityLevel]
   const tdee = rmr * pal
 
-  const goalFactor = { fat_loss: 0.7, muscle_gain: 1, recomp: 0 }[inputs.goal]
+  const goalFactor = { fat_loss: -0.25, muscle_gain: 0.1, recomp: 0 }[inputs.goal]
   const kcalObjectiveBase = tdee * (1 + goalFactor)
 
   const proteinFactor = { fat_loss: 2.5, muscle_gain: 2.2, recomp: 1.6 }[inputs.goal]
