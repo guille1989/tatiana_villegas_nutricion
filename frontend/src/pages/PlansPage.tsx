@@ -960,7 +960,7 @@ const PlansPage = () => {
             </CardContent>
           </Card>
 
-          <Card elevation={0} sx={lightCard}>
+          <Card elevation={0} sx={lightCard} style={{display: 'none'}}>
             <CardContent sx={{ height: '100%' }}>
               <Stack spacing={2} height="100%">
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
