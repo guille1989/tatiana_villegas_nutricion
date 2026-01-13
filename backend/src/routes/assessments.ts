@@ -20,7 +20,25 @@ const formatPlanDate = (date: Date) => {
   return `${day}/${month}/${year}`
 }
 
-const buildDefaultPlanTitle = (date: Date) => `Planificación 1 - ${formatPlanDate(date)}`
+const parsePlanNumber = (title?: string | null) => {
+  if (!title) return 0
+  const match = title.match(/planificaci\S*\s*(\d+)/i)
+  if (!match) return 0
+  const value = Number(match[1])
+  return Number.isFinite(value) ? value : 0
+}
+
+const getNextPlanNumber = async (userId: string) => {
+  const plans = await PlanModel.find({ userId }).select('title').lean()
+  const maxNumber = plans.reduce(
+    (acc, plan) => Math.max(acc, parsePlanNumber(plan.title)),
+    0,
+  )
+  return maxNumber + 1
+}
+
+const buildDefaultPlanTitle = (date: Date, number: number) =>
+  `Planificación ${number} - ${formatPlanDate(date)}`
 
 const assessmentBodySchema = z.object({
   inputs: wizardInputsSchema,
@@ -47,7 +65,8 @@ router.post(
 
     // Create a new plan for this user based on the latest assessment
     const startDate = new Date()
-    const defaultTitle = buildDefaultPlanTitle(startDate)
+    const nextPlanNumber = await getNextPlanNumber(userId)
+    const defaultTitle = buildDefaultPlanTitle(startDate, nextPlanNumber)
 
     await PlanModel.updateMany({ userId, status: 'active' }, { status: 'archived' })
 
