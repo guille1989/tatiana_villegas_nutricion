@@ -92,10 +92,13 @@ const applyMacroOverride = (
   outputs: ReturnType<typeof calculateDayFromBase>['outputs'],
   override: { macros: MacroOverrideValue } | null,
   dayType: 'training' | 'rest',
+  useActivityKcal = false,
 ) => {
   if (!override) return outputs
   const extraKcal = outputs.eee ?? 0
-  const kcalObjectiveDay = calcKcalFromMacros(override.macros) + extraKcal
+  const macroKcal = calcKcalFromMacros(override.macros) + extraKcal
+  const activityKcal = outputs.kcalObjectiveDay ?? macroKcal
+  const kcalObjectiveDay = useActivityKcal ? activityKcal : macroKcal
   const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
     protein: override.macros.protein,
     fats: override.macros.fatsAdjusted,
@@ -255,7 +258,9 @@ router.put(
     const { outputs } = calculateDayFromBase(assessment.inputs, parsed.data.overrides)
     const macroOverride = getMacroOverrideForDate(plan.macroOverrides, parsed.data.date)
     const dayType = parsed.data.overrides.dayType ?? assessment.inputs.dayType ?? 'rest'
-    const computed = applyMacroOverride(outputs, macroOverride, dayType)
+    const hasActivityOverride =
+      parsed.data.overrides.activityLevel !== undefined && parsed.data.overrides.activityLevel !== null
+    const computed = applyMacroOverride(outputs, macroOverride, dayType, hasActivityOverride)
 
     const override = await PlanDayOverrideModel.findOneAndUpdate(
       { planId, date: parsed.data.date },
@@ -313,7 +318,9 @@ router.get(
     if (existing) {
       const macroOverride = getMacroOverrideForDate(plan.macroOverrides, date)
       const dayType = existing.overrides?.dayType ?? assessment.inputs.dayType ?? 'rest'
-      const computed = applyMacroOverride(existing.computed, macroOverride, dayType)
+      const hasActivityOverride =
+        existing.overrides?.activityLevel !== undefined && existing.overrides?.activityLevel !== null
+      const computed = applyMacroOverride(existing.computed, macroOverride, dayType, hasActivityOverride)
       res.json({ override: { ...existing.toObject(), computed }, outputs: computed })
       return
     }

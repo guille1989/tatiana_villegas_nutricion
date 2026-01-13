@@ -245,11 +245,14 @@ const applyPlanMacroOverride = (
   plan: Plan | null | undefined,
   date: string,
   dayType: DayType,
+  useActivityKcal = false,
 ) => {
   if (!outputs) return outputs
   const override = getPlanMacroOverrideForDate(plan, date)
   if (!override) return outputs
-  const kcalObjectiveDay = calcKcalFromMacros(override.macros) + (outputs.eee ?? 0)
+  const macroKcal = calcKcalFromMacros(override.macros) + (outputs.eee ?? 0)
+  const activityKcal = outputs.kcalObjectiveDay ?? macroKcal
+  const kcalObjectiveDay = useActivityKcal ? activityKcal : macroKcal
   const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
     protein: override.macros.protein,
     fats: override.macros.fatsAdjusted,
@@ -342,7 +345,16 @@ const buildSyncSeries = (
     const date = rangeStart.add(idx, 'day').format('YYYY-MM-DD')
     const override = overrideMap.get(date)
     const dayType = getDayType(override, baseDayType)
-    const targetBase = applyPlanMacroOverride(override?.computed ?? outputs ?? null, plan, date, dayType)
+    const hasActivityOverride =
+      override?.overrides?.activityLevel !== undefined &&
+      override?.overrides?.activityLevel !== null
+    const targetBase = applyPlanMacroOverride(
+      override?.computed ?? outputs ?? null,
+      plan,
+      date,
+      dayType,
+      hasActivityOverride,
+    )
     const target = getTargetMacros(targetBase)
     const meals = getOverrideMeals(override)
     const totals = meals && meals.length > 0 ? totalsFromMeals(meals) : null
@@ -394,7 +406,16 @@ const buildTrend = (
     const override = overrideMap.get(date)
     const meals = getOverrideMeals(override)
     const dayType = getDayType(override, baseDayType)
-    const baseOutputs = applyPlanMacroOverride(override?.computed ?? outputs ?? null, plan, date, dayType)
+    const hasActivityOverride =
+      override?.overrides?.activityLevel !== undefined &&
+      override?.overrides?.activityLevel !== null
+    const baseOutputs = applyPlanMacroOverride(
+      override?.computed ?? outputs ?? null,
+      plan,
+      date,
+      dayType,
+      hasActivityOverride,
+    )
     const summary = getAdherenceFromMeals(meals, baseOutputs)
     return {
       date,
@@ -649,11 +670,15 @@ const AdminDashboardPage = () => {
             const latestMealsOverride = overridesWithMeals.sort((a, b) => dayjs(b.updatedAt).diff(a.updatedAt))[0]
             const adherenceDate = latestMealsOverride?.date ?? dayjs().format('YYYY-MM-DD')
             const adherenceDayType = getDayType(latestMealsOverride, item.assessment?.inputs.dayType)
+            const adherenceHasActivity =
+              latestMealsOverride?.overrides?.activityLevel !== undefined &&
+              latestMealsOverride?.overrides?.activityLevel !== null
             const adherenceBase = applyPlanMacroOverride(
               latestMealsOverride?.computed ?? outputs,
               item.plan ?? null,
               adherenceDate,
               adherenceDayType,
+              adherenceHasActivity,
             )
             const adherence = getAdherenceFromMeals(getOverrideMeals(latestMealsOverride), adherenceBase)
 

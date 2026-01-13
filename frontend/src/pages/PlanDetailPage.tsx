@@ -320,20 +320,22 @@ const PlanDetailPage = () => {
     return { carbsAdjusted, fatsAdjusted };
   };
 
-  const applyMacroOverride = (
-    outputs: CalculationOutputs | undefined,
-    date: string | null,
-    dayType: "training" | "rest"
-  ) => {
-    if (!outputs) return outputs;
-    const override = getMacroOverrideForDate(date, plan?.macroOverrides);
-    if (!override) return outputs;
-    const kcalObjectiveDay =
-      calcKcalFromMacros(override.macros) + (outputs.eee ?? 0);
-    const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
-      protein: override.macros.protein,
-      fats: override.macros.fatsAdjusted,
-      carbs: override.macros.carbsAdjusted,
+const applyMacroOverride = (
+  outputs: CalculationOutputs | undefined,
+  date: string | null,
+  dayType: "training" | "rest",
+  useActivityKcal = false
+) => {
+  if (!outputs) return outputs;
+  const override = getMacroOverrideForDate(date, plan?.macroOverrides);
+  if (!override) return outputs;
+  const macroKcal = calcKcalFromMacros(override.macros) + (outputs.eee ?? 0);
+  const activityKcal = outputs.kcalObjectiveDay ?? macroKcal;
+  const kcalObjectiveDay = useActivityKcal ? activityKcal : macroKcal;
+  const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
+    protein: override.macros.protein,
+    fats: override.macros.fatsAdjusted,
+    carbs: override.macros.carbsAdjusted,
       kcalObjectiveDay,
       dayType,
     });
@@ -346,22 +348,31 @@ const PlanDetailPage = () => {
     };
   };
 
-  const computeOutputs = (date: string | null, override?: DayOverride) => {
-    const dayType =
-      override?.overrides.dayType ?? baseInputs?.dayType ?? "rest";
-    if (!baseInputs)
+const computeOutputs = (date: string | null, override?: DayOverride) => {
+  const dayType =
+    override?.overrides.dayType ?? baseInputs?.dayType ?? "rest";
+  const hasActivityOverride =
+    override?.overrides.activityLevel !== undefined &&
+    override?.overrides.activityLevel !== null;
+  if (!baseInputs)
+    return applyMacroOverride(baseOutputs ?? undefined, date, dayType);
+  if (override?.computed)
+    return applyMacroOverride(
+      override.computed,
+      date,
+      dayType,
+      hasActivityOverride
+    );
+  if (override) {
+    try {
+      return applyMacroOverride(
+        calculateDayFromBase(baseInputs, override.overrides),
+        date,
+        dayType,
+        hasActivityOverride
+      );
+    } catch {
       return applyMacroOverride(baseOutputs ?? undefined, date, dayType);
-    if (override?.computed)
-      return applyMacroOverride(override.computed, date, dayType);
-    if (override) {
-      try {
-        return applyMacroOverride(
-          calculateDayFromBase(baseInputs, override.overrides),
-          date,
-          dayType
-        );
-      } catch {
-        return applyMacroOverride(baseOutputs ?? undefined, date, dayType);
       }
     }
     return applyMacroOverride(baseOutputs ?? undefined, date, dayType);
@@ -1203,7 +1214,10 @@ const PlanDetailPage = () => {
                   {dayjs(selectedDate).format("dddd, DD MMM YYYY")}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  EEE: {formatInt(selectedOutputs.eee)} kcal
+                  EEE: {formatInt(selectedOutputs.eee)} kcal | PAL:{" "}
+                  {selectedOutputs.pal !== undefined
+                    ? selectedOutputs.pal.toFixed(2)
+                    : "--"}
                 </Typography>
               </Box>
               <Chip

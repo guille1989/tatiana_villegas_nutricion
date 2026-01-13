@@ -107,11 +107,14 @@ const applyPlanMacroOverride = (
   plan: Plan | null | undefined,
   date: string,
   dayType: DayType,
+  useActivityKcal = false,
 ) => {
   if (!outputs) return outputs
   const override = getPlanMacroOverrideForDate(plan, date)
   if (!override) return outputs
-  const kcalObjectiveDay = calcKcalFromMacros(override.macros) + (outputs.eee ?? 0)
+  const macroKcal = calcKcalFromMacros(override.macros) + (outputs.eee ?? 0)
+  const activityKcal = outputs.kcalObjectiveDay ?? macroKcal
+  const kcalObjectiveDay = useActivityKcal ? activityKcal : macroKcal
   const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
     protein: override.macros.protein,
     fats: override.macros.fatsAdjusted,
@@ -188,7 +191,16 @@ const buildSyncSeries = (
     const date = rangeStart.add(idx, 'day').format('YYYY-MM-DD')
     const override = overrideMap.get(date)
     const dayType = getDayType(override, baseDayType)
-    const targetBase = applyPlanMacroOverride(override?.computed ?? outputs ?? null, plan, date, dayType)
+    const hasActivityOverride =
+      override?.overrides?.activityLevel !== undefined &&
+      override?.overrides?.activityLevel !== null
+    const targetBase = applyPlanMacroOverride(
+      override?.computed ?? outputs ?? null,
+      plan,
+      date,
+      dayType,
+      hasActivityOverride,
+    )
     const target = getTargetMacros(targetBase)
     const meals = getOverrideMeals(override)
     const totals = meals && meals.length > 0 ? totalsFromMeals(meals) : null
