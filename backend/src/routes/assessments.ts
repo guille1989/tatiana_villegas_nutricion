@@ -45,36 +45,20 @@ router.post(
       formulas,
     })
 
-    // Upsert a 7-day plan for this user based on the latest assessment
+    // Create a new plan for this user based on the latest assessment
     const startDate = new Date()
     const defaultTitle = buildDefaultPlanTitle(startDate)
-    const existingPlan = await PlanModel.findOne({ userId, days: 30 }).sort({
-      createdAt: -1,
-    })
 
     await PlanModel.updateMany({ userId, status: 'active' }, { status: 'archived' })
 
-    const plan =
-      existingPlan ??
-      new PlanModel({
-        userId,
-        baseAssessmentId: new Types.ObjectId(assessment._id),
-        startDate,
-        days: 30,
-        status: 'draft',
-        title: defaultTitle,
-      })
-
-    plan.baseAssessmentId = new Types.ObjectId(assessment._id)
-    plan.startDate = startDate
-    plan.status = 'active'
-    const shouldResetTitle =
-      !plan.title ||
-      plan.title.trim().length === 0 ||
-      plan.title === 'Planificación 1'
-    if (shouldResetTitle) plan.title = defaultTitle
-    await plan.save()
-
+    const plan = await PlanModel.create({
+      userId,
+      baseAssessmentId: new Types.ObjectId(assessment._id),
+      startDate,
+      days: 30,
+      status: 'active',
+      title: defaultTitle,
+    })
     res.status(201).json({ assessment, plan })
   }),
 )
