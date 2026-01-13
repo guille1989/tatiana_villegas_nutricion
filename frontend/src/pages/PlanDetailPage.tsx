@@ -168,12 +168,23 @@ const PlanDetailPage = () => {
           setMealsByDate(mealsMap);
         }
       )
-      .catch((err) =>
-        setError(
-          err instanceof Error ? err.message : "No se pudo cargar el plan"
-        )
-      );
-  }, [planId]);
+      .catch((err) => {
+        const message =
+          err instanceof Error ? err.message : "No se pudo cargar el plan";
+        if (message.toLowerCase().includes("no encontrado") || message.includes("404")) {
+          navigate("/plans", { replace: true });
+          return;
+        }
+        setError(message);
+      });
+  }, [planId, navigate]);
+
+  useEffect(() => {
+    if (!plan?.status) return;
+    if (plan.status !== "active") {
+      navigate("/plans", { replace: true });
+    }
+  }, [plan, navigate]);
 
   const dates = useMemo(() => {
     if (!plan) return [];
@@ -324,14 +335,13 @@ const applyMacroOverride = (
   outputs: CalculationOutputs | undefined,
   date: string | null,
   dayType: "training" | "rest",
-  useActivityKcal = false
+  activityDelta = 0
 ) => {
   if (!outputs) return outputs;
   const override = getMacroOverrideForDate(date, plan?.macroOverrides);
   if (!override) return outputs;
   const macroKcal = calcKcalFromMacros(override.macros) + (outputs.eee ?? 0);
-  const activityKcal = outputs.kcalObjectiveDay ?? macroKcal;
-  const kcalObjectiveDay = useActivityKcal ? activityKcal : macroKcal;
+  const kcalObjectiveDay = macroKcal + activityDelta;
   const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
     protein: override.macros.protein,
     fats: override.macros.fatsAdjusted,
@@ -351,9 +361,26 @@ const applyMacroOverride = (
 const computeOutputs = (date: string | null, override?: DayOverride) => {
   const dayType =
     override?.overrides.dayType ?? baseInputs?.dayType ?? "rest";
-  const hasActivityOverride =
-    override?.overrides.activityLevel !== undefined &&
-    override?.overrides.activityLevel !== null;
+  let activityDelta = 0;
+  if (
+    baseInputs &&
+    override?.overrides?.activityLevel !== undefined &&
+    override?.overrides?.activityLevel !== null
+  ) {
+    try {
+      const baseOverrides = { ...override.overrides, activityLevel: undefined };
+      const baseOutputs = calculateDayFromBase(baseInputs, baseOverrides);
+      const activityOutputs = calculateDayFromBase(
+        baseInputs,
+        override.overrides
+      );
+      activityDelta =
+        (activityOutputs.kcalObjectiveDay ?? 0) -
+        (baseOutputs.kcalObjectiveDay ?? 0);
+    } catch {
+      activityDelta = 0;
+    }
+  }
   if (!baseInputs)
     return applyMacroOverride(baseOutputs ?? undefined, date, dayType);
   if (override?.computed)
@@ -361,7 +388,7 @@ const computeOutputs = (date: string | null, override?: DayOverride) => {
       override.computed,
       date,
       dayType,
-      hasActivityOverride
+      activityDelta
     );
   if (override) {
     try {
@@ -369,7 +396,7 @@ const computeOutputs = (date: string | null, override?: DayOverride) => {
         calculateDayFromBase(baseInputs, override.overrides),
         date,
         dayType,
-        hasActivityOverride
+        activityDelta
       );
     } catch {
       return applyMacroOverride(baseOutputs ?? undefined, date, dayType);

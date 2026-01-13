@@ -92,13 +92,12 @@ const applyMacroOverride = (
   outputs: ReturnType<typeof calculateDayFromBase>['outputs'],
   override: { macros: MacroOverrideValue } | null,
   dayType: 'training' | 'rest',
-  useActivityKcal = false,
+  activityDelta = 0,
 ) => {
   if (!override) return outputs
   const extraKcal = outputs.eee ?? 0
   const macroKcal = calcKcalFromMacros(override.macros) + extraKcal
-  const activityKcal = outputs.kcalObjectiveDay ?? macroKcal
-  const kcalObjectiveDay = useActivityKcal ? activityKcal : macroKcal
+  const kcalObjectiveDay = macroKcal + activityDelta
   const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
     protein: override.macros.protein,
     fats: override.macros.fatsAdjusted,
@@ -256,11 +255,12 @@ router.put(
     if (!assessment) throw notFound('Assessment base no encontrado')
 
     const { outputs } = calculateDayFromBase(assessment.inputs, parsed.data.overrides)
+    const baseOverrides = { ...parsed.data.overrides, activityLevel: undefined }
+    const { outputs: baseOutputs } = calculateDayFromBase(assessment.inputs, baseOverrides)
+    const activityDelta = (outputs.kcalObjectiveDay ?? 0) - (baseOutputs.kcalObjectiveDay ?? 0)
     const macroOverride = getMacroOverrideForDate(plan.macroOverrides, parsed.data.date)
     const dayType = parsed.data.overrides.dayType ?? assessment.inputs.dayType ?? 'rest'
-    const hasActivityOverride =
-      parsed.data.overrides.activityLevel !== undefined && parsed.data.overrides.activityLevel !== null
-    const computed = applyMacroOverride(outputs, macroOverride, dayType, hasActivityOverride)
+    const computed = applyMacroOverride(outputs, macroOverride, dayType, activityDelta)
 
     const override = await PlanDayOverrideModel.findOneAndUpdate(
       { planId, date: parsed.data.date },
@@ -318,9 +318,11 @@ router.get(
     if (existing) {
       const macroOverride = getMacroOverrideForDate(plan.macroOverrides, date)
       const dayType = existing.overrides?.dayType ?? assessment.inputs.dayType ?? 'rest'
-      const hasActivityOverride =
-        existing.overrides?.activityLevel !== undefined && existing.overrides?.activityLevel !== null
-      const computed = applyMacroOverride(existing.computed, macroOverride, dayType, hasActivityOverride)
+      const { outputs } = calculateDayFromBase(assessment.inputs, existing.overrides ?? {})
+      const baseOverrides = { ...(existing.overrides ?? {}), activityLevel: undefined }
+      const { outputs: baseOutputs } = calculateDayFromBase(assessment.inputs, baseOverrides)
+      const activityDelta = (outputs.kcalObjectiveDay ?? 0) - (baseOutputs.kcalObjectiveDay ?? 0)
+      const computed = applyMacroOverride(outputs, macroOverride, dayType, activityDelta)
       res.json({ override: { ...existing.toObject(), computed }, outputs: computed })
       return
     }

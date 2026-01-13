@@ -26,7 +26,8 @@ import dayjs from 'dayjs'
 import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createPlan, deletePlan, getLatestAssessment, getPlan, listPlans } from '../lib/api'
-import type { Assessment, CalculationOutputs, DayOverride, Meal, Plan } from '../types'
+import { calculateDayFromBase } from '../lib/calc'
+import type { Assessment, CalculationOutputs, DayOverride, Meal, Plan, WizardInputs } from '../types'
 
 type PlanDetail = {
   assessment?: Assessment
@@ -107,14 +108,13 @@ const applyPlanMacroOverride = (
   plan: Plan | null | undefined,
   date: string,
   dayType: DayType,
-  useActivityKcal = false,
+  activityDelta = 0,
 ) => {
   if (!outputs) return outputs
   const override = getPlanMacroOverrideForDate(plan, date)
   if (!override) return outputs
   const macroKcal = calcKcalFromMacros(override.macros) + (outputs.eee ?? 0)
-  const activityKcal = outputs.kcalObjectiveDay ?? macroKcal
-  const kcalObjectiveDay = useActivityKcal ? activityKcal : macroKcal
+  const kcalObjectiveDay = macroKcal + activityDelta
   const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
     protein: override.macros.protein,
     fats: override.macros.fatsAdjusted,
@@ -177,6 +177,7 @@ const buildSyncSeries = (
   outputs: CalculationOutputs | undefined,
   plan: Plan | null | undefined,
   baseDayType?: DayType | null,
+  baseInputs?: WizardInputs | null,
 ): SyncPoint[] => {
   const overrideMap = new Map(overrides.map((item) => [item.date, item]))
   const planStart = plan?.startDate
@@ -191,15 +192,27 @@ const buildSyncSeries = (
     const date = rangeStart.add(idx, 'day').format('YYYY-MM-DD')
     const override = overrideMap.get(date)
     const dayType = getDayType(override, baseDayType)
-    const hasActivityOverride =
+    let activityDelta = 0
+    if (
+      baseInputs &&
       override?.overrides?.activityLevel !== undefined &&
       override?.overrides?.activityLevel !== null
+    ) {
+      try {
+        const baseOverrides = { ...override.overrides, activityLevel: undefined }
+        const baseOutputs = calculateDayFromBase(baseInputs, baseOverrides)
+        const activityOutputs = calculateDayFromBase(baseInputs, override.overrides)
+        activityDelta = (activityOutputs.kcalObjectiveDay ?? 0) - (baseOutputs.kcalObjectiveDay ?? 0)
+      } catch {
+        activityDelta = 0
+      }
+    }
     const targetBase = applyPlanMacroOverride(
       override?.computed ?? outputs ?? null,
       plan,
       date,
       dayType,
-      hasActivityOverride,
+      activityDelta,
     )
     const target = getTargetMacros(targetBase)
     const meals = getOverrideMeals(override)
@@ -551,6 +564,11 @@ const PlansPage = () => {
     return plans.find((plan) => plan.status === 'active') ?? plans[0]
   }, [plans])
 
+  const hasActivePlan = useMemo(
+    () => plans.some((plan) => plan.status === 'active' || !plan.status),
+    [plans],
+  )
+
   useEffect(() => {
     if (!plans.length) return
     if (selectedPlanId && plans.some((plan) => plan.id === selectedPlanId)) return
@@ -573,6 +591,7 @@ const PlansPage = () => {
       selectedPlanDetail.outputs,
       selectedPlan,
       selectedPlanDetail.assessment?.inputs?.dayType ?? null,
+      selectedPlanDetail.assessment?.inputs ?? null,
     )
   }, [selectedPlan, selectedPlanDetail])
 
@@ -737,8 +756,17 @@ const PlansPage = () => {
                   </Typography>
                 )}
 
-                {!loading && planItems.length === 0 && (
-                  <Alert severity="info">Aun no tienes planes creados. Completa el wizard.</Alert>
+                {!loading && !hasActivePlan && (
+                  <Alert
+                    severity="info"
+                    action={
+                      <Button size="small" variant="outlined" onClick={() => navigate('/wizard')}>
+                        Ir al wizard
+                      </Button>
+                    }
+                  >
+                    Aun no tienes planes creados. Completa el wizard.
+                  </Alert>
                 )}
 
                 <Stack spacing={1.5} sx={{ flex: 1, overflowY: 'auto', pr: 0.5 }}>
@@ -754,11 +782,30 @@ const PlansPage = () => {
                         : today
                     ).format('YYYY-MM-DD')
                     const baseDayType = detail?.assessment?.inputs?.dayType ?? null
+                    const baseInputs = detail?.assessment?.inputs ?? null
+                    const displayOverride = detail?.overrides?.find((item) => item.date === displayDate)
+                    let activityDelta = 0
+                    if (
+                      baseInputs &&
+                      displayOverride?.overrides?.activityLevel !== undefined &&
+                      displayOverride?.overrides?.activityLevel !== null
+                    ) {
+                      try {
+                        const baseOverrides = { ...displayOverride.overrides, activityLevel: undefined }
+                        const baseOutputs = calculateDayFromBase(baseInputs, baseOverrides)
+                        const activityOutputs = calculateDayFromBase(baseInputs, displayOverride.overrides)
+                        activityDelta =
+                          (activityOutputs.kcalObjectiveDay ?? 0) - (baseOutputs.kcalObjectiveDay ?? 0)
+                      } catch {
+                        activityDelta = 0
+                      }
+                    }
                     const adjustedOutputs = applyPlanMacroOverride(
                       detail?.outputs,
                       plan,
                       displayDate,
                       baseDayType ?? 'rest',
+                      activityDelta,
                     )
                     const planKcal = adjustedOutputs?.kcalObjectiveDay
                     const macros = getMacroPercentages(adjustedOutputs)
@@ -852,6 +899,7 @@ const PlansPage = () => {
                               size="small"
                               variant="outlined"
                               onClick={() => navigate(`/plans/${plan.id}`)}
+                              disabled={!isActive}
                             >
                               Abrir
                             </Button>
