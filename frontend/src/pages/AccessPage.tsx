@@ -1,4 +1,7 @@
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
   Button,
   Card,
@@ -9,6 +12,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
@@ -125,44 +129,8 @@ const AccessPage = () => {
               Acceso
             </Typography>
             <Typography color="text.secondary">
-              Ingresa tu codigo o inicia sesion con tus credenciales.
+              Inicia sesión con tus credenciales.
             </Typography>
-            <Stack spacing={1.5}>
-              <Typography variant="subtitle1" fontWeight={700}>
-                Acceso con codigo
-              </Typography>
-              {error && <Alert severity="warning">{error}</Alert>}
-              <TextField
-                label="Codigo de acceso"
-                placeholder="Ej: 1A2B3C4D"
-                value={code}
-                onChange={(event) => setCode(event.target.value)}
-                fullWidth
-              />
-              <TextField
-                label="Nombre (opcional)"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                fullWidth
-              />
-              <TextField
-                label="Email"
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                fullWidth
-              />
-              <TextField
-                label="Contrasena"
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                fullWidth
-              />
-              <Button variant="contained" onClick={handleSubmit} disabled={loading} fullWidth>
-                {loading ? 'Validando...' : 'Entrar con codigo'}
-              </Button>
-            </Stack>
 
             <Divider />
 
@@ -192,7 +160,52 @@ const AccessPage = () => {
 
             <Divider />
 
-            <Stack spacing={1}>
+            <Accordion>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography variant="subtitle1" fontWeight={700}>
+                  ¿No tienes cuenta? Regístrate con código
+                </Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Stack spacing={1.5}>
+                  {error && <Alert severity="warning">{error}</Alert>}
+                  <TextField
+                    label="Codigo de acceso"
+                    placeholder="Ej: 1A2B3C4D"
+                    value={code}
+                    onChange={(event) => setCode(event.target.value)}
+                    fullWidth
+                  />
+                  <TextField
+                    label="Nombre (opcional)"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    fullWidth
+                  />
+                  <TextField
+                    label="Email"
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    fullWidth
+                  />
+                  <TextField
+                    label="Contrasena"
+                    type="password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    fullWidth
+                  />
+                  <Button variant="contained" onClick={handleSubmit} disabled={loading} fullWidth>
+                    {loading ? 'Validando...' : 'Entrar con codigo'}
+                  </Button>
+                </Stack>
+              </AccordionDetails>
+            </Accordion>
+
+            <Divider />
+
+            <Stack spacing={1} style={{display: 'none'}}>
               <Typography variant="subtitle1" fontWeight={700}>
                 Crear admin (solo primera vez)
               </Typography>
