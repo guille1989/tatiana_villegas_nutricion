@@ -484,6 +484,8 @@ const computeOutputs = (date: string | null, override?: DayOverride) => {
     proteinas: "protein",
     carbohidratos: "carbs",
     grasas: "fat",
+    vegetales: "carbs",
+    extras: "carbs",
   };
 
   type MacroSources = {

@@ -57,13 +57,22 @@ export type Food = {
   id: string
   name: string
   sub_group?: string | null
-  group: 'proteinas' | 'carbohidratos' | 'grasas'
+  group: 'proteinas' | 'carbohidratos' | 'grasas' | 'extras' | 'vegetales'
   prot_100g: number
   cho_100g: number
   fat_100g: number
   kcal_100g: number
   max_portion_in_meal?: number | null
   default_portion_g?: number | null
+}
+
+export type IngredientStatus = 'active' | 'inactive'
+
+export type Ingredient = Food & {
+  status?: IngredientStatus
+  version?: number
+  versionedFrom?: string | null
+  replacedBy?: string | null
 }
 
 export type DayOverrideInputs = {

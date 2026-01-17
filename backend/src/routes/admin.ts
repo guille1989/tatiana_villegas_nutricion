@@ -9,10 +9,12 @@ import { UserModel } from '../models/User'
 import { authMiddleware, requireAdmin } from '../middleware/auth'
 import { asyncHandler } from '../utils/asyncHandler'
 import { badRequest } from '../utils/apiError'
+import ingredientRoutes from './adminIngredients'
 
 const router = Router()
 
 router.use(authMiddleware, requireAdmin)
+router.use('/ingredients', ingredientRoutes)
 
 const inviteSchema = z.object({
   role: z.enum(['admin', 'member']).optional(),

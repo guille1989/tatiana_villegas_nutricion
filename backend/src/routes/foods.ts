@@ -26,6 +26,7 @@ router.get(
     const { q, group, limit = 100, offset = 0 } = parsed.data
 
     const filter: Record<string, unknown> = {}
+    filter.status = { $ne: 'inactive' }
     if (q) {
       filter.name = { $regex: q, $options: 'i' }
     }

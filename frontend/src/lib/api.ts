@@ -7,6 +7,7 @@ import type {
   Plan,
   PlanMacroOverride,
   Food,
+  Ingredient,
   WizardInputs,
   MealTemplate,
   MealItem,
@@ -47,6 +48,12 @@ type OverrideDto = {
 }
 
 type FoodDto = Food & { _id: string }
+type IngredientDto = FoodDto & {
+  status?: 'active' | 'inactive'
+  version?: number
+  versionedFrom?: string | null
+  replacedBy?: string | null
+}
 
 type MealTemplateDto = {
   _id: string
@@ -97,6 +104,37 @@ export type AdminOverviewItem = {
   assessment?: Assessment
   plan?: Plan
   overrides: DayOverride[]
+}
+
+export type IngredientUsage = {
+  templates: number
+  overrides: number
+  total: number
+}
+
+export type IngredientStats = {
+  total: number
+  active: number
+  inactive: number
+}
+
+export type IngredientPayload = {
+  name: string
+  group: Ingredient['group']
+  sub_group?: string | null
+  prot_100g: number
+  cho_100g: number
+  fat_100g: number
+  kcal_100g: number
+  default_portion_g?: number | null
+  max_portion_in_meal?: number | null
+}
+
+export type IngredientUpdateResult = {
+  ingredient: Ingredient
+  versioned: boolean
+  previousId?: string
+  usage?: IngredientUsage
 }
 
 const request = async <T>(path: string, options?: RequestInit): Promise<ApiResponse<T>> => {
@@ -170,6 +208,23 @@ const mapInvite = (raw: InviteDto): Invite => ({
   status: raw.status,
 })
 
+const mapIngredient = (item: IngredientDto): Ingredient => ({
+  id: item._id ?? item.id,
+  name: item.name,
+  group: item.group,
+  sub_group: item.sub_group ?? null,
+  prot_100g: item.prot_100g,
+  cho_100g: item.cho_100g,
+  fat_100g: item.fat_100g,
+  kcal_100g: item.kcal_100g,
+  default_portion_g: item.default_portion_g ?? null,
+  max_portion_in_meal: item.max_portion_in_meal ?? null,
+  status: item.status ?? 'active',
+  version: item.version,
+  versionedFrom: item.versionedFrom ?? null,
+  replacedBy: item.replacedBy ?? null,
+})
+
 const mapMealTemplate = (raw: MealTemplateDto): MealTemplate => ({
   id: raw._id,
   createdAt: raw.createdAt,
@@ -241,6 +296,75 @@ export const getAdminOverview = async () => {
     plan: item.plan ? mapPlan(item.plan) : undefined,
     overrides: (item.overrides ?? []).map(mapOverride),
   }))
+}
+
+export const listAdminIngredients = async (params?: {
+  query?: string
+  group?: Ingredient['group'] | 'all'
+  status?: 'active' | 'inactive' | 'all'
+  limit?: number
+  offset?: number
+}) => {
+  const searchParams = new URLSearchParams()
+  if (params?.query) searchParams.set('q', params.query)
+  if (params?.group && params.group !== 'all') searchParams.set('group', params.group)
+  if (params?.status) searchParams.set('status', params.status)
+  if (params?.limit !== undefined) searchParams.set('limit', String(params.limit))
+  if (params?.offset !== undefined) searchParams.set('offset', String(params.offset))
+  const qParam = searchParams.toString() ? `?${searchParams.toString()}` : ''
+
+  const { data, error } = await request<{ ingredients: IngredientDto[] }>(`/admin/ingredients${qParam}`)
+  if (error) throw new Error(error)
+  return (data.ingredients ?? []).map(mapIngredient)
+}
+
+export const getIngredientStats = async () => {
+  const { data, error } = await request<{ stats: IngredientStats }>('/admin/ingredients/stats')
+  if (error) throw new Error(error)
+  return data.stats
+}
+
+export const createIngredient = async (payload: IngredientPayload) => {
+  const { data, error } = await request<{ ingredient: IngredientDto }>('/admin/ingredients', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  if (error) throw new Error(error)
+  return mapIngredient(data.ingredient)
+}
+
+export const updateIngredient = async (ingredientId: string, payload: IngredientPayload): Promise<IngredientUpdateResult> => {
+  const { data, error } = await request<{
+    ingredient: IngredientDto
+    versioned?: boolean
+    previousId?: string
+    usage?: IngredientUsage
+  }>(`/admin/ingredients/${ingredientId}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+  if (error) throw new Error(error)
+  return {
+    ingredient: mapIngredient(data.ingredient),
+    versioned: data.versioned ?? false,
+    previousId: data.previousId,
+    usage: data.usage,
+  }
+}
+
+export const updateIngredientStatus = async (ingredientId: string, status: 'active' | 'inactive') => {
+  const { data, error } = await request<{ ingredient: IngredientDto }>(`/admin/ingredients/${ingredientId}/status`, {
+    method: 'PUT',
+    body: JSON.stringify({ status }),
+  })
+  if (error) throw new Error(error)
+  return mapIngredient(data.ingredient)
+}
+
+export const getIngredientUsage = async (ingredientId: string) => {
+  const { data, error } = await request<{ usage: IngredientUsage }>(`/admin/ingredients/${ingredientId}/usage`)
+  if (error) throw new Error(error)
+  return data.usage
 }
 
 export const createAssessment = async (inputs: WizardInputs) => {

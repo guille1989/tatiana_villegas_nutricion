@@ -14,6 +14,9 @@ import {
   FormControl,
   InputLabel,
   LinearProgress,
+  List,
+  ListItemButton,
+  ListItemText,
   MenuItem,
   Paper,
   Select,
@@ -41,6 +44,7 @@ import {
   type Invite,
 } from '../lib/api'
 import { calculateDayFromBase } from '../lib/calc'
+import AdminIngredientsSection from '../components/AdminIngredientsSection'
 import {
   activityOptions,
   dayTypeOptions,
@@ -95,6 +99,13 @@ type AdminRecord = {
   adherence: AdherenceSummary
   trend: TrendPoint[]
 }
+
+type AdminSection = 'overview' | 'ingredients'
+
+const ADMIN_SECTIONS: Array<{ id: AdminSection; label: string }> = [
+  { id: 'overview', label: 'Resumen' },
+  { id: 'ingredients', label: 'Ingredientes' },
+]
 
 const GOAL_LABELS: Record<string, string> = {
   fat_loss: 'Perdida grasa',
@@ -658,6 +669,7 @@ const AdminDashboardPage = () => {
   const [inviteError, setInviteError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [activeSection, setActiveSection] = useState<AdminSection>('overview')
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [goalFilter, setGoalFilter] = useState('all')
@@ -1103,18 +1115,43 @@ const AdminDashboardPage = () => {
   return (
     <Container maxWidth="xl" sx={{ py: { xs: 3, md: 5 } }}>
       <Stack spacing={3}>
-        <Box>
-          <Typography variant="h4" fontWeight={800} gutterBottom>
-            Administrador
-          </Typography>
-          <Typography color="text.secondary">
-            Informacion global de socios, planes y evolucion nutricional.
-          </Typography>
-        </Box>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="flex-start">
+          <Paper
+            variant="outlined"
+            sx={{
+              width: { xs: '100%', md: 220 },
+              position: { md: 'sticky' },
+              top: 24,
+            }}
+          >
+            <List disablePadding sx={{ display: 'flex', flexDirection: { xs: 'row', md: 'column' } }}>
+              {ADMIN_SECTIONS.map((item) => (
+                <ListItemButton
+                  key={item.id}
+                  selected={activeSection === item.id}
+                  onClick={() => setActiveSection(item.id)}
+                  sx={{ flex: { xs: 1, md: 'initial' } }}
+                >
+                  <ListItemText primary={item.label} />
+                </ListItemButton>
+              ))}
+            </List>
+          </Paper>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            {activeSection === 'overview' ? (
+              <Stack spacing={3}>
+                <Box>
+                  <Typography variant="h4" fontWeight={800} gutterBottom>
+                    Administrador
+                  </Typography>
+                  <Typography color="text.secondary">
+                    Informacion global de socios, planes y evolucion nutricional.
+                  </Typography>
+                </Box>
 
-        {error && <Alert severity="warning">{error}</Alert>}
+                {error && <Alert severity="warning">{error}</Alert>}
 
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
           {loading ? (
             Array.from({ length: 4 }).map((_, idx) => (
               <Card key={idx} elevation={0} sx={{ flex: 1 }}>
@@ -1689,7 +1726,23 @@ const AdminDashboardPage = () => {
             </CardContent>
           </Card>
         </Stack>
-      </Stack>
+              </Stack>
+              ) : (
+                <Stack spacing={3}>
+                  <Box>
+                    <Typography variant="h4" fontWeight={800} gutterBottom>
+                      Ingredientes
+                    </Typography>
+                    <Typography color="text.secondary">
+                      Gestiona el catalogo de ingredientes, porciones y estado operativo.
+                    </Typography>
+                  </Box>
+                  <AdminIngredientsSection />
+                </Stack>
+              )}
+            </Box>
+          </Stack>
+        </Stack>
 
       <Dialog open={closePlanOpen} onClose={handleClosePlanDialog} fullWidth maxWidth="xs">
         <DialogTitle>Cerrar plan</DialogTitle>
