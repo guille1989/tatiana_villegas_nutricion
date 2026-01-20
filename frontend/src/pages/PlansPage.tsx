@@ -26,7 +26,7 @@ import dayjs from 'dayjs'
 import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createPlan, deletePlan, getLatestAssessment, getPlan, listPlans } from '../lib/api'
-import { calculateDayFromBase, getEeeFactor } from '../lib/calc'
+import { calculateDayFromBase, getCarbFactor, getEeeFactor } from '../lib/calc'
 import type { Assessment, CalculationOutputs, DayOverride, Meal, Plan, WizardInputs } from '../types'
 
 type PlanDetail = {
@@ -62,15 +62,17 @@ const adjustCarbFat = ({
   carbs,
   kcalObjectiveDay,
   dayType,
+  trainingType,
 }: {
   protein: number
   fats: number
   carbs: number
   kcalObjectiveDay: number
   dayType: DayType
+  trainingType?: WizardInputs['trainingType'] | null
 }) => {
-  const carbFactor = dayType === 'training' ? 1.2 : 0.85
-  const fatFactor = dayType === 'training' ? 0.85 : 1.2
+  const carbFactor = getCarbFactor(dayType, trainingType)
+  const fatFactor = dayType === 'training' ? 1 - carbFactor : 0
 
   const protKcal = protein * 4
   const remaining = Math.max(kcalObjectiveDay - protKcal, 0)
@@ -103,11 +105,23 @@ const getPlanMacroOverrideForDate = (plan: Plan | null | undefined, date: string
 const getDayType = (override?: DayOverride | null, baseDayType?: DayType | null) =>
   override?.overrides.dayType ?? baseDayType ?? 'rest'
 
+const getTrainingType = (
+  override?: DayOverride | null,
+  baseInputs?: WizardInputs | null,
+): WizardInputs['trainingType'] | null => {
+  const overrideTraining =
+    override?.overrides?.trainings?.find((item) => item?.type)?.type ??
+    override?.overrides?.training?.type ??
+    null
+  return (overrideTraining ?? baseInputs?.trainingType ?? null) as WizardInputs['trainingType'] | null
+}
+
 const applyPlanMacroOverride = (
   outputs: CalculationOutputs | null | undefined,
   plan: Plan | null | undefined,
   date: string,
   dayType: DayType,
+  trainingType: WizardInputs['trainingType'] | null,
   goal?: WizardInputs['goal'] | null,
   activityDelta = 0,
 ) => {
@@ -124,6 +138,7 @@ const applyPlanMacroOverride = (
     carbs: override.macros.carbsAdjusted,
     kcalObjectiveDay,
     dayType,
+    trainingType,
   })
   return {
     ...outputs,
@@ -195,6 +210,7 @@ const buildSyncSeries = (
     const date = rangeStart.add(idx, 'day').format('YYYY-MM-DD')
     const override = overrideMap.get(date)
     const dayType = getDayType(override, baseDayType)
+    const trainingType = getTrainingType(override, baseInputs)
     let activityDelta = 0
     if (
       baseInputs &&
@@ -215,6 +231,7 @@ const buildSyncSeries = (
       plan,
       date,
       dayType,
+      trainingType,
       baseInputs?.goal ?? null,
       activityDelta,
     )
@@ -788,6 +805,7 @@ const PlansPage = () => {
                     const baseDayType = detail?.assessment?.inputs?.dayType ?? null
                     const baseInputs = detail?.assessment?.inputs ?? null
                     const displayOverride = detail?.overrides?.find((item) => item.date === displayDate)
+                    const displayTrainingType = getTrainingType(displayOverride, baseInputs)
                     let activityDelta = 0
                     if (
                       baseInputs &&
@@ -809,6 +827,7 @@ const PlansPage = () => {
                       plan,
                       displayDate,
                       baseDayType ?? 'rest',
+                      displayTrainingType,
                       baseInputs?.goal ?? null,
                       activityDelta,
                     )

@@ -9,7 +9,7 @@ import { AssessmentModel } from '../models/Assessment'
 import { authMiddleware } from '../middleware/auth'
 import { asyncHandler } from '../utils/asyncHandler'
 import { badRequest, notFound, unauthorized } from '../utils/apiError'
-import { dayOverrideSchema, type WizardInputs } from '../modules/types'
+import { dayOverrideSchema, type DayOverrideInputs, type WizardInputs } from '../modules/types'
 
 const router = Router()
 
@@ -88,10 +88,20 @@ const getMacroOverrideForDate = (
   return filtered[filtered.length - 1]
 }
 
+const getTrainingType = (
+  overrides: DayOverrideInputs | null | undefined,
+  baseInputs?: WizardInputs | null,
+): WizardInputs['trainingType'] | null => {
+  const overrideTraining =
+    overrides?.trainings?.find((item) => item?.type)?.type ?? overrides?.training?.type ?? null
+  return (overrideTraining ?? baseInputs?.trainingType ?? null) as WizardInputs['trainingType'] | null
+}
+
 const applyMacroOverride = (
   outputs: ReturnType<typeof calculateDayFromBase>['outputs'],
   override: { macros: MacroOverrideValue } | null,
   dayType: 'training' | 'rest',
+  trainingType: WizardInputs['trainingType'] | null,
   goal: WizardInputs['goal'],
   activityDelta = 0,
 ) => {
@@ -106,6 +116,7 @@ const applyMacroOverride = (
     carbs: override.macros.carbsAdjusted,
     kcalObjectiveDay,
     dayType,
+    trainingType,
   })
   return {
     ...outputs,
@@ -262,7 +273,15 @@ router.put(
     const activityDelta = (outputs.kcalObjectiveDay ?? 0) - (baseOutputs.kcalObjectiveDay ?? 0)
     const macroOverride = getMacroOverrideForDate(plan.macroOverrides, parsed.data.date)
     const dayType = parsed.data.overrides.dayType ?? assessment.inputs.dayType ?? 'rest'
-    const computed = applyMacroOverride(outputs, macroOverride, dayType, assessment.inputs.goal, activityDelta)
+    const trainingType = getTrainingType(parsed.data.overrides, assessment.inputs)
+    const computed = applyMacroOverride(
+      outputs,
+      macroOverride,
+      dayType,
+      trainingType,
+      assessment.inputs.goal,
+      activityDelta,
+    )
 
     const override = await PlanDayOverrideModel.findOneAndUpdate(
       { planId, date: parsed.data.date },
@@ -324,7 +343,15 @@ router.get(
       const baseOverrides = { ...(existing.overrides ?? {}), activityLevel: undefined }
       const { outputs: baseOutputs } = calculateDayFromBase(assessment.inputs, baseOverrides)
       const activityDelta = (outputs.kcalObjectiveDay ?? 0) - (baseOutputs.kcalObjectiveDay ?? 0)
-      const computed = applyMacroOverride(outputs, macroOverride, dayType, assessment.inputs.goal, activityDelta)
+      const trainingType = getTrainingType(existing.overrides ?? null, assessment.inputs)
+      const computed = applyMacroOverride(
+        outputs,
+        macroOverride,
+        dayType,
+        trainingType,
+        assessment.inputs.goal,
+        activityDelta,
+      )
       res.json({ override: { ...existing.toObject(), computed }, outputs: computed })
       return
     }
@@ -332,7 +359,13 @@ router.get(
     const { outputs } = calculateDayFromBase(assessment.inputs, {})
     const macroOverride = getMacroOverrideForDate(plan.macroOverrides, date)
     const dayType = assessment.inputs.dayType ?? 'rest'
-    const computed = applyMacroOverride(outputs, macroOverride, dayType, assessment.inputs.goal)
+    const computed = applyMacroOverride(
+      outputs,
+      macroOverride,
+      dayType,
+      assessment.inputs.trainingType ?? null,
+      assessment.inputs.goal,
+    )
     res.json({ outputs: computed })
   }),
 )

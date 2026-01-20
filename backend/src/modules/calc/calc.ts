@@ -12,21 +12,48 @@ const eeeFactorMap: Record<WizardInputs['goal'], number> = {
 
 export const getEeeFactor = (goal: WizardInputs['goal']) => eeeFactorMap[goal] ?? 1
 
+const CARB_FACTOR_DEFAULT = 0.65
+const carbFactorRules: Array<{ factor: number; types?: ReadonlySet<string>; prefixes?: readonly string[] }> = [
+  { factor: 0.8, prefixes: ['running_', 'cycling_', 'indoor_cycling_', 'swimming_'] },
+  {
+    factor: 0.75,
+    types: new Set(['circuit_training', 'bootcamp']),
+    prefixes: ['hiit', 'crossfit', 'elliptical_', 'rowing_'],
+  },
+  { factor: 0.6, types: new Set(['mobility']), prefixes: ['pilates_', 'yoga_'] },
+]
+
+const getTrainingCarbFactor = (trainingType?: WizardInputs['trainingType'] | null) => {
+  if (!trainingType) return CARB_FACTOR_DEFAULT
+  for (const rule of carbFactorRules) {
+    if (rule.types?.has(trainingType)) return rule.factor
+    if (rule.prefixes?.some((prefix) => trainingType.startsWith(prefix))) return rule.factor
+  }
+  return CARB_FACTOR_DEFAULT
+}
+
+const getCarbFactor = (dayType: WizardInputs['dayType'], trainingType?: WizardInputs['trainingType'] | null) => {
+  if (dayType !== 'training') return 0
+  return getTrainingCarbFactor(trainingType)
+}
+
 export const adjustCarbFat = ({
   protein,
   fats,
   carbs,
   kcalObjectiveDay,
   dayType,
+  trainingType,
 }: {
   protein: number
   fats: number
   carbs: number
   kcalObjectiveDay: number
   dayType: WizardInputs['dayType']
+  trainingType?: WizardInputs['trainingType'] | null
 }) => {
-  const carbFactor = dayType === 'training' ? 1.2 : 0.85
-  const fatFactor = dayType === 'training' ? 0.85 : 1.2
+  const carbFactor = getCarbFactor(dayType, trainingType)
+  const fatFactor = dayType === 'training' ? 1 - carbFactor : 0
 
   const protKcal = protein * 4
   const remaining = Math.max(kcalObjectiveDay - protKcal, 0)
@@ -127,6 +154,7 @@ export const calculateInitials = (inputs: WizardInputs): { outputs: CalculationO
     carbs,
     kcalObjectiveDay: roundInt(kcalObjectiveDay),
     dayType: inputs.dayType,
+    trainingType: training?.type ?? inputs.trainingType ?? null,
   })
 
   const ea = ffm ? (kcalObjectiveDay - eeeAdjusted) / ffm : undefined

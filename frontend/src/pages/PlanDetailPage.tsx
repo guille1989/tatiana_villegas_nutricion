@@ -34,7 +34,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@mui/material/styles";
 import { useNavigate, useParams } from "react-router-dom";
 import DayEditDialog from "../components/DayEditDialog";
-import { calculateDayFromBase, getEeeFactor } from "../lib/calc";
+import { calculateDayFromBase, getCarbFactor, getEeeFactor } from "../lib/calc";
 import {
   createMealTemplate,
   getPlan,
@@ -63,6 +63,7 @@ import type {
   MealTemplate,
   Plan,
   PlanMacroOverride,
+  WizardInputs,
 } from "../types";
 
 const CLONE_PAGE_SIZE = 6;
@@ -269,6 +270,16 @@ const PlanDetailPage = () => {
   const baseOutputs = assessment?.outputs;
   const baseInputs = assessment?.inputs;
 
+  const getTrainingType = (override?: DayOverride | null) => {
+    const overrideTraining =
+      override?.overrides?.trainings?.find((item) => item?.type)?.type ??
+      override?.overrides?.training?.type ??
+      null;
+    return (overrideTraining ?? baseInputs?.trainingType ?? null) as
+      | WizardInputs["trainingType"]
+      | null;
+  };
+
   const handleSaved = (record: DayOverride) => {
     setOverrides((prev) => {
       const filtered = prev.filter((item) => item.date !== record.date);
@@ -313,14 +324,16 @@ const PlanDetailPage = () => {
     carbs,
     kcalObjectiveDay,
     dayType,
+    trainingType,
   }: {
     protein: number;
     fats: number;
     carbs: number;
     kcalObjectiveDay: number;
     dayType: "training" | "rest";
+    trainingType?: WizardInputs["trainingType"] | null;
   }) => {
-    const carbFactor = dayType === "training" ? 1.2 : 0.85;
+    const carbFactor = getCarbFactor(dayType, trainingType);
     const fatFactor = dayType === "training" ? 0.85 : 1.2;
 
     const protKcal = protein * 4;
@@ -347,6 +360,7 @@ const applyMacroOverride = (
   outputs: CalculationOutputs | undefined,
   date: string | null,
   dayType: "training" | "rest",
+  trainingType: WizardInputs["trainingType"] | null,
   activityDelta = 0
 ) => {
   if (!outputs) return outputs;
@@ -362,6 +376,7 @@ const applyMacroOverride = (
     carbs: override.macros.carbsAdjusted,
       kcalObjectiveDay,
       dayType,
+      trainingType,
     });
     return {
       ...outputs,
@@ -375,6 +390,7 @@ const applyMacroOverride = (
 const computeOutputs = (date: string | null, override?: DayOverride) => {
   const dayType =
     override?.overrides.dayType ?? baseInputs?.dayType ?? "rest";
+  const trainingType = getTrainingType(override);
   let activityDelta = 0;
   if (
     baseInputs &&
@@ -396,12 +412,19 @@ const computeOutputs = (date: string | null, override?: DayOverride) => {
     }
   }
   if (!baseInputs)
-    return applyMacroOverride(baseOutputs ?? undefined, date, dayType);
+    return applyMacroOverride(
+      baseOutputs ?? undefined,
+      date,
+      dayType,
+      trainingType,
+      activityDelta
+    );
   if (override?.computed)
     return applyMacroOverride(
       override.computed,
       date,
       dayType,
+      trainingType,
       activityDelta
     );
   if (override) {
@@ -410,13 +433,24 @@ const computeOutputs = (date: string | null, override?: DayOverride) => {
         calculateDayFromBase(baseInputs, override.overrides),
         date,
         dayType,
+        trainingType,
         activityDelta
       );
     } catch {
-      return applyMacroOverride(baseOutputs ?? undefined, date, dayType);
+      return applyMacroOverride(
+        baseOutputs ?? undefined,
+        date,
+        dayType,
+        trainingType
+      );
       }
     }
-    return applyMacroOverride(baseOutputs ?? undefined, date, dayType);
+    return applyMacroOverride(
+      baseOutputs ?? undefined,
+      date,
+      dayType,
+      trainingType
+    );
   };
 
   const getTrainingCount = (override?: DayOverride) => {

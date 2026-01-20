@@ -43,7 +43,7 @@ import {
   type AdminOverviewItem,
   type Invite,
 } from '../lib/api'
-import { calculateDayFromBase, getEeeFactor } from '../lib/calc'
+import { calculateDayFromBase, getCarbFactor, getEeeFactor } from '../lib/calc'
 import AdminIngredientsSection from '../components/AdminIngredientsSection'
 import {
   activityOptions,
@@ -168,15 +168,17 @@ const adjustCarbFat = ({
   carbs,
   kcalObjectiveDay,
   dayType,
+  trainingType,
 }: {
   protein: number
   fats: number
   carbs: number
   kcalObjectiveDay: number
   dayType: DayType
+  trainingType?: WizardInputs['trainingType'] | null
 }) => {
-  const carbFactor = dayType === 'training' ? 1.2 : 0.85
-  const fatFactor = dayType === 'training' ? 0.85 : 1.2
+  const carbFactor = getCarbFactor(dayType, trainingType)
+  const fatFactor = dayType === 'training' ? 1 - carbFactor : 0
 
   const protKcal = protein * 4
   const remaining = Math.max(kcalObjectiveDay - protKcal, 0)
@@ -252,11 +254,23 @@ const getPlanMacroOverrideForDate = (plan: Plan | null | undefined, date: string
 const getDayType = (override?: DayOverride | null, baseDayType?: DayType) =>
   override?.overrides.dayType ?? baseDayType ?? 'rest'
 
+const getTrainingType = (
+  override?: DayOverride | null,
+  baseInputs?: WizardInputs | null,
+): WizardInputs['trainingType'] | null => {
+  const overrideTraining =
+    override?.overrides?.trainings?.find((item) => item?.type)?.type ??
+    override?.overrides?.training?.type ??
+    null
+  return (overrideTraining ?? baseInputs?.trainingType ?? null) as WizardInputs['trainingType'] | null
+}
+
 const applyPlanMacroOverride = (
   outputs: CalculationOutputs | null | undefined,
   plan: Plan | null | undefined,
   date: string,
   dayType: DayType,
+  trainingType: WizardInputs['trainingType'] | null,
   goal?: WizardInputs['goal'] | null,
   activityDelta = 0,
 ) => {
@@ -273,6 +287,7 @@ const applyPlanMacroOverride = (
     carbs: override.macros.carbsAdjusted,
     kcalObjectiveDay,
     dayType,
+    trainingType,
   })
   return {
     ...outputs,
@@ -360,6 +375,7 @@ const buildSyncSeries = (
     const date = rangeStart.add(idx, 'day').format('YYYY-MM-DD')
     const override = overrideMap.get(date)
     const dayType = getDayType(override, baseDayType)
+    const trainingType = getTrainingType(override, baseInputs)
     let activityDelta = 0
     if (
       baseInputs &&
@@ -380,6 +396,7 @@ const buildSyncSeries = (
       plan,
       date,
       dayType,
+      trainingType,
       baseInputs?.goal ?? null,
       activityDelta,
     )
@@ -435,6 +452,7 @@ const buildTrend = (
     const override = overrideMap.get(date)
     const meals = getOverrideMeals(override)
     const dayType = getDayType(override, baseDayType)
+    const trainingType = getTrainingType(override, baseInputs)
     let activityDelta = 0
     if (
       baseInputs &&
@@ -455,6 +473,7 @@ const buildTrend = (
       plan,
       date,
       dayType,
+      trainingType,
       baseInputs?.goal ?? null,
       activityDelta,
     )
@@ -713,6 +732,7 @@ const AdminDashboardPage = () => {
             const latestMealsOverride = overridesWithMeals.sort((a, b) => dayjs(b.updatedAt).diff(a.updatedAt))[0]
             const adherenceDate = latestMealsOverride?.date ?? dayjs().format('YYYY-MM-DD')
             const adherenceDayType = getDayType(latestMealsOverride, item.assessment?.inputs.dayType)
+            const adherenceTrainingType = getTrainingType(latestMealsOverride, item.assessment?.inputs ?? null)
             let adherenceDelta = 0
             if (
               item.assessment?.inputs &&
@@ -734,6 +754,7 @@ const AdminDashboardPage = () => {
               item.plan ?? null,
               adherenceDate,
               adherenceDayType,
+              adherenceTrainingType,
               item.assessment?.inputs?.goal ?? null,
               adherenceDelta,
             )
@@ -999,13 +1020,14 @@ const AdminDashboardPage = () => {
           const eeeFactor = getEeeFactor(assessment.inputs.goal)
           const kcalObjectiveDay =
             calcKcalFromMacros(macroOverride.macros) + (outputs.eee ?? 0) * eeeFactor
-          const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
-            protein: macroOverride.macros.protein,
-            fats: macroOverride.macros.fatsAdjusted,
-            carbs: macroOverride.macros.carbsAdjusted,
-            kcalObjectiveDay,
-            dayType,
-          })
+            const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
+              protein: macroOverride.macros.protein,
+              fats: macroOverride.macros.fatsAdjusted,
+              carbs: macroOverride.macros.carbsAdjusted,
+              kcalObjectiveDay,
+              dayType,
+              trainingType: assessment.inputs.trainingType ?? null,
+            })
           return {
             kcalObjectiveDay,
             protein: macroOverride.macros.protein,

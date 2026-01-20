@@ -64,12 +64,17 @@ export const calculateDayFromBase = (baseInputs: WizardInputs, overrides: DayOve
   outputs.eee = roundInt(eeeTotal)
   const eeeAdjusted = outputs.eee * getEeeFactor(merged.goal)
   outputs.kcalObjectiveDay = outputs.kcalObjectiveBase + eeeAdjusted
+  const carbFactorTrainingType =
+    merged.dayType === 'training'
+      ? normalizedTrainings.find((session) => session.type)?.type ?? merged.trainingType
+      : undefined
   const carbFatAdjusted = adjustCarbFat({
     protein: outputs.protein,
     fats: outputs.fats,
     carbs: outputs.carbs,
     kcalObjectiveDay: outputs.kcalObjectiveDay,
     dayType: merged.dayType,
+    trainingType: carbFactorTrainingType,
   })
   outputs.carbsAdjusted = carbFatAdjusted.carbsAdjusted
   outputs.fatsAdjusted = carbFatAdjusted.fatsAdjusted
