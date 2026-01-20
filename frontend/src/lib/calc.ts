@@ -10,20 +10,17 @@ const palMap: Record<(typeof activityOptions)[number]['value'], number> = {
 
 const goalFactorMap: Record<(typeof goalOptions)[number]['value'], number> = {
   fat_loss: -0.2,
-  muscle_gain: 0.1,
-  recomp: 0,
+  muscle_gain: 0.1
 }
 
 const proteinFactorMap: Record<(typeof goalOptions)[number]['value'], number> = {
   fat_loss: 2.0,
-  muscle_gain: 1.8,
-  recomp: 1.6,
+  muscle_gain: 1.8
 }
 
 const eeeFactorMap: Record<(typeof goalOptions)[number]['value'], number> = {
   fat_loss: 0.7,
-  muscle_gain: 1,
-  recomp: 1,
+  muscle_gain: 1
 }
 
 export const getEeeFactor = (goal: WizardInputs['goal']) => eeeFactorMap[goal] ?? 1

@@ -19,8 +19,7 @@ export const activityOptions = [
 
 export const goalOptions = [
   { value: 'fat_loss', label: 'Perdida grasa' },
-  { value: 'muscle_gain', label: 'Ganancia muscular' },
-  { value: 'recomp', label: 'Recomposicion' },
+  { value: 'muscle_gain', label: 'Ganancia muscular' }
 ] as const
 
 export const dayTypeOptions = [
@@ -158,7 +157,7 @@ export const DEFAULT_VALUES: WizardFormData = {
   bodyFat: undefined,
   profile: 'general',
   activityLevel: 'moderate',
-  goal: 'recomp',
+  goal: 'fat_loss',
   dayType: 'rest',
   trainingType: undefined,
   duration: undefined,
