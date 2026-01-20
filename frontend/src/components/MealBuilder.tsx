@@ -278,9 +278,7 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
   const chipRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const isBreakfast = draftMeal?.name?.toLowerCase().startsWith("desayuno") ?? false;
   const visibleGroupOptions = isBreakfast
-    ? FOOD_GROUP_OPTIONS.filter(
-        (cat) => cat.value !== "vegetales" && cat.value !== "extras"
-      )
+    ? FOOD_GROUP_OPTIONS.filter((cat) => cat.value !== "vegetales")
     : FOOD_GROUP_OPTIONS;
 
   useEffect(() => {
@@ -292,7 +290,7 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
 
   useEffect(() => {
     if (!isBreakfast) return;
-    if (selectedGroup === "vegetales" || selectedGroup === "extras") {
+    if (selectedGroup === "vegetales") {
       setSelectedGroup(DEFAULT_GROUP);
     }
   }, [isBreakfast, selectedGroup]);
