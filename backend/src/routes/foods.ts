@@ -34,7 +34,7 @@ router.get(
       if (group === 'proteinas' || group === 'carbohidratos' || group === 'grasas') {
         filter.group = group
       } else {
-        filter.$or = [{ group }, { sub_group: group }]
+        filter.$or = [{ group }, { subgrupo: group }, { subgrup: group }]
       }
     }
 

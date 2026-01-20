@@ -56,7 +56,7 @@ export type TrainingSession = {
 export type Food = {
   id: string
   name: string
-  sub_group?: string | null
+  subgrup?: string | null
   group: 'proteinas' | 'carbohidratos' | 'grasas' | 'extras' | 'vegetales'
   prot_100g: number
   cho_100g: number

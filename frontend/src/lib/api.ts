@@ -121,7 +121,7 @@ export type IngredientStats = {
 export type IngredientPayload = {
   name: string
   group: Ingredient['group']
-  sub_group?: string | null
+  subgrup?: string | null
   prot_100g: number
   cho_100g: number
   fat_100g: number
@@ -212,7 +212,13 @@ const mapIngredient = (item: IngredientDto): Ingredient => ({
   id: item._id ?? item.id,
   name: item.name,
   group: item.group,
-  sub_group: item.sub_group ?? null,
+  subgrup:
+    (item as any).subgrup ??
+    (item as any).subgrupo ??
+    (item as any).sub_group ??
+    (item as any).subGroup ??
+    (item as any).subgroupo ??
+    null,
   prot_100g: item.prot_100g,
   cho_100g: item.cho_100g,
   fat_100g: item.fat_100g,
@@ -301,6 +307,7 @@ export const getAdminOverview = async () => {
 export const listAdminIngredients = async (params?: {
   query?: string
   group?: Ingredient['group'] | 'all'
+  subgrup?: string | 'all'
   status?: 'active' | 'inactive' | 'all'
   limit?: number
   offset?: number
@@ -308,6 +315,7 @@ export const listAdminIngredients = async (params?: {
   const searchParams = new URLSearchParams()
   if (params?.query) searchParams.set('q', params.query)
   if (params?.group && params.group !== 'all') searchParams.set('group', params.group)
+  if (params?.subgrup && params.subgrup !== 'all') searchParams.set('subgrup', params.subgrup)
   if (params?.status) searchParams.set('status', params.status)
   if (params?.limit !== undefined) searchParams.set('limit', String(params.limit))
   if (params?.offset !== undefined) searchParams.set('offset', String(params.offset))
@@ -516,7 +524,7 @@ export const searchFoodsApi = async (
     id: f._id ?? f.id,
     name: f.name,
     group: f.group,
-    sub_group: (f as any).sub_group,
+    subgrup: (f as any).subgrup ?? (f as any).subgrupo ?? (f as any).sub_group,
     prot_100g: f.prot_100g,
     cho_100g: f.cho_100g,
     fat_100g: f.fat_100g,

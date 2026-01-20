@@ -4,7 +4,7 @@ import { searchFoodsApi } from './api'
 
 const localFoods: Food[] = (foodsLocal as Food[]).map((f) => ({
   ...f,
-  sub_group: (f as any).sub_group ?? null,
+  subgrup: (f as any).subgrup ?? (f as any).subgrupo ?? (f as any).sub_group ?? null,
   default_portion_g: (f as any).default_portion_g ?? null,
 }))
 
@@ -31,7 +31,7 @@ const getDefaultPortionGrams = (food: Food) => {
 
 const isNonMacroGroup = (food: Food) => {
   const groupKey = normalizeKey((food as { group?: string | null }).group)
-  const subGroupKey = normalizeKey(food.sub_group)
+  const subGroupKey = normalizeKey(food.subgrup)
   return (
     groupKey === 'vegetales' ||
     groupKey === 'extras' ||
@@ -47,7 +47,7 @@ const matchesGroup = (food: Food, group?: FoodGroupFilter) => {
   if (!group || group === 'all') return true
   if (food.group === group) return true
   if (isCoreGroup(group)) return false
-  return normalizeKey(food.sub_group) === normalizeKey(group)
+  return normalizeKey(food.subgrup) === normalizeKey(group)
 }
 
 const applyGroupFilter = (foods: Food[], group?: FoodGroupFilter) => {

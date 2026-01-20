@@ -23,6 +23,8 @@ const listSchema = z.object({
 const ingredientSchema = z.object({
   name: z.string().trim().min(1),
   group: groupSchema,
+  subgrup: z.string().trim().optional().nullable(),
+  subgrupo: z.string().trim().optional().nullable(),
   sub_group: z.string().trim().optional().nullable(),
   prot_100g: z.coerce.number().min(0),
   cho_100g: z.coerce.number().min(0),
@@ -42,10 +44,18 @@ const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$
 
 const normalizeName = (value: string) => value.trim()
 
+const resolveSubgrup = (ingredient: Record<string, any>) =>
+  ingredient.subgrup ??
+  ingredient.subgrupo ??
+  ingredient.sub_group ??
+  ingredient.subGroup ??
+  ingredient.subgroupo ??
+  null
+
 const buildIngredientPayload = (data: z.infer<typeof ingredientSchema>) => ({
   name: normalizeName(data.name),
   group: data.group,
-  sub_group: data.sub_group?.trim() || null,
+  subgrupo: data.subgrup?.trim() || data.subgrupo?.trim() || data.sub_group?.trim() || null,
   prot_100g: data.prot_100g,
   cho_100g: data.cho_100g,
   fat_100g: data.fat_100g,
@@ -96,7 +106,7 @@ router.get(
       if (coreGroups.has(group)) {
         filter.group = group
       } else {
-        filter.$or = [{ group }, { sub_group: group }]
+        filter.$or = [{ group }, { subgrupo: group }, { subgrup: group }]
       }
     }
 
@@ -104,8 +114,14 @@ router.get(
       .sort({ status: 1, name: 1 })
       .skip(offset)
       .limit(limit)
+      .lean()
 
-    res.json({ ingredients })
+    const normalizedIngredients = ingredients.map((ingredient) => ({
+      ...ingredient,
+      subgrup: resolveSubgrup(ingredient),
+    }))
+
+    res.json({ ingredients: normalizedIngredients })
   }),
 )
 

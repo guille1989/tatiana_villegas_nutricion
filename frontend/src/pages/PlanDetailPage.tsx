@@ -116,6 +116,7 @@ const PlanDetailPage = () => {
   const navigate = useNavigate();
   const theme = useTheme();
   const detailRef = useRef<HTMLDivElement | null>(null);
+  const initialSelectionDoneRef = useRef(false);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [assessment, setAssessment] = useState<Assessment | null>(null);
   const [overrides, setOverrides] = useState<DayOverride[]>([]);
@@ -180,6 +181,10 @@ const PlanDetailPage = () => {
   }, [planId, navigate]);
 
   useEffect(() => {
+    initialSelectionDoneRef.current = false;
+  }, [planId]);
+
+  useEffect(() => {
     if (!plan?.status) return;
     if (plan.status !== "active") {
       navigate("/plans", { replace: true });
@@ -206,8 +211,15 @@ const PlanDetailPage = () => {
 
   useEffect(() => {
     if (!dates.length) return;
+    const todayLabel = dayjs().startOf("day").format("YYYY-MM-DD");
+    const defaultDate = dates.includes(todayLabel) ? todayLabel : dates[0];
+    if (!initialSelectionDoneRef.current) {
+      setSelectedDate(defaultDate);
+      initialSelectionDoneRef.current = true;
+      return;
+    }
     if (!selectedDate || !dates.includes(selectedDate)) {
-      setSelectedDate(dates[0]);
+      setSelectedDate(defaultDate);
     }
   }, [dates, selectedDate]);
 

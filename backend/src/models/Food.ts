@@ -2,7 +2,7 @@ import { Schema, model, type Document } from 'mongoose'
 
 export type FoodDoc = {
   name: string
-  sub_group?: string | null
+  subgrupo?: string | null
   group: 'proteinas' | 'carbohidratos' | 'grasas' | 'extras' | 'vegetales'
   prot_100g: number
   cho_100g: number
@@ -22,7 +22,7 @@ export type FoodDoc = {
 const foodSchema = new Schema<FoodDoc>(
   {
     name: { type: String, required: true, trim: true, unique: false },
-    sub_group: { type: String, trim: true },
+    subgrupo: { type: String, trim: true },
     group: { type: String, enum: ['proteinas', 'carbohidratos', 'grasas', 'extras', 'vegetales'], required: true },
     prot_100g: { type: Number, required: true, min: 0 },
     cho_100g: { type: Number, required: true, min: 0 },

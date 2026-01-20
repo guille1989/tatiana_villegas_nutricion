@@ -61,7 +61,7 @@ const STATUS_CHIP: Record<string, { label: string; color: 'success' | 'default' 
 type IngredientFormState = {
   name: string
   group: string
-  sub_group: string
+  subgrup: string
   kcal_100g: string
   cho_100g: string
   prot_100g: string
@@ -73,7 +73,7 @@ type IngredientFormState = {
 const buildFormState = (ingredient?: Ingredient | null): IngredientFormState => ({
   name: ingredient?.name ?? '',
   group: ingredient?.group ?? '',
-  sub_group: ingredient?.sub_group ?? '',
+  subgrup: ingredient?.subgrup ?? '',
   kcal_100g: ingredient?.kcal_100g !== undefined && ingredient?.kcal_100g !== null ? String(ingredient.kcal_100g) : '',
   cho_100g: ingredient?.cho_100g !== undefined && ingredient?.cho_100g !== null ? String(ingredient.cho_100g) : '',
   prot_100g: ingredient?.prot_100g !== undefined && ingredient?.prot_100g !== null ? String(ingredient.prot_100g) : '',
@@ -144,6 +144,7 @@ const AdminIngredientsSection = () => {
           limit: 200,
         })
         if (!active) return
+        console.log('Ingredients loaded', data)
         setIngredients(data)
       } catch (err) {
         if (!active) return
@@ -165,6 +166,7 @@ const AdminIngredientsSection = () => {
       setStatsError(null)
       try {
         const data = await getIngredientStats()
+        console.log('Stats loaded', data)
         if (!active) return
         setStats(data)
       } catch (err) {
@@ -245,14 +247,14 @@ const AdminIngredientsSection = () => {
     return Object.keys(errors).length === 0
   }
 
-  const buildPayload = (): IngredientPayload => ({
-    name: form.name.trim(),
-    group: form.group as Ingredient['group'],
-    sub_group: form.sub_group.trim() ? form.sub_group.trim() : null,
-    kcal_100g: Number(form.kcal_100g),
-    cho_100g: Number(form.cho_100g),
-    prot_100g: Number(form.prot_100g),
-    fat_100g: Number(form.fat_100g),
+const buildPayload = (): IngredientPayload => ({
+  name: form.name.trim(),
+  group: form.group as Ingredient['group'],
+  subgrup: form.subgrup.trim() ? form.subgrup.trim() : null,
+  kcal_100g: Number(form.kcal_100g),
+  cho_100g: Number(form.cho_100g),
+  prot_100g: Number(form.prot_100g),
+  fat_100g: Number(form.fat_100g),
     default_portion_g: form.default_portion_g.trim() ? Number(form.default_portion_g) : null,
     max_portion_in_meal: form.max_portion_in_meal.trim() ? Number(form.max_portion_in_meal) : null,
   })
@@ -431,7 +433,7 @@ const AdminIngredientsSection = () => {
                       <Typography fontWeight={600}>{ingredient.name}</Typography>
                     </TableCell>
                     <TableCell>{GROUP_OPTIONS.find((opt) => opt.value === ingredient.group)?.label ?? ingredient.group}</TableCell>
-                    <TableCell>{ingredient.sub_group || '--'}</TableCell>
+                    <TableCell>{ingredient.subgrup || '--'}</TableCell>
                     <TableCell align="right">{formatNumber(ingredient.kcal_100g)}</TableCell>
                     <TableCell align="right">{formatNumber(ingredient.cho_100g)}</TableCell>
                     <TableCell align="right">{formatNumber(ingredient.prot_100g)}</TableCell>
@@ -508,8 +510,8 @@ const AdminIngredientsSection = () => {
               <FieldTooltip title="Subgrupo opcional (ej: integrales, lacteos).">
                 <TextField
                   label="Subgrupo"
-                  value={form.sub_group}
-                  onChange={(event) => setForm((prev) => ({ ...prev, sub_group: event.target.value }))}
+                  value={form.subgrup}
+                  onChange={(event) => setForm((prev) => ({ ...prev, subgrup: event.target.value }))}
                   fullWidth
                 />
               </FieldTooltip>
