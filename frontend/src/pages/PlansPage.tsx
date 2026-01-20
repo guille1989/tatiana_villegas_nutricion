@@ -26,7 +26,7 @@ import dayjs from 'dayjs'
 import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createPlan, deletePlan, getLatestAssessment, getPlan, listPlans } from '../lib/api'
-import { calculateDayFromBase } from '../lib/calc'
+import { calculateDayFromBase, getEeeFactor } from '../lib/calc'
 import type { Assessment, CalculationOutputs, DayOverride, Meal, Plan, WizardInputs } from '../types'
 
 type PlanDetail = {
@@ -108,12 +108,15 @@ const applyPlanMacroOverride = (
   plan: Plan | null | undefined,
   date: string,
   dayType: DayType,
+  goal?: WizardInputs['goal'] | null,
   activityDelta = 0,
 ) => {
   if (!outputs) return outputs
   const override = getPlanMacroOverrideForDate(plan, date)
   if (!override) return outputs
-  const macroKcal = calcKcalFromMacros(override.macros) + (outputs.eee ?? 0)
+  const eeeFactor = goal ? getEeeFactor(goal) : 1
+  const macroKcal =
+    calcKcalFromMacros(override.macros) + (outputs.eee ?? 0) * eeeFactor
   const kcalObjectiveDay = macroKcal + activityDelta
   const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
     protein: override.macros.protein,
@@ -212,6 +215,7 @@ const buildSyncSeries = (
       plan,
       date,
       dayType,
+      baseInputs?.goal ?? null,
       activityDelta,
     )
     const target = getTargetMacros(targetBase)
@@ -805,6 +809,7 @@ const PlansPage = () => {
                       plan,
                       displayDate,
                       baseDayType ?? 'rest',
+                      baseInputs?.goal ?? null,
                       activityDelta,
                     )
                     const planKcal = adjustedOutputs?.kcalObjectiveDay

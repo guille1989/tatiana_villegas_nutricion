@@ -34,7 +34,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@mui/material/styles";
 import { useNavigate, useParams } from "react-router-dom";
 import DayEditDialog from "../components/DayEditDialog";
-import { calculateDayFromBase } from "../lib/calc";
+import { calculateDayFromBase, getEeeFactor } from "../lib/calc";
 import {
   createMealTemplate,
   getPlan,
@@ -352,7 +352,9 @@ const applyMacroOverride = (
   if (!outputs) return outputs;
   const override = getMacroOverrideForDate(date, plan?.macroOverrides);
   if (!override) return outputs;
-  const macroKcal = calcKcalFromMacros(override.macros) + (outputs.eee ?? 0);
+  const eeeFactor = baseInputs ? getEeeFactor(baseInputs.goal) : 1;
+  const macroKcal =
+    calcKcalFromMacros(override.macros) + (outputs.eee ?? 0) * eeeFactor;
   const kcalObjectiveDay = macroKcal + activityDelta;
   const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
     protein: override.macros.protein,

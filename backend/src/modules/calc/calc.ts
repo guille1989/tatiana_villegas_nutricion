@@ -4,6 +4,14 @@ import type { WizardInputs } from '../types'
 const roundInt = (v: number) => Math.round(v)
 const round1 = (v: number) => Math.round(v * 10) / 10
 
+const eeeFactorMap: Record<WizardInputs['goal'], number> = {
+  fat_loss: 0.7,
+  muscle_gain: 1,
+  recomp: 1,
+}
+
+export const getEeeFactor = (goal: WizardInputs['goal']) => eeeFactorMap[goal] ?? 1
+
 export const adjustCarbFat = ({
   protein,
   fats,
@@ -110,7 +118,8 @@ export const calculateInitials = (inputs: WizardInputs): { outputs: CalculationO
       ? ((inputs.weight * trainingMet * 3.5) / 200) * training.durationMin
       : 0
 
-  const kcalObjectiveDay = kcalObjectiveBase + eee
+  const eeeAdjusted = eee * getEeeFactor(inputs.goal)
+  const kcalObjectiveDay = kcalObjectiveBase + eeeAdjusted
 
   const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
     protein,
@@ -120,7 +129,7 @@ export const calculateInitials = (inputs: WizardInputs): { outputs: CalculationO
     dayType: inputs.dayType,
   })
 
-  const ea = ffm ? (kcalObjectiveDay - eee) / ffm : undefined
+  const ea = ffm ? (kcalObjectiveDay - eeeAdjusted) / ffm : undefined
 
   return {
     outputs: {

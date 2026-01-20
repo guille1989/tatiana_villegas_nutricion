@@ -43,7 +43,7 @@ import {
   type AdminOverviewItem,
   type Invite,
 } from '../lib/api'
-import { calculateDayFromBase } from '../lib/calc'
+import { calculateDayFromBase, getEeeFactor } from '../lib/calc'
 import AdminIngredientsSection from '../components/AdminIngredientsSection'
 import {
   activityOptions,
@@ -257,12 +257,15 @@ const applyPlanMacroOverride = (
   plan: Plan | null | undefined,
   date: string,
   dayType: DayType,
+  goal?: WizardInputs['goal'] | null,
   activityDelta = 0,
 ) => {
   if (!outputs) return outputs
   const override = getPlanMacroOverrideForDate(plan, date)
   if (!override) return outputs
-  const macroKcal = calcKcalFromMacros(override.macros) + (outputs.eee ?? 0)
+  const eeeFactor = goal ? getEeeFactor(goal) : 1
+  const macroKcal =
+    calcKcalFromMacros(override.macros) + (outputs.eee ?? 0) * eeeFactor
   const kcalObjectiveDay = macroKcal + activityDelta
   const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
     protein: override.macros.protein,
@@ -377,6 +380,7 @@ const buildSyncSeries = (
       plan,
       date,
       dayType,
+      baseInputs?.goal ?? null,
       activityDelta,
     )
     const target = getTargetMacros(targetBase)
@@ -451,6 +455,7 @@ const buildTrend = (
       plan,
       date,
       dayType,
+      baseInputs?.goal ?? null,
       activityDelta,
     )
     const summary = getAdherenceFromMeals(meals, baseOutputs)
@@ -729,6 +734,7 @@ const AdminDashboardPage = () => {
               item.plan ?? null,
               adherenceDate,
               adherenceDayType,
+              item.assessment?.inputs?.goal ?? null,
               adherenceDelta,
             )
             const adherence = getAdherenceFromMeals(getOverrideMeals(latestMealsOverride), adherenceBase)
@@ -990,7 +996,9 @@ const AdminDashboardPage = () => {
     )
     const adjustedMacros = macroOverride
       ? (() => {
-          const kcalObjectiveDay = calcKcalFromMacros(macroOverride.macros) + (outputs.eee ?? 0)
+          const eeeFactor = getEeeFactor(assessment.inputs.goal)
+          const kcalObjectiveDay =
+            calcKcalFromMacros(macroOverride.macros) + (outputs.eee ?? 0) * eeeFactor
           const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
             protein: macroOverride.macros.protein,
             fats: macroOverride.macros.fatsAdjusted,

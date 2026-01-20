@@ -20,6 +20,14 @@ const proteinFactorMap: Record<(typeof goalOptions)[number]['value'], number> = 
   recomp: 1.6,
 }
 
+const eeeFactorMap: Record<(typeof goalOptions)[number]['value'], number> = {
+  fat_loss: 0.7,
+  muscle_gain: 1,
+  recomp: 1,
+}
+
+export const getEeeFactor = (goal: WizardInputs['goal']) => eeeFactorMap[goal] ?? 1
+
 const trainingMetMap: Record<(typeof trainingOptions)[number]['value'], number> = trainingOptions.reduce(
   (acc, item) => {
     acc[item.value] = item.met
@@ -115,7 +123,8 @@ export const calculateInitials = (inputs: WizardInputs): CalculationResult => {
       ? ((inputs.weight * trainingMet * 3.5) / 200) * inputs.duration
       : 0
 
-  const kcalObjectiveDay = kcalObjectiveBase + eee
+  const eeeAdjusted = eee * getEeeFactor(inputs.goal)
+  const kcalObjectiveDay = kcalObjectiveBase + eeeAdjusted
   const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
     protein,
     fats,
@@ -124,7 +133,7 @@ export const calculateInitials = (inputs: WizardInputs): CalculationResult => {
     dayType: inputs.dayType,
   })
 
-  const ea = ffm ? (kcalObjectiveDay - eee) / ffm : undefined
+  const ea = ffm ? (kcalObjectiveDay - eeeAdjusted) / ffm : undefined
 
   return {
     rmr: roundInt(rmr),
@@ -197,7 +206,8 @@ export const calculateDayFromBase = (
   })
 
   const outputs = { ...baseOutputs, eee: roundInt(eeeTotal) }
-  outputs.kcalObjectiveDay = outputs.kcalObjectiveBase + outputs.eee
+  const eeeAdjusted = outputs.eee * getEeeFactor(merged.goal)
+  outputs.kcalObjectiveDay = outputs.kcalObjectiveBase + eeeAdjusted
   const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
     protein: outputs.protein,
     fats: outputs.fats,
@@ -208,7 +218,7 @@ export const calculateDayFromBase = (
   outputs.carbsAdjusted = carbsAdjusted
   outputs.fatsAdjusted = fatsAdjusted
   if (outputs.ffm !== undefined) {
-    outputs.ea = round1((outputs.kcalObjectiveDay - outputs.eee) / outputs.ffm)
+    outputs.ea = round1((outputs.kcalObjectiveDay - eeeAdjusted) / outputs.ffm)
   }
 
   return outputs

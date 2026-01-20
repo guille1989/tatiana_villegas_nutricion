@@ -1,4 +1,4 @@
-import { calculateInitials, adjustCarbFat } from './calc'
+import { calculateInitials, adjustCarbFat, getEeeFactor } from './calc'
 import type { DayOverrideInputs, WizardInputs } from '../types'
 import { metMap } from './metMap'
 
@@ -62,7 +62,8 @@ export const calculateDayFromBase = (baseInputs: WizardInputs, overrides: DayOve
 
   const outputs = { ...baseCalc.outputs }
   outputs.eee = roundInt(eeeTotal)
-  outputs.kcalObjectiveDay = outputs.kcalObjectiveBase + outputs.eee
+  const eeeAdjusted = outputs.eee * getEeeFactor(merged.goal)
+  outputs.kcalObjectiveDay = outputs.kcalObjectiveBase + eeeAdjusted
   const carbFatAdjusted = adjustCarbFat({
     protein: outputs.protein,
     fats: outputs.fats,
@@ -73,7 +74,7 @@ export const calculateDayFromBase = (baseInputs: WizardInputs, overrides: DayOve
   outputs.carbsAdjusted = carbFatAdjusted.carbsAdjusted
   outputs.fatsAdjusted = carbFatAdjusted.fatsAdjusted
   if (outputs.ffm !== undefined) {
-    outputs.ea = round1((outputs.kcalObjectiveDay - outputs.eee) / outputs.ffm)
+    outputs.ea = round1((outputs.kcalObjectiveDay - eeeAdjusted) / outputs.ffm)
   }
 
   return { outputs }
