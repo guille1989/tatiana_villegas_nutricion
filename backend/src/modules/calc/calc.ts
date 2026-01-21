@@ -52,8 +52,8 @@ export const adjustCarbFat = ({
   dayType: WizardInputs['dayType']
   trainingType?: WizardInputs['trainingType'] | null
 }) => {
-  const carbFactor = getCarbFactor(dayType, trainingType)
-  const fatFactor = dayType === 'training' ? 1 - carbFactor : 0
+  const carbFactor = dayType === 'training' ? getCarbFactor(dayType, trainingType) : 0.85
+  const fatFactor = dayType === 'training' ? 1 - carbFactor : 1.2
 
   const protKcal = protein * 4
   const remaining = Math.max(kcalObjectiveDay - protKcal, 0)
