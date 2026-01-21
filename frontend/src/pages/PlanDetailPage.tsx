@@ -325,6 +325,8 @@ const PlanDetailPage = () => {
     kcalObjectiveDay,
     dayType,
     trainingType,
+    eee = 0,
+    goal,
   }: {
     protein: number;
     fats: number;
@@ -332,51 +334,48 @@ const PlanDetailPage = () => {
     kcalObjectiveDay: number;
     dayType: "training" | "rest";
     trainingType?: WizardInputs["trainingType"] | null;
+    eee?: number;
+    goal?: WizardInputs["goal"] | null;
   }) => {
-    const carbFactor = getCarbFactor(dayType, trainingType);
-    const fatFactor = dayType === "training" ? 0.85 : 1.2;
-
+    const carbFactor = dayType === "training" ? getCarbFactor(dayType, trainingType) : 0.85;
+    const eeeFactor = goal ? getEeeFactor(goal) : 1;
     const protKcal = protein * 4;
-    const remaining = Math.max(kcalObjectiveDay - protKcal, 0);
-
     const baseCarbKcal = Math.max(carbs, 0) * 4;
-    const baseFatKcal = Math.max(fats, 0) * 9;
-
     const targCarb = baseCarbKcal * carbFactor;
-    const targFat = baseFatKcal * fatFactor;
-    const denom = targCarb + targFat;
-
-    if (denom <= 0) {
-      return { carbsAdjusted: 0, fatsAdjusted: 0 };
-    }
-
-    const scale = remaining / denom;
-    const carbsAdjusted = round1((targCarb * scale) / 4);
-    const fatsAdjusted = round1((targFat * scale) / 9);
+    const extraCarbKcal =
+      dayType === "rest" ? Math.max(eee, 0) * eeeFactor * carbFactor : 0;
+    const carbsAdjusted = round1((targCarb + extraCarbKcal) / 4);
+    const remaining = Math.max(
+      kcalObjectiveDay - protKcal - carbsAdjusted * 4,
+      0
+    );
+    const fatsAdjusted = round1(remaining / 9);
     return { carbsAdjusted, fatsAdjusted };
   };
 
-const applyMacroOverride = (
-  outputs: CalculationOutputs | undefined,
-  date: string | null,
-  dayType: "training" | "rest",
-  trainingType: WizardInputs["trainingType"] | null,
-  activityDelta = 0
-) => {
-  if (!outputs) return outputs;
-  const override = getMacroOverrideForDate(date, plan?.macroOverrides);
-  if (!override) return outputs;
-  const eeeFactor = baseInputs ? getEeeFactor(baseInputs.goal) : 1;
-  const macroKcal =
-    calcKcalFromMacros(override.macros) + (outputs.eee ?? 0) * eeeFactor;
-  const kcalObjectiveDay = macroKcal + activityDelta;
-  const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
-    protein: override.macros.protein,
-    fats: override.macros.fatsAdjusted,
-    carbs: override.macros.carbsAdjusted,
+  const applyMacroOverride = (
+    outputs: CalculationOutputs | undefined,
+    date: string | null,
+    dayType: "training" | "rest",
+    trainingType: WizardInputs["trainingType"] | null,
+    activityDelta = 0
+  ) => {
+    if (!outputs) return outputs;
+    const override = getMacroOverrideForDate(date, plan?.macroOverrides);
+    if (!override) return outputs;
+    const eeeFactor = baseInputs ? getEeeFactor(baseInputs.goal) : 1;
+    const macroKcal =
+      calcKcalFromMacros(override.macros) + (outputs.eee ?? 0) * eeeFactor;
+    const kcalObjectiveDay = macroKcal + activityDelta;
+    const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
+      protein: override.macros.protein,
+      fats: override.macros.fatsAdjusted,
+      carbs: override.macros.carbsAdjusted,
       kcalObjectiveDay,
       dayType,
       trainingType,
+      eee: outputs.eee ?? 0,
+      goal: baseInputs?.goal ?? null,
     });
     return {
       ...outputs,
@@ -387,71 +386,71 @@ const applyMacroOverride = (
     };
   };
 
-const computeOutputs = (date: string | null, override?: DayOverride) => {
-  const dayType =
-    override?.overrides.dayType ?? baseInputs?.dayType ?? "rest";
-  const trainingType = getTrainingType(override);
-  let activityDelta = 0;
-  if (
-    baseInputs &&
-    override?.overrides?.activityLevel !== undefined &&
-    override?.overrides?.activityLevel !== null
-  ) {
-    try {
-      const baseOverrides = { ...override.overrides, activityLevel: undefined };
-      const baseOutputs = calculateDayFromBase(baseInputs, baseOverrides);
-      const activityOutputs = calculateDayFromBase(
-        baseInputs,
-        override.overrides
-      );
-      activityDelta =
-        (activityOutputs.kcalObjectiveDay ?? 0) -
-        (baseOutputs.kcalObjectiveDay ?? 0);
-    } catch {
-      activityDelta = 0;
+  const computeOutputs = (date: string | null, override?: DayOverride) => {
+    const dayType =
+      override?.overrides.dayType ?? baseInputs?.dayType ?? "rest";
+    const trainingType = getTrainingType(override);
+    let activityDelta = 0;
+    if (
+      baseInputs &&
+      override?.overrides?.activityLevel !== undefined &&
+      override?.overrides?.activityLevel !== null
+    ) {
+      try {
+        const baseOverrides = { ...override.overrides, activityLevel: undefined };
+        const baseOutputs = calculateDayFromBase(baseInputs, baseOverrides);
+        const activityOutputs = calculateDayFromBase(
+          baseInputs,
+          override.overrides
+        );
+        activityDelta =
+          (activityOutputs.kcalObjectiveDay ?? 0) -
+          (baseOutputs.kcalObjectiveDay ?? 0);
+      } catch {
+        activityDelta = 0;
+      }
     }
-  }
-  if (!baseInputs)
-    return applyMacroOverride(
-      baseOutputs ?? undefined,
-      date,
-      dayType,
-      trainingType,
-      activityDelta
-    );
-  if (override?.computed)
-    return applyMacroOverride(
-      override.computed,
-      date,
-      dayType,
-      trainingType,
-      activityDelta
-    );
-  if (override) {
-    try {
+    if (!baseInputs)
       return applyMacroOverride(
-        calculateDayFromBase(baseInputs, override.overrides),
+        baseOutputs ?? undefined,
         date,
         dayType,
         trainingType,
         activityDelta
       );
-    } catch {
+    if (override?.computed)
+      return applyMacroOverride(
+        override.computed,
+        date,
+        dayType,
+        trainingType,
+        activityDelta
+      );
+    if (override) {
+      try {
+        return applyMacroOverride(
+          calculateDayFromBase(baseInputs, override.overrides),
+          date,
+          dayType,
+          trainingType,
+          activityDelta
+        );
+      } catch {
+        return applyMacroOverride(
+          baseOutputs ?? undefined,
+          date,
+          dayType,
+          trainingType
+        );
+        }
+      }
       return applyMacroOverride(
         baseOutputs ?? undefined,
         date,
         dayType,
         trainingType
       );
-      }
-    }
-    return applyMacroOverride(
-      baseOutputs ?? undefined,
-      date,
-      dayType,
-      trainingType
-    );
-  };
+    };
 
   const getTrainingCount = (override?: DayOverride) => {
     const dayType =

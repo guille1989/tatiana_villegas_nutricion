@@ -63,6 +63,8 @@ const adjustCarbFat = ({
   kcalObjectiveDay,
   dayType,
   trainingType,
+  eee = 0,
+  goal,
 }: {
   protein: number
   fats: number
@@ -70,27 +72,18 @@ const adjustCarbFat = ({
   kcalObjectiveDay: number
   dayType: DayType
   trainingType?: WizardInputs['trainingType'] | null
+  eee?: number
+  goal?: WizardInputs['goal'] | null
 }) => {
-  const carbFactor = getCarbFactor(dayType, trainingType)
-  const fatFactor = dayType === 'training' ? 1 - carbFactor : 0
-
+  const carbFactor = dayType === 'training' ? getCarbFactor(dayType, trainingType) : 0.85
+  const eeeFactor = goal ? getEeeFactor(goal) : 1
   const protKcal = protein * 4
-  const remaining = Math.max(kcalObjectiveDay - protKcal, 0)
-
   const baseCarbKcal = Math.max(carbs, 0) * 4
-  const baseFatKcal = Math.max(fats, 0) * 9
-
   const targCarb = baseCarbKcal * carbFactor
-  const targFat = baseFatKcal * fatFactor
-  const denom = targCarb + targFat
-
-  if (denom <= 0) {
-    return { carbsAdjusted: 0, fatsAdjusted: 0 }
-  }
-
-  const scale = remaining / denom
-  const carbsAdjusted = round1((targCarb * scale) / 4)
-  const fatsAdjusted = round1((targFat * scale) / 9)
+  const extraCarbKcal = dayType === 'rest' ? Math.max(eee, 0) * eeeFactor * carbFactor : 0
+  const carbsAdjusted = round1((targCarb + extraCarbKcal) / 4)
+  const remaining = Math.max(kcalObjectiveDay - protKcal - carbsAdjusted * 4, 0)
+  const fatsAdjusted = round1(remaining / 9)
   return { carbsAdjusted, fatsAdjusted }
 }
 
@@ -139,6 +132,8 @@ const applyPlanMacroOverride = (
     kcalObjectiveDay,
     dayType,
     trainingType,
+    eee: outputs.eee ?? 0,
+    goal,
   })
   return {
     ...outputs,

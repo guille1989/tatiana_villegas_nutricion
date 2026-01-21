@@ -117,6 +117,8 @@ const applyMacroOverride = (
     kcalObjectiveDay,
     dayType,
     trainingType,
+    eee: outputs.eee ?? 0,
+    goal,
   })
   return {
     ...outputs,

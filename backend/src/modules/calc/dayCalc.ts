@@ -75,6 +75,8 @@ export const calculateDayFromBase = (baseInputs: WizardInputs, overrides: DayOve
     kcalObjectiveDay: outputs.kcalObjectiveDay,
     dayType: merged.dayType,
     trainingType: carbFactorTrainingType,
+    eee: outputs.eee,
+    goal: merged.goal,
   })
   outputs.carbsAdjusted = carbFatAdjusted.carbsAdjusted
   outputs.fatsAdjusted = carbFatAdjusted.fatsAdjusted
