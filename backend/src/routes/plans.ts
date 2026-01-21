@@ -103,6 +103,7 @@ const applyMacroOverride = (
   dayType: 'training' | 'rest',
   trainingType: WizardInputs['trainingType'] | null,
   goal: WizardInputs['goal'],
+  weight: number,
   activityDelta = 0,
 ) => {
   if (!override) return outputs
@@ -119,6 +120,7 @@ const applyMacroOverride = (
     trainingType,
     eee: outputs.eee ?? 0,
     goal,
+    weight,
   })
   return {
     ...outputs,
@@ -282,6 +284,7 @@ router.put(
       dayType,
       trainingType,
       assessment.inputs.goal,
+      assessment.inputs.weight,
       activityDelta,
     )
 
@@ -352,6 +355,7 @@ router.get(
         dayType,
         trainingType,
         assessment.inputs.goal,
+        assessment.inputs.weight,
         activityDelta,
       )
       res.json({ override: { ...existing.toObject(), computed }, outputs: computed })
@@ -367,6 +371,7 @@ router.get(
       dayType,
       assessment.inputs.trainingType ?? null,
       assessment.inputs.goal,
+      assessment.inputs.weight,
     )
     res.json({ outputs: computed })
   }),

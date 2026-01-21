@@ -171,6 +171,7 @@ const adjustCarbFat = ({
   trainingType,
   eee = 0,
   goal,
+  weight,
 }: {
   protein: number
   fats: number
@@ -180,16 +181,26 @@ const adjustCarbFat = ({
   trainingType?: WizardInputs['trainingType'] | null
   eee?: number
   goal?: WizardInputs['goal'] | null
+  weight: number
 }) => {
+  console.log({ protein, fats, carbs, kcalObjectiveDay, dayType, trainingType, eee, goal, weight })
   const carbFactor = dayType === 'training' ? getCarbFactor(dayType, trainingType) : 0.85
   const eeeFactor = goal ? getEeeFactor(goal) : 1
-  const protKcal = protein * 4
+  const rec = goal === 'fat_loss' ? 0.7 : 1
+  const grasaMin = 0.6 * weight
+  const eeeSafe = Math.max(eee, 0)
   const baseCarbKcal = Math.max(carbs, 0) * 4
   const targCarb = baseCarbKcal * carbFactor
-  const extraCarbKcal = dayType === 'rest' ? Math.max(eee, 0) * eeeFactor * carbFactor : 0
+  const extraCarbKcal = dayType === 'rest' ? eeeSafe * eeeFactor * carbFactor : 0
   const carbsAdjusted = round1((targCarb + extraCarbKcal) / 4)
-  const remaining = Math.max(kcalObjectiveDay - protKcal - carbsAdjusted * 4, 0)
-  const fatsAdjusted = round1(remaining / 9)
+  const baseFats = Math.max(fats, 0)
+  let fatsAdjusted = baseFats
+  if (dayType === 'rest') {
+    const fatFactor = 1.2
+    const extraFat = (eeeSafe * rec * fatFactor) / 9
+    fatsAdjusted = baseFats + extraFat
+  }
+  fatsAdjusted = round1(Math.max(grasaMin, fatsAdjusted))
   return { carbsAdjusted, fatsAdjusted }
 }
 
@@ -265,6 +276,7 @@ const applyPlanMacroOverride = (
   dayType: DayType,
   trainingType: WizardInputs['trainingType'] | null,
   goal?: WizardInputs['goal'] | null,
+  weight = 0,
   activityDelta = 0,
 ) => {
   if (!outputs) return outputs
@@ -283,6 +295,7 @@ const applyPlanMacroOverride = (
     trainingType,
     eee: outputs.eee ?? 0,
     goal,
+    weight,
   })
   return {
     ...outputs,
@@ -393,6 +406,7 @@ const buildSyncSeries = (
       dayType,
       trainingType,
       baseInputs?.goal ?? null,
+      baseInputs?.weight ?? 0,
       activityDelta,
     )
     const target = getTargetMacros(targetBase)
@@ -470,6 +484,7 @@ const buildTrend = (
       dayType,
       trainingType,
       baseInputs?.goal ?? null,
+      baseInputs?.weight ?? 0,
       activityDelta,
     )
     const summary = getAdherenceFromMeals(meals, baseOutputs)
@@ -751,6 +766,7 @@ const AdminDashboardPage = () => {
               adherenceDayType,
               adherenceTrainingType,
               item.assessment?.inputs?.goal ?? null,
+              item.assessment?.inputs?.weight ?? 0,
               adherenceDelta,
             )
             const adherence = getAdherenceFromMeals(getOverrideMeals(latestMealsOverride), adherenceBase)
@@ -1024,6 +1040,7 @@ const AdminDashboardPage = () => {
               trainingType: assessment.inputs.trainingType ?? null,
               eee: outputs.eee ?? 0,
               goal: assessment.inputs.goal,
+              weight: assessment.inputs.weight,
             })
           return {
             kcalObjectiveDay,
