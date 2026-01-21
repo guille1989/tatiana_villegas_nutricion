@@ -76,7 +76,7 @@ export const adjustCarbFat = ({
   }
   const baseFats = Math.max(fats, 0)
   let fatsAdjusted = baseFats
-  if (dayType === 'rest') {
+  if (dayType === 'training') {
     const extraFat = (eeeSafe * rec * fatFactor) / 9
     fatsAdjusted = baseFats + extraFat
   }

@@ -339,10 +339,10 @@ const PlanDetailPage = () => {
     goal?: WizardInputs["goal"] | null;
     weight: number;
   }) => {
-    console.log({ protein, fats, carbs, kcalObjectiveDay, dayType, trainingType, eee, goal, weight })
     const carbFactor = dayType === "training" ? getCarbFactor(dayType, trainingType) : 0.85;
     const fatFactor = dayType === "training" ? 1 - carbFactor : 0;
     const eeeFactor = goal ? getEeeFactor(goal) : 1;
+    console.log({ protein, fats, carbs, kcalObjectiveDay, dayType, trainingType, eee, goal, weight, eeeFactor })
     const rec = goal === "fat_loss" ? 0.7 : 1;
     const grasaMin = 0.6 * weight;
     const eeeSafe = Math.max(eee, 0);
@@ -356,7 +356,7 @@ const PlanDetailPage = () => {
     }
     const baseFats = Math.max(fats, 0);
     let fatsAdjusted = baseFats;
-    if (dayType === "rest") {
+    if (dayType === "training") {
       const extraFat = (eeeSafe * rec * fatFactor) / 9;
       fatsAdjusted = baseFats + extraFat;
     }
