@@ -90,6 +90,7 @@ const adjustCarbFat = ({
 }) => {
   console.log({ protein, fats, carbs, kcalObjectiveDay, dayType, trainingType, eee, goal, weight })
   const carbFactor = dayType === 'training' ? getCarbFactor(dayType, trainingType) : 0.85
+  const fatFactor = dayType === 'training' ? 1 - carbFactor : 0
   const eeeFactor = goal ? getEeeFactor(goal) : 1
   const rec = goal === 'fat_loss' ? 0.7 : 1
   const grasaMin = 0.6 * weight
@@ -101,7 +102,6 @@ const adjustCarbFat = ({
   const baseFats = Math.max(fats, 0)
   let fatsAdjusted = baseFats
   if (dayType === 'rest') {
-    const fatFactor = 1.2
     const extraFat = (eeeSafe * rec * fatFactor) / 9
     fatsAdjusted = baseFats + extraFat
   }

@@ -32,7 +32,7 @@ const getTrainingCarbFactor = (trainingType?: WizardInputs['trainingType'] | nul
   return CARB_FACTOR_DEFAULT
 }
 
-const getCarbFactor = (dayType: WizardInputs['dayType'], trainingType?: WizardInputs['trainingType'] | null) => {
+const getCarbFactor = (dayType: WizardInputs['dayType'], trainingType?: WizardInputs['trainingType'] | null): number => {
   if (dayType !== 'training') return 0
   return getTrainingCarbFactor(trainingType)
 }
@@ -47,6 +47,7 @@ export const adjustCarbFat = ({
   eee = 0,
   goal,
   weight,
+  source = 'unknown',
 }: {
   protein: number
   fats: number
@@ -57,12 +58,14 @@ export const adjustCarbFat = ({
   eee?: number
   goal?: WizardInputs['goal'] | null
   weight: number
+  source?: string
 }) => {
   const carbFactor = dayType === 'training' ? getCarbFactor(dayType, trainingType) : 0.85
+  const fatFactor = dayType === 'training' ? 1 - carbFactor : 0
   const eeeFactor = goal ? getEeeFactor(goal) : 1
   const rec = goal === 'fat_loss' ? 0.7 : 1
   const grasaMin = 0.6 * weight
-  const eeeSafe = Math.max(eee, 0)
+  const eeeSafe = Math.max(eee, 0)  
   const baseCarbKcal = Math.max(carbs, 0) * 4
   const targCarb = baseCarbKcal * carbFactor
   const extraCarbKcal = dayType === 'rest' ? eeeSafe * eeeFactor * carbFactor : 0
@@ -70,7 +73,6 @@ export const adjustCarbFat = ({
   const baseFats = Math.max(fats, 0)
   let fatsAdjusted = baseFats
   if (dayType === 'rest') {
-    const fatFactor = 1.2
     const extraFat = (eeeSafe * rec * fatFactor) / 9
     fatsAdjusted = baseFats + extraFat
   }
@@ -161,6 +163,7 @@ export const calculateInitials = (inputs: WizardInputs): { outputs: CalculationO
     eee,
     goal: inputs.goal,
     weight: inputs.weight,
+    source: 'calculateInitials',
   })
 
   const ea = ffm ? (kcalObjectiveDay - eeeAdjusted) / ffm : undefined

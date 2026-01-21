@@ -121,6 +121,7 @@ const applyMacroOverride = (
     eee: outputs.eee ?? 0,
     goal,
     weight,
+    source: 'applyMacroOverride',
   })
   return {
     ...outputs,
