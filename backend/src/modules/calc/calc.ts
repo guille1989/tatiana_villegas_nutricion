@@ -66,10 +66,14 @@ export const adjustCarbFat = ({
   const rec = goal === 'fat_loss' ? 0.7 : 1
   const grasaMin = 0.6 * weight
   const eeeSafe = Math.max(eee, 0)  
-  const baseCarbKcal = Math.max(carbs, 0) * 4
-  const targCarb = baseCarbKcal * carbFactor
-  const extraCarbKcal = dayType === 'rest' ? eeeSafe * eeeFactor * carbFactor : 0
-  const carbsAdjusted = round1((targCarb + extraCarbKcal) / 4)
+  const baseCarbs = Math.max(carbs, 0)
+  let carbsAdjusted: number
+  if (dayType === 'training') {
+    const extraCarbGrams = (eeeSafe * rec * carbFactor) / 4
+    carbsAdjusted = round1(baseCarbs + extraCarbGrams)
+  } else {
+    carbsAdjusted = round1(baseCarbs)
+  }
   const baseFats = Math.max(fats, 0)
   let fatsAdjusted = baseFats
   if (dayType === 'rest') {
