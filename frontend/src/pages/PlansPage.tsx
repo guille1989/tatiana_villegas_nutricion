@@ -941,13 +941,7 @@ const PlansPage = () => {
                             >
                               Abrir
                             </Button>
-                            <Button
-                              size="small"
-                              color="error"
-                              onClick={() => setDeleteTarget(plan)}
-                            >
-                              Eliminar
-                            </Button>
+                            
                           </Stack>
                         </Stack>
                       </Box>
