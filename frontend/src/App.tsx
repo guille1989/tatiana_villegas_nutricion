@@ -22,6 +22,7 @@ import { listPlans } from './lib/api'
 import AdminDashboardPage from './pages/AdminDashboardPage'
 import AccessPage from './pages/AccessPage'
 import PlanDetailPage from './pages/PlanDetailPage'
+import PlanPendingPage from './pages/PlanPendingPage'
 import PlansPage from './pages/PlansPage'
 import WizardPage from './pages/WizardPage'
 
@@ -58,9 +59,11 @@ const theme = createTheme({
   },
 })
 
+type PlanGateStatus = 'active' | 'draft' | 'none'
+
 type PlanGateState = {
   loading: boolean
-  hasPlans: boolean | null
+  status: PlanGateStatus | null
   error: string | null
   reload: () => void
 }
@@ -80,14 +83,14 @@ const buildWhatsAppLink = (rawNumber: string, message: string) => {
 
 const useMemberPlanStatus = (enabled: boolean): PlanGateState => {
   const [loading, setLoading] = useState(false)
-  const [hasPlans, setHasPlans] = useState<boolean | null>(null)
+  const [status, setStatus] = useState<PlanGateStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     if (!enabled) {
       setLoading(false)
-      setHasPlans(null)
+      setStatus(null)
       setError(null)
       return
     }
@@ -99,11 +102,13 @@ const useMemberPlanStatus = (enabled: boolean): PlanGateState => {
       .then((plans) => {
         if (!active) return
         const hasActive = plans.some((plan) => plan.status === 'active' || !plan.status)
-        setHasPlans(hasActive)
+        const hasDraft = plans.some((plan) => plan.status === 'draft')
+        const nextStatus: PlanGateStatus = hasActive ? 'active' : hasDraft ? 'draft' : 'none'
+        setStatus(nextStatus)
       })
       .catch((err) => {
         if (!active) return
-        setHasPlans(null)
+        setStatus(null)
         setError(err instanceof Error ? err.message : 'No se pudo verificar planes')
       })
       .finally(() => {
@@ -118,7 +123,7 @@ const useMemberPlanStatus = (enabled: boolean): PlanGateState => {
 
   return {
     loading,
-    hasPlans,
+    status,
     error,
     reload: () => setRefreshKey((prev) => prev + 1),
   }
@@ -145,12 +150,6 @@ const PlanGateFallback = ({
   </Stack>
 )
 
-const RequireAuth = ({ children }: PropsWithChildren) => {
-  const { token } = useAuth()
-  if (!token) return <Navigate to="/access" replace />
-  return <>{children}</>
-}
-
 const RequireAdmin = ({ children }: PropsWithChildren) => {
   const { token, isAdmin } = useAuth()
   if (!token) return <Navigate to="/access" replace />
@@ -165,7 +164,7 @@ const RequireWizard = ({
   const { token, isAdmin } = useAuth()
   if (!token) return <Navigate to="/access" replace />
   if (isAdmin) return <Navigate to="/admin" replace />
-  if (planGate.loading || planGate.hasPlans === null) {
+  if (planGate.loading || planGate.status === null) {
     return (
       <PlanGateFallback
         loading={planGate.loading}
@@ -174,8 +173,51 @@ const RequireWizard = ({
       />
     )
   }
-  if (planGate.hasPlans) return <Navigate to="/plans" replace />
+  if (planGate.status === 'active') return <Navigate to="/plans" replace />
+  if (planGate.status === 'draft') return <Navigate to="/plan-pending" replace />
   return <>{children}</>
+}
+
+const RequireActivePlan = ({
+  children,
+  planGate,
+}: PropsWithChildren & { planGate: PlanGateState }) => {
+  const { token, isAdmin } = useAuth()
+  if (!token) return <Navigate to="/access" replace />
+  if (isAdmin) return <>{children}</>
+  if (planGate.loading || planGate.status === null) {
+    return (
+      <PlanGateFallback
+        loading={planGate.loading}
+        error={planGate.error}
+        onRetry={planGate.reload}
+      />
+    )
+  }
+  if (planGate.status === 'active') return <>{children}</>
+  if (planGate.status === 'draft') return <Navigate to="/plan-pending" replace />
+  return <Navigate to="/wizard" replace />
+}
+
+const RequirePendingPlan = ({
+  children,
+  planGate,
+}: PropsWithChildren & { planGate: PlanGateState }) => {
+  const { token, isAdmin } = useAuth()
+  if (!token) return <Navigate to="/access" replace />
+  if (isAdmin) return <Navigate to="/admin" replace />
+  if (planGate.loading || planGate.status === null) {
+    return (
+      <PlanGateFallback
+        loading={planGate.loading}
+        error={planGate.error}
+        onRetry={planGate.reload}
+      />
+    )
+  }
+  if (planGate.status === 'draft') return <>{children}</>
+  if (planGate.status === 'active') return <Navigate to="/plans" replace />
+  return <Navigate to="/wizard" replace />
 }
 
 const AppShell = () => {
@@ -187,7 +229,7 @@ const AppShell = () => {
   const renderMemberLanding = () => {
     if (!token) return <Navigate to="/access" replace />
     if (isAdmin) return <Navigate to="/admin" replace />
-    if (planGate.loading || planGate.hasPlans === null) {
+    if (planGate.loading || planGate.status === null) {
       return (
         <PlanGateFallback
           loading={planGate.loading}
@@ -196,7 +238,9 @@ const AppShell = () => {
         />
       )
     }
-    return <Navigate to={planGate.hasPlans ? '/plans' : '/wizard'} replace />
+    const target =
+      planGate.status === 'active' ? '/plans' : planGate.status === 'draft' ? '/plan-pending' : '/wizard'
+    return <Navigate to={target} replace />
   }
 
   const handleLogout = () => {
@@ -241,24 +285,32 @@ const AppShell = () => {
           path="/wizard"
           element={
             <RequireWizard planGate={planGate}>
-              <WizardPage />
+              <WizardPage onComplete={planGate.reload} />
             </RequireWizard>
+          }
+        />
+        <Route
+          path="/plan-pending"
+          element={
+            <RequirePendingPlan planGate={planGate}>
+              <PlanPendingPage onRefresh={planGate.reload} loading={planGate.loading} />
+            </RequirePendingPlan>
           }
         />
         <Route
           path="/plans"
           element={
-            <RequireAuth>
+            <RequireActivePlan planGate={planGate}>
               <PlansPage />
-            </RequireAuth>
+            </RequireActivePlan>
           }
         />
         <Route
           path="/plans/:planId"
           element={
-            <RequireAuth>
+            <RequireActivePlan planGate={planGate}>
               <PlanDetailPage />
-            </RequireAuth>
+            </RequireActivePlan>
           }
         />
         <Route

@@ -33,6 +33,7 @@ import dayjs from "dayjs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@mui/material/styles";
 import { useNavigate, useParams } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import DayEditDialog from "../components/DayEditDialog";
 import { calculateDayFromBase, getCarbFactor, getEeeFactor } from "../lib/calc";
 import {
@@ -116,6 +117,7 @@ const PlanDetailPage = () => {
   const { planId } = useParams<{ planId: string }>();
   const navigate = useNavigate();
   const theme = useTheme();
+  const { isAdmin } = useAuth();
   const detailRef = useRef<HTMLDivElement | null>(null);
   const initialSelectionDoneRef = useRef(false);
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -186,11 +188,12 @@ const PlanDetailPage = () => {
   }, [planId]);
 
   useEffect(() => {
-    if (!plan?.status) return;
-    if (plan.status !== "active") {
+    if (!plan || isAdmin) return;
+    const isActive = plan.status === "active" || !plan.status;
+    if (!isActive) {
       navigate("/plans", { replace: true });
     }
-  }, [plan, navigate]);
+  }, [plan, isAdmin, navigate]);
 
   const dates = useMemo(() => {
     if (!plan) return [];

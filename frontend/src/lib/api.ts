@@ -450,7 +450,7 @@ export const upsertPlanMacroOverride = async (payload: {
   return mapPlan(data.plan)
 }
 
-export const updatePlanStatus = async (payload: { planId: string; status: 'archived' }) => {
+export const updatePlanStatus = async (payload: { planId: string; status: 'active' | 'archived' }) => {
   const { planId, ...body } = payload
   const { data, error } = await request<{ plan: PlanDto }>(`/plans/${planId}/status`, {
     method: 'PUT',

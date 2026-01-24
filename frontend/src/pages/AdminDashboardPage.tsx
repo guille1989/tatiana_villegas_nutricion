@@ -115,7 +115,7 @@ const GOAL_LABELS: Record<string, string> = {
 
 const STATUS_LABELS: Record<string, string> = {
   active: 'Activo',
-  draft: 'Borrador',
+  draft: 'En revision',
   archived: 'Archivado',
 }
 
@@ -718,6 +718,8 @@ const AdminDashboardPage = () => {
   const [closePlanOpen, setClosePlanOpen] = useState(false)
   const [closePlanLoading, setClosePlanLoading] = useState(false)
   const [closePlanError, setClosePlanError] = useState<string | null>(null)
+  const [enablePlanLoading, setEnablePlanLoading] = useState(false)
+  const [enablePlanError, setEnablePlanError] = useState<string | null>(null)
   const [macroForm, setMacroForm] = useState({
     protein: '',
     carbsAdjusted: '',
@@ -834,6 +836,7 @@ const AdminDashboardPage = () => {
 
   const selectedRecord = records.find((record) => record.userId === selectedUserId) ?? null
   const assessment = selectedRecord?.latestAssessment ?? null
+  const canEnablePlan = selectedRecord?.plan?.status === 'draft'
   const canClosePlan = !!selectedRecord?.plan && selectedRecord.plan.status !== 'archived'
   const trendPoints = selectedRecord
     ? [...selectedRecord.trend].sort((a, b) => dayjs(a.date).diff(dayjs(b.date)))
@@ -999,6 +1002,27 @@ const AdminDashboardPage = () => {
       setClosePlanError(err instanceof Error ? err.message : 'No se pudo cerrar el plan')
     } finally {
       setClosePlanLoading(false)
+    }
+  }
+
+  const handleEnablePlan = async () => {
+    if (!selectedRecord?.plan) return
+    setEnablePlanLoading(true)
+    setEnablePlanError(null)
+    try {
+      const plan = await updatePlanStatus({
+        planId: selectedRecord.plan.id,
+        status: 'active',
+      })
+      setRecords((prev) =>
+        prev.map((record) =>
+          record.userId === selectedRecord.userId ? { ...record, plan } : record,
+        ),
+      )
+    } catch (err) {
+      setEnablePlanError(err instanceof Error ? err.message : 'No se pudo habilitar el plan')
+    } finally {
+      setEnablePlanLoading(false)
     }
   }
 
@@ -1394,7 +1418,7 @@ const AdminDashboardPage = () => {
                 <Select value={statusFilter} label="Status" onChange={(event) => setStatusFilter(event.target.value)}>
                   <MenuItem value="all">Todos</MenuItem>
                   <MenuItem value="active">Activo</MenuItem>
-                  <MenuItem value="draft">Borrador</MenuItem>
+                  <MenuItem value="draft">En revision</MenuItem>
                   <MenuItem value="archived">Archivado</MenuItem>
                   <MenuItem value="none">Sin plan</MenuItem>
                 </Select>
@@ -1541,12 +1565,24 @@ const AdminDashboardPage = () => {
                     <Typography variant="body2" color="text.secondary">
                       {selectedRecord.userId}
                     </Typography>
-                      {selectedRecord.plan && (
+                    {selectedRecord.plan && (
+                      <Stack spacing={0.75}>
                         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                           <Typography variant="body2">{getPlanLabel(selectedRecord.plan)}</Typography>
                           <Button size="small" variant="outlined" onClick={handleOpenMacroDialog}>
                             Editar macros
                           </Button>
+                          {canEnablePlan && (
+                            <Button
+                              size="small"
+                              variant="contained"
+                              color="success"
+                              onClick={handleEnablePlan}
+                              disabled={enablePlanLoading}
+                            >
+                              {enablePlanLoading ? 'Habilitando...' : 'Habilitar plan'}
+                            </Button>
+                          )}
                           <Button
                             size="small"
                             variant="outlined"
@@ -1557,8 +1593,14 @@ const AdminDashboardPage = () => {
                             Cerrar plan
                           </Button>
                         </Stack>
-                      )}
-                    </Stack>
+                        {canEnablePlan && enablePlanError && (
+                          <Typography variant="caption" color="error">
+                            {enablePlanError}
+                          </Typography>
+                        )}
+                      </Stack>
+                    )}
+                  </Stack>
 
                   <Divider />
 

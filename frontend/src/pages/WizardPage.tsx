@@ -18,7 +18,7 @@ import StepMeasurements from '../components/StepMeasurements'
 import StepPersonal from '../components/StepPersonal'
 import { createAssessment } from '../lib/api'
 import { DEFAULT_VALUES, wizardSchema, type WizardFormData } from '../lib/schema'
-import { loadFormData, saveFormData } from '../lib/storage'
+import { clearFormData, loadFormData, saveFormData } from '../lib/storage'
 
 const steps = ['Datos personales', 'Medidas', 'Actividad y objetivo']
 
@@ -28,7 +28,11 @@ const stepFields: (keyof WizardFormData)[][] = [
   ['activityLevel', 'goal', 'dayType'],
 ]
 
-const WizardPage = () => {
+type WizardPageProps = {
+  onComplete?: () => void
+}
+
+const WizardPage = ({ onComplete }: WizardPageProps) => {
   const navigate = useNavigate()
   const stored = useMemo(() => {
     const cached = loadFormData()
@@ -81,11 +85,12 @@ const WizardPage = () => {
     const inputs = methods.getValues()
     setSaving(true)
     try {
-      const { assessment, plan } = await createAssessment(inputs)
+      const { assessment } = await createAssessment(inputs)
       assessment // keep for potential future use
-      setSnackbar('Plan de 30 dias guardado')
-      if (plan) navigate(`/plans/${plan.id}`)
-      else navigate('/plans')
+      clearFormData()
+      setSnackbar('Plan enviado a revision')
+      onComplete?.()
+      navigate('/plan-pending')
     } catch (err) {
       setSnackbar(err instanceof Error ? err.message : 'No se pudo guardar')
     } finally {

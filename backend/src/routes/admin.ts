@@ -98,6 +98,7 @@ router.get(
         const userId = user._id.toString()
         const assessment = await AssessmentModel.findOne({ userId }).sort({ createdAt: -1 })
         const plan =
+          (await PlanModel.findOne({ userId, status: 'draft' }).sort({ createdAt: -1 })) ??
           (await PlanModel.findOne({ userId, status: 'active' }).sort({ createdAt: -1 })) ??
           (await PlanModel.findOne({ userId }).sort({ createdAt: -1 }))
         const overrides = plan ? await PlanDayOverrideModel.find({ planId: plan._id }) : []

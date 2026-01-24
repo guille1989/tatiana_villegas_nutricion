@@ -75,7 +75,7 @@ router.post(
       baseAssessmentId: new Types.ObjectId(assessment._id),
       startDate,
       days: 30,
-      status: 'active',
+      status: 'draft',
       title: defaultTitle,
     })
     res.status(201).json({ assessment, plan })

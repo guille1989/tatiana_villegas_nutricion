@@ -61,7 +61,7 @@ const macroOverrideBodySchema = z.object({
 })
 
 const planStatusSchema = z.object({
-  status: z.enum(['archived']),
+  status: z.enum(['active', 'archived']),
 })
 
 type MacroOverrideValue = z.infer<typeof macroOverrideSchema>
@@ -132,6 +132,15 @@ const applyMacroOverride = (
   }
 }
 
+const isMemberPlanActive = (plan: { status?: string | null }) =>
+  plan.status === 'active' || !plan.status
+
+const assertMemberPlanAccess = (plan: { userId: string; status?: string | null }, userId: string | undefined, isAdmin: boolean) => {
+  if (isAdmin) return
+  if (!userId || plan.userId !== userId) throw badRequest('Acceso no permitido')
+  if (!isMemberPlanActive(plan)) throw badRequest('Plan no activo')
+}
+
 router.post(
   '/',
   asyncHandler(async (req, res) => {
@@ -179,7 +188,7 @@ router.get(
     const plan = await PlanModel.findById(planId).populate('baseAssessmentId')
     if (!plan) throw notFound('Plan no encontrado')
     const isAdmin = req.user?.role === 'admin'
-    if (!isAdmin && plan.userId !== req.user?.id) throw badRequest('Acceso no permitido')
+    assertMemberPlanAccess(plan, req.user?.id, isAdmin)
 
     const overrides = await PlanDayOverrideModel.find({ planId })
     res.json({ plan, overrides })
@@ -235,6 +244,13 @@ router.put(
     const isAdmin = req.user?.role === 'admin'
     if (!isAdmin) throw badRequest('Acceso no permitido')
 
+    if (parsed.data.status === 'active') {
+      await PlanModel.updateMany(
+        { userId: plan.userId, status: 'active', _id: { $ne: plan._id } },
+        { status: 'archived' },
+      )
+    }
+
     plan.status = parsed.data.status
     await plan.save()
 
@@ -267,7 +283,7 @@ router.put(
     const plan = await PlanModel.findById(planId)
     if (!plan) throw notFound('Plan no encontrado')
     const isAdmin = req.user?.role === 'admin'
-    if (!isAdmin && plan.userId !== req.user?.id) throw badRequest('Acceso no permitido')
+    assertMemberPlanAccess(plan, req.user?.id, isAdmin)
 
     const assessment = await AssessmentModel.findById(plan.baseAssessmentId)
     if (!assessment) throw notFound('Assessment base no encontrado')
@@ -318,7 +334,7 @@ router.delete(
     const plan = await PlanModel.findById(planId)
     if (!plan) throw notFound('Plan no encontrado')
     const isAdmin = req.user?.role === 'admin'
-    if (!isAdmin && plan.userId !== req.user?.id) throw badRequest('Acceso no permitido')
+    assertMemberPlanAccess(plan, req.user?.id, isAdmin)
 
     await PlanDayOverrideModel.deleteOne({ planId, date })
     res.json({ ok: true })
@@ -336,7 +352,7 @@ router.get(
     const plan = await PlanModel.findById(planId)
     if (!plan) throw notFound('Plan no encontrado')
     const isAdmin = req.user?.role === 'admin'
-    if (!isAdmin && plan.userId !== req.user?.id) throw badRequest('Acceso no permitido')
+    assertMemberPlanAccess(plan, req.user?.id, isAdmin)
 
     const assessment = await AssessmentModel.findById(plan.baseAssessmentId)
     if (!assessment) throw notFound('Assessment base no encontrado')
