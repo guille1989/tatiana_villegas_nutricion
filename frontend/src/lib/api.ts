@@ -151,11 +151,24 @@ const request = async <T>(path: string, options?: RequestInit): Promise<ApiRespo
       headers,
       ...rest,
     })
-    const json = await res.json()
-    if (!res.ok) {
-      return { data: json as T, error: json?.error ?? 'Request failed' }
+    if (res.status === 204) {
+      return { data: {} as T }
     }
-    return { data: json as T }
+
+    const contentType = res.headers.get('content-type') ?? ''
+    const isJson = contentType.includes('application/json')
+    const body = isJson ? await res.json() : await res.text()
+
+    if (!res.ok) {
+      const message = isJson ? (body as any)?.error : (typeof body === 'string' ? body : '')
+      return { data: {} as T, error: message || `Request failed (${res.status})` }
+    }
+
+    if (!isJson) {
+      return { data: {} as T, error: `Expected JSON response, got ${contentType || 'unknown'} (${res.status})` }
+    }
+
+    return { data: body as T }
   } catch (err) {
     return { data: {} as T, error: err instanceof Error ? err.message : 'Network error' }
   }
