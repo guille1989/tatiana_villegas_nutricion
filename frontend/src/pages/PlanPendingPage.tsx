@@ -28,10 +28,10 @@ const PlanPendingPage = ({ onRefresh, loading = false }: PlanPendingPageProps) =
           </Box>
           <Stack spacing={1}>
             <Typography variant="h4" fontWeight={800}>
-              Tu plan esta en revision
+              Tu plan está en revisión
             </Typography>
             <Typography color="text.secondary">
-              Tu plan esta siendo revisado por la nutricionista. En breve tendras tus macros listas para empezar a
+              Tu plan está siendo revisado por la nutricionista. En breve tendrás tus macros listas para empezar a
               crear tus platos.
             </Typography>
           </Stack>
