@@ -141,10 +141,12 @@ const applyPlanMacroOverride = (
   const macroKcal =
     calcKcalFromMacros(override.macros) + (outputs.eee ?? 0) * eeeFactor
   const kcalObjectiveDay = macroKcal + activityDelta
+  const activityCarbDelta = activityDelta ? activityDelta / 4 : 0
+  const baseCarbs = Math.max(0, round1(override.macros.carbsAdjusted + activityCarbDelta))
   const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
     protein: override.macros.protein,
     fats: override.macros.fatsAdjusted,
-    carbs: override.macros.carbsAdjusted,
+    carbs: baseCarbs,
     kcalObjectiveDay,
     dayType,
     trainingType,
