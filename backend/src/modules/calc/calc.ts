@@ -32,7 +32,7 @@ const getTrainingCarbFactor = (trainingType?: WizardInputs['trainingType'] | nul
   return CARB_FACTOR_DEFAULT
 }
 
-const getCarbFactor = (dayType: WizardInputs['dayType'], trainingType?: WizardInputs['trainingType'] | null): number => {
+export const getCarbFactor = (dayType: WizardInputs['dayType'], trainingType?: WizardInputs['trainingType'] | null): number => {
   if (dayType !== 'training') return 0
   return getTrainingCarbFactor(trainingType)
 }

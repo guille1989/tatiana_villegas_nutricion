@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { PlanDayOverrideModel } from '../models/PlanDayOverride'
 import { PlanModel } from '../models/Plan'
 import { calculateDayFromBase } from '../modules/calc/dayCalc'
-import { adjustCarbFat, getEeeFactor } from '../modules/calc/calc'
+import { adjustCarbFat, getCarbFactor, getEeeFactor } from '../modules/calc/calc'
 import { AssessmentModel } from '../models/Assessment'
 import { authMiddleware } from '../middleware/auth'
 import { asyncHandler } from '../utils/asyncHandler'
@@ -113,11 +113,15 @@ const applyMacroOverride = (
   const extraKcal = (outputs.eee ?? 0) * eeeFactor
   const macroKcal = calcKcalFromMacros(override.macros) + extraKcal
   const kcalObjectiveDay = macroKcal + activityDelta
-  const activityCarbDelta = activityDelta ? activityDelta / 4 : 0
+  const carbFactor = dayType === 'training' ? getCarbFactor(dayType, trainingType) : 0.85
+  const fatFactor = dayType === 'training' ? 1 - carbFactor : 0
+  const activityCarbDelta = activityDelta ? (activityDelta * carbFactor) / 4 : 0
+  const activityFatDelta = activityDelta ? (activityDelta * fatFactor) / 9 : 0
   const baseCarbs = Math.max(0, round1(override.macros.carbsAdjusted + activityCarbDelta))
+  const baseFats = Math.max(0, round1(override.macros.fatsAdjusted + activityFatDelta))
   const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
     protein: override.macros.protein,
-    fats: override.macros.fatsAdjusted,
+    fats: baseFats,
     carbs: baseCarbs,
     kcalObjectiveDay,
     dayType,
