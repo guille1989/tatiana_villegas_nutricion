@@ -35,6 +35,7 @@ import dayjs, { type Dayjs } from 'dayjs'
 import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
+  createAdminPasswordReset,
   createInvite,
   getAdminOverview,
   listInvites,
@@ -721,6 +722,15 @@ const AdminDashboardPage = () => {
   const [macroDialogOpen, setMacroDialogOpen] = useState(false)
   const [macroSaving, setMacroSaving] = useState(false)
   const [macroError, setMacroError] = useState<string | null>(null)
+  const [resetDialogOpen, setResetDialogOpen] = useState(false)
+  const [resetLoading, setResetLoading] = useState(false)
+  const [resetError, setResetError] = useState<string | null>(null)
+  const [resetPayload, setResetPayload] = useState<{
+    token: string
+    resetUrl: string
+    expiresAt: string
+    email: string
+  } | null>(null)
   const [closePlanOpen, setClosePlanOpen] = useState(false)
   const [closePlanLoading, setClosePlanLoading] = useState(false)
   const [closePlanError, setClosePlanError] = useState<string | null>(null)
@@ -1029,6 +1039,37 @@ const AdminDashboardPage = () => {
       setEnablePlanError(err instanceof Error ? err.message : 'No se pudo habilitar el plan')
     } finally {
       setEnablePlanLoading(false)
+    }
+  }
+
+  const handleOpenResetDialog = async () => {
+    if (!selectedRecord) return
+    setResetDialogOpen(true)
+    setResetError(null)
+    setResetPayload(null)
+    setResetLoading(true)
+    try {
+      const payload = await createAdminPasswordReset(selectedRecord.userId)
+      setResetPayload(payload)
+    } catch (err) {
+      setResetError(err instanceof Error ? err.message : 'No se pudo generar el enlace')
+    } finally {
+      setResetLoading(false)
+    }
+  }
+
+  const handleCloseResetDialog = () => {
+    if (resetLoading) return
+    setResetDialogOpen(false)
+    setResetError(null)
+    setResetPayload(null)
+  }
+
+  const handleCopyReset = async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value)
+    } catch {
+      setResetError('No se pudo copiar al portapapeles')
     }
   }
 
@@ -1574,15 +1615,18 @@ const AdminDashboardPage = () => {
                     {selectedRecord.plan && (
                       <Stack spacing={0.75}>
                         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                          <Typography variant="body2">{getPlanLabel(selectedRecord.plan)}</Typography>
-                          <Button size="small" variant="outlined" onClick={handleOpenMacroDialog}>
-                            Editar macros
-                          </Button>
-                          {canEnablePlan && (
-                            <Button
-                              size="small"
-                              variant="contained"
-                              color="success"
+                            <Typography variant="body2">{getPlanLabel(selectedRecord.plan)}</Typography>
+                            <Button size="small" variant="outlined" onClick={handleOpenMacroDialog}>
+                              Editar macros
+                            </Button>
+                            <Button size="small" variant="outlined" onClick={handleOpenResetDialog}>
+                              Recuperar contrasena
+                            </Button>
+                            {canEnablePlan && (
+                              <Button
+                                size="small"
+                                variant="contained"
+                                color="success"
                               onClick={handleEnablePlan}
                               disabled={enablePlanLoading}
                             >
@@ -1863,6 +1907,67 @@ const AdminDashboardPage = () => {
           >
             {closePlanLoading ? 'Cerrando...' : 'Cerrar plan'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={resetDialogOpen} onClose={handleCloseResetDialog} fullWidth maxWidth="sm">
+        <DialogTitle>Recuperar contrasena</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ mt: 0.5 }}>
+            <Typography variant="body2">
+              Genera un enlace de recuperacion y compartelo con el usuario por el canal que prefieras.
+            </Typography>
+            {resetError && <Alert severity="warning">{resetError}</Alert>}
+            {resetLoading && <Typography variant="caption">Generando enlace...</Typography>}
+            {resetPayload && (
+              <>
+                <TextField
+                  label="Email"
+                  value={resetPayload.email}
+                  InputProps={{ readOnly: true }}
+                  fullWidth
+                />
+                <TextField
+                  label="Enlace de recuperacion"
+                  value={resetPayload.resetUrl}
+                  InputProps={{ readOnly: true }}
+                  fullWidth
+                  multiline
+                  minRows={2}
+                />
+                <TextField
+                  label="Token"
+                  value={resetPayload.token}
+                  InputProps={{ readOnly: true }}
+                  fullWidth
+                />
+                <Typography variant="caption" color="text.secondary">
+                  Expira: {dayjs(resetPayload.expiresAt).format('DD/MM/YYYY HH:mm')}
+                </Typography>
+              </>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseResetDialog} disabled={resetLoading}>
+            Cerrar
+          </Button>
+          {resetPayload && (
+            <Button
+              variant="outlined"
+              onClick={() => handleCopyReset(resetPayload.resetUrl)}
+            >
+              Copiar enlace
+            </Button>
+          )}
+          {resetPayload && (
+            <Button
+              variant="contained"
+              onClick={() => handleCopyReset(resetPayload.token)}
+            >
+              Copiar token
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
 

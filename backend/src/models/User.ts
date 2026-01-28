@@ -8,6 +8,8 @@ export type UserDoc = {
   email?: string
   passwordHash?: string
   passwordSalt?: string
+  resetPasswordTokenHash?: string
+  resetPasswordTokenExpiresAt?: Date
   role: UserRole
   status: UserStatus
 } & Document
@@ -18,6 +20,8 @@ const userSchema = new Schema(
     email: { type: String, trim: true, lowercase: true, index: true, sparse: true },
     passwordHash: { type: String },
     passwordSalt: { type: String },
+    resetPasswordTokenHash: { type: String },
+    resetPasswordTokenExpiresAt: { type: Date },
     role: { type: String, enum: ['admin', 'member'], default: 'member' },
     status: { type: String, enum: ['active', 'disabled'], default: 'active' },
   },

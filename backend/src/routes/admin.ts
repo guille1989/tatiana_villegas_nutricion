@@ -6,6 +6,7 @@ import { InviteCodeModel } from '../models/InviteCode'
 import { PlanDayOverrideModel } from '../models/PlanDayOverride'
 import { PlanModel } from '../models/Plan'
 import { UserModel } from '../models/User'
+import { env } from '../config/env'
 import { authMiddleware, requireAdmin } from '../middleware/auth'
 import { asyncHandler } from '../utils/asyncHandler'
 import { badRequest } from '../utils/apiError'
@@ -25,6 +26,8 @@ const inviteSchema = z.object({
 const hashCode = (value: string) => crypto.createHash('sha256').update(value).digest('hex')
 
 const generateCode = () => crypto.randomBytes(8).toString('hex').toUpperCase()
+
+const RESET_TOKEN_TTL_MINUTES = 60
 
 const mapInvite = (invite: {
   _id: unknown
@@ -120,6 +123,31 @@ router.get(
     )
 
     res.json({ users: summaries })
+  }),
+)
+
+router.post(
+  '/users/:userId/reset-password',
+  asyncHandler(async (req, res) => {
+    const { userId } = req.params
+    const user = await UserModel.findById(userId)
+    if (!user || user.status !== 'active') throw badRequest('Usuario no encontrado')
+    if (!user.email) throw badRequest('Usuario sin email registrado')
+
+    const rawToken = crypto.randomBytes(32).toString('hex')
+    user.resetPasswordTokenHash = hashCode(rawToken)
+    user.resetPasswordTokenExpiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MINUTES * 60 * 1000)
+    await user.save()
+
+    const baseUrl = env.clientUrl.replace(/\/$/, '')
+    const resetUrl = `${baseUrl}/reset-password?token=${rawToken}&email=${encodeURIComponent(user.email)}`
+
+    res.json({
+      token: rawToken,
+      resetUrl,
+      expiresAt: user.resetPasswordTokenExpiresAt,
+      email: user.email,
+    })
   }),
 )
 

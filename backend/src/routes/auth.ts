@@ -25,6 +25,12 @@ const loginSchema = z.object({
   password: z.string().min(6),
 })
 
+const resetPasswordSchema = z.object({
+  email: z.string().trim().email(),
+  token: z.string().min(10),
+  password: z.string().min(6),
+})
+
 router.post(
   '/claim-invite',
   asyncHandler(async (req, res) => {
@@ -120,6 +126,39 @@ router.post(
         email: user.email ?? undefined,
       },
     })
+  }),
+)
+
+router.post(
+  '/reset-password',
+  asyncHandler(async (req, res) => {
+    const parsed = resetPasswordSchema.safeParse(req.body)
+    if (!parsed.success) throw badRequest('Validation failed', parsed.error.flatten())
+
+    const email = parsed.data.email.trim().toLowerCase()
+    const user = await UserModel.findOne({ email, status: 'active' })
+    if (!user || !user.resetPasswordTokenHash || !user.resetPasswordTokenExpiresAt) {
+      throw badRequest('Token invalido')
+    }
+
+    const now = new Date()
+    if (user.resetPasswordTokenExpiresAt.getTime() < now.getTime()) {
+      throw badRequest('Token expirado')
+    }
+
+    const tokenHash = hashCode(parsed.data.token)
+    if (tokenHash !== user.resetPasswordTokenHash) {
+      throw badRequest('Token invalido')
+    }
+
+    const { hash, salt } = await hashPassword(parsed.data.password)
+    user.passwordHash = hash
+    user.passwordSalt = salt
+    user.resetPasswordTokenHash = undefined
+    user.resetPasswordTokenExpiresAt = undefined
+    await user.save()
+
+    res.json({ ok: true })
   }),
 )
 

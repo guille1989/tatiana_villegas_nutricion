@@ -273,6 +273,15 @@ export const login = async (payload: { email: string; password: string }) => {
   return data
 }
 
+export const resetPassword = async (payload: { email: string; token: string; password: string }) => {
+  const { data, error } = await request<{ ok: boolean }>('/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  if (error) throw new Error(error)
+  return data
+}
+
 export const bootstrapAdmin = async (payload: {
   secret: string
   name?: string
@@ -315,6 +324,19 @@ export const getAdminOverview = async () => {
     plan: item.plan ? mapPlan(item.plan) : undefined,
     overrides: (item.overrides ?? []).map(mapOverride),
   }))
+}
+
+export const createAdminPasswordReset = async (userId: string) => {
+  const { data, error } = await request<{
+    token: string
+    resetUrl: string
+    expiresAt: string
+    email: string
+  }>(`/admin/users/${userId}/reset-password`, {
+    method: 'POST',
+  })
+  if (error) throw new Error(error)
+  return data
 }
 
 export const listAdminIngredients = async (params?: {

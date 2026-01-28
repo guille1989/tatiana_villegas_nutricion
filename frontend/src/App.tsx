@@ -24,6 +24,7 @@ import AccessPage from './pages/AccessPage'
 import PlanDetailPage from './pages/PlanDetailPage'
 import PlanPendingPage from './pages/PlanPendingPage'
 import PlansPage from './pages/PlansPage'
+import ResetPasswordPage from './pages/ResetPasswordPage'
 import WizardPage from './pages/WizardPage'
 
 const theme = createTheme({
@@ -281,6 +282,7 @@ const AppShell = () => {
       <Routes>
         <Route path="/" element={renderMemberLanding()} />
         <Route path="/access" element={token ? renderMemberLanding() : <AccessPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route
           path="/wizard"
           element={

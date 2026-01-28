@@ -92,6 +92,7 @@ const AccessPage = () => {
     }
   }
 
+
   const handleBootstrapAdmin = async () => {
     const secret = adminSecret.trim()
     if (!secret) {
@@ -157,6 +158,30 @@ const AccessPage = () => {
                 {loginLoading ? 'Ingresando...' : 'Iniciar sesion'}
               </Button>
             </Stack>
+
+            <Divider />
+
+            <Accordion>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography variant="subtitle1" fontWeight={700}>
+                  Â¿Olvidaste tu contrasena?
+                </Typography>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Stack spacing={1.5}>
+                  <Typography variant="body2" color="text.secondary">
+                    Pide a tu nutricionista/admin un enlace o codigo de recuperacion.
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    onClick={() => navigate('/reset-password')}
+                    fullWidth
+                  >
+                    Tengo un codigo de recuperacion
+                  </Button>
+                </Stack>
+              </AccordionDetails>
+            </Accordion>
 
             <Divider />
 
