@@ -8,4 +8,4 @@ export type TokenPayload = {
 }
 
 export const signToken = (user: { id: string; role: UserDoc['role'] }) =>
-  jwt.sign({ sub: user.id, role: user.role } satisfies TokenPayload, env.jwtSecret, { expiresIn: '7d' })
+  jwt.sign({ sub: user.id, role: user.role } satisfies TokenPayload, env.jwtSecret)
