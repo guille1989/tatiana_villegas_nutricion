@@ -358,14 +358,6 @@ const DayEditDialog = ({
                           ? `${session.durationMin} min`
                           : "Sin duracion"}
                       </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        ·
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {session?.met
-                          ? `MET ${session.met}`
-                          : "MET sin definir"}
-                      </Typography>
                     </Stack>
                   </Box>
                   <IconButton
