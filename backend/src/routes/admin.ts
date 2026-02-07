@@ -9,7 +9,7 @@ import { UserModel } from '../models/User'
 import { env } from '../config/env'
 import { authMiddleware, requireAdmin } from '../middleware/auth'
 import { asyncHandler } from '../utils/asyncHandler'
-import { badRequest } from '../utils/apiError'
+import { badRequest, notFound } from '../utils/apiError'
 import ingredientRoutes from './adminIngredients'
 
 const router = Router()
@@ -21,6 +21,10 @@ const inviteSchema = z.object({
   role: z.enum(['admin', 'member']).optional(),
   maxUses: z.coerce.number().min(1).max(50).optional(),
   expiresInDays: z.coerce.number().min(1).max(365).optional(),
+})
+
+const userStatusSchema = z.object({
+  status: z.enum(['active', 'disabled']),
 })
 
 const hashCode = (value: string) => crypto.createHash('sha256').update(value).digest('hex')
@@ -94,7 +98,7 @@ router.get(
 router.get(
   '/overview',
   asyncHandler(async (_req, res) => {
-    const users = await UserModel.find({ role: 'member', status: 'active' }).sort({ createdAt: -1 })
+    const users = await UserModel.find({ role: 'member' }).sort({ createdAt: -1 })
 
     const summaries = await Promise.all(
       users.map(async (user) => {
@@ -123,6 +127,29 @@ router.get(
     )
 
     res.json({ users: summaries })
+  }),
+)
+
+router.put(
+  '/users/:userId/status',
+  asyncHandler(async (req, res) => {
+    const parsed = userStatusSchema.safeParse(req.body)
+    if (!parsed.success) throw badRequest('Validation failed', parsed.error.flatten())
+
+    const { userId } = req.params
+    const user = await UserModel.findById(userId)
+    if (!user) throw notFound('Usuario no encontrado')
+    if (user.role !== 'member') throw badRequest('Solo se puede modificar miembros')
+
+    user.status = parsed.data.status
+    await user.save()
+
+    res.json({
+      user: {
+        id: user._id.toString(),
+        status: user.status,
+      },
+    })
   }),
 )
 

@@ -25,6 +25,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   TextField,
@@ -40,6 +41,7 @@ import {
   getAdminOverview,
   listInvites,
   upsertPlanMacroOverride,
+  updateUserStatus,
   updatePlanStatus,
   type AdminOverviewItem,
   type Invite,
@@ -93,6 +95,7 @@ type AdminRecord = {
   userId: string
   userName?: string
   userCreatedAt?: string
+  userStatus: 'active' | 'disabled'
   latestAssessment?: Assessment | null
   plan?: Plan | null
   overrides: DayOverride[]
@@ -124,6 +127,16 @@ const STATUS_COLORS: Record<string, 'success' | 'warning' | 'default'> = {
   active: 'success',
   draft: 'warning',
   archived: 'default',
+}
+
+const USER_STATUS_LABELS: Record<'active' | 'disabled', string> = {
+  active: 'Activo',
+  disabled: 'Bloqueado',
+}
+
+const USER_STATUS_COLORS: Record<'active' | 'disabled', 'success' | 'error'> = {
+  active: 'success',
+  disabled: 'error',
 }
 
 const INVITE_STATUS_COLORS: Record<string, 'success' | 'warning' | 'error' | 'default'> = {
@@ -725,6 +738,8 @@ const AdminDashboardPage = () => {
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
   const [resetLoading, setResetLoading] = useState(false)
   const [resetError, setResetError] = useState<string | null>(null)
+  const [userStatusLoading, setUserStatusLoading] = useState(false)
+  const [userStatusError, setUserStatusError] = useState<string | null>(null)
   const [resetPayload, setResetPayload] = useState<{
     token: string
     resetUrl: string
@@ -797,6 +812,7 @@ const AdminDashboardPage = () => {
             userId: item.user.id,
             userName: item.user.name,
             userCreatedAt: item.user.createdAt,
+            userStatus: item.user.status,
             latestAssessment: item.assessment ?? null,
             plan: item.plan ?? null,
             overrides,
@@ -1039,6 +1055,25 @@ const AdminDashboardPage = () => {
       setEnablePlanError(err instanceof Error ? err.message : 'No se pudo habilitar el plan')
     } finally {
       setEnablePlanLoading(false)
+    }
+  }
+
+  const handleToggleUserStatus = async () => {
+    if (!selectedRecord) return
+    const nextStatus = selectedRecord.userStatus === 'active' ? 'disabled' : 'active'
+    setUserStatusLoading(true)
+    setUserStatusError(null)
+    try {
+      const updated = await updateUserStatus(selectedRecord.userId, nextStatus)
+      setRecords((prev) =>
+        prev.map((record) =>
+          record.userId === selectedRecord.userId ? { ...record, userStatus: updated.status } : record,
+        ),
+      )
+    } catch (err) {
+      setUserStatusError(err instanceof Error ? err.message : 'No se pudo actualizar el estado del usuario')
+    } finally {
+      setUserStatusLoading(false)
     }
   }
 
@@ -1484,11 +1519,13 @@ const AdminDashboardPage = () => {
         </Card>
 
         <Stack direction={{ xs: 'column', lg: 'row' }} spacing={3} alignItems="flex-start">
-          <Paper sx={{ flex: 2, width: '100%' }}>
-            <Table>
+          <Paper sx={{ flex: { lg: 2.2 }, width: '100%', minWidth: 0 }}>
+            <TableContainer sx={{ width: '100%', overflowX: 'auto' }}>
+              <Table sx={{ minWidth: 880 }}>
               <TableHead>
                 <TableRow>
                   <TableCell>Socio</TableCell>
+                  <TableCell>Cuenta</TableCell>
                   <TableCell>Incorporacion</TableCell>
                   <TableCell>Plan activo</TableCell>
                   <TableCell>Objetivo</TableCell>
@@ -1501,7 +1538,7 @@ const AdminDashboardPage = () => {
                 {loading &&
                   Array.from({ length: 4 }).map((_, idx) => (
                     <TableRow key={idx}>
-                      <TableCell colSpan={6}>
+                      <TableCell colSpan={8}>
                         <Skeleton variant="rectangular" height={36} />
                       </TableCell>
                     </TableRow>
@@ -1509,7 +1546,7 @@ const AdminDashboardPage = () => {
 
                 {!loading && filteredRecords.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6}>
+                    <TableCell colSpan={8}>
                       <Alert severity="info">No hay socios con esos filtros.</Alert>
                     </TableCell>
                   </TableRow>
@@ -1518,9 +1555,12 @@ const AdminDashboardPage = () => {
                 {!loading &&
                   filteredRecords.map((record) => {
                     const status = record.plan?.status ?? 'none'
+                    const accountStatus = record.userStatus
                     const goal = record.latestAssessment?.inputs.goal
                     const statusLabel = STATUS_LABELS[status] ?? 'Sin plan'
                     const statusColor = STATUS_COLORS[status] ?? 'default'
+                    const accountLabel = USER_STATUS_LABELS[accountStatus] ?? accountStatus
+                    const accountColor = USER_STATUS_COLORS[accountStatus] ?? 'success'
                     const planLabel = getPlanLabel(record.plan)
                     const createdAt = record.userCreatedAt ? dayjs(record.userCreatedAt).format('DD MMM YYYY') : '--'
                     const lastUpdate = record.lastUpdate ? dayjs(record.lastUpdate).format('DD MMM YYYY') : '--'
@@ -1550,6 +1590,9 @@ const AdminDashboardPage = () => {
                               {record.userId}
                             </Typography>
                           </Stack>
+                        </TableCell>
+                        <TableCell>
+                          <Chip size="small" label={accountLabel} color={accountColor} />
                         </TableCell>
                         <TableCell>{createdAt}</TableCell>
                         <TableCell>
@@ -1590,10 +1633,20 @@ const AdminDashboardPage = () => {
                     )
                   })}
               </TableBody>
-            </Table>
+              </Table>
+            </TableContainer>
           </Paper>
 
-          <Card elevation={0} sx={{ flex: 1, width: '100%', position: 'sticky', top: 24 }}>
+          <Card
+            elevation={0}
+            sx={{
+              flex: { lg: 1.4 },
+              width: '100%',
+              minWidth: { lg: 360, xl: 420 },
+              position: 'sticky',
+              top: 24,
+            }}
+          >
             <CardContent>
               {loading ? (
                 <Stack spacing={2}>
@@ -1612,6 +1665,31 @@ const AdminDashboardPage = () => {
                     <Typography variant="body2" color="text.secondary">
                       {selectedRecord.userId}
                     </Typography>
+                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                      <Chip
+                        size="small"
+                        label={USER_STATUS_LABELS[selectedRecord.userStatus] ?? selectedRecord.userStatus}
+                        color={USER_STATUS_COLORS[selectedRecord.userStatus]}
+                      />
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color={selectedRecord.userStatus === 'disabled' ? 'success' : 'error'}
+                        onClick={handleToggleUserStatus}
+                        disabled={userStatusLoading}
+                      >
+                        {userStatusLoading
+                          ? 'Actualizando...'
+                          : selectedRecord.userStatus === 'disabled'
+                            ? 'Reactivar cuenta'
+                            : 'Bloquear cuenta'}
+                      </Button>
+                    </Stack>
+                    {userStatusError && (
+                      <Typography variant="caption" color="error">
+                        {userStatusError}
+                      </Typography>
+                    )}
                     {selectedRecord.plan && (
                       <Stack spacing={0.75}>
                         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">

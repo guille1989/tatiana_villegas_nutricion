@@ -339,6 +339,20 @@ export const createAdminPasswordReset = async (userId: string) => {
   return data
 }
 
+export const updateUserStatus = async (userId: string, status: 'active' | 'disabled') => {
+  const { data, error } = await request<{
+    user: {
+      id: string
+      status: 'active' | 'disabled'
+    }
+  }>(`/admin/users/${userId}/status`, {
+    method: 'PUT',
+    body: JSON.stringify({ status }),
+  })
+  if (error) throw new Error(error)
+  return data.user
+}
+
 export const listAdminIngredients = async (params?: {
   query?: string
   group?: Ingredient['group'] | 'all'
