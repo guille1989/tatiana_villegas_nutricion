@@ -1193,7 +1193,7 @@ const PlanDetailPage = () => {
                 ? "Entreno"
                 : "Descanso";
             const dayMeals = getDayMeals(date);
-            const dayTotals = totalsFromMeals(dayMeals);
+            const dayMacroSources = calcMacroSources(dayMeals);
             const budgetPortions = outputs
               ? {
                   protein: outputs.protein / 10,
@@ -1201,14 +1201,38 @@ const PlanDetailPage = () => {
                   fat: outputs.fatsAdjusted / 5,
                 }
               : { protein: 0, carbs: 0, fat: 0 };
-            const remainingPortions = outputs
+            const usedPortions = {
+              protein: dayMacroSources.protein.direct / 10,
+              carbs: dayMacroSources.carbs.total / 15,
+              fat: dayMacroSources.fat.total / 5,
+            };
+            const remainingRawPortions = outputs
               ? {
-                  protein: outputs.protein / 10 - dayTotals.protein / 10,
-                  carbs: outputs.carbsAdjusted / 15 - dayTotals.carbs / 15,
-                  fat: outputs.fatsAdjusted / 5 - dayTotals.fat / 5,
+                  protein: outputs.protein / 10 - usedPortions.protein,
+                  carbs: outputs.carbsAdjusted / 15 - usedPortions.carbs,
+                  fat: outputs.fatsAdjusted / 5 - usedPortions.fat,
                 }
               : { protein: 0, carbs: 0, fat: 0 };
-            const status = getDayStatus(remainingPortions, budgetPortions);
+            const remainingPortions = outputs
+              ? {
+                  protein:
+                    Math.abs(remainingRawPortions.protein) <=
+                    getTol(budgetPortions.protein, "protein")
+                      ? 0
+                      : remainingRawPortions.protein,
+                  carbs:
+                    Math.abs(remainingRawPortions.carbs) <=
+                    getTol(budgetPortions.carbs, "carbs")
+                      ? 0
+                      : remainingRawPortions.carbs,
+                  fat:
+                    Math.abs(remainingRawPortions.fat) <=
+                    getTol(budgetPortions.fat, "fat")
+                      ? 0
+                      : remainingRawPortions.fat,
+                }
+              : { protein: 0, carbs: 0, fat: 0 };
+            const status = getDayStatus(remainingRawPortions, budgetPortions);
             const statusColor = statusColorMap[status];
             const statusLabel =
               status === "ok"
