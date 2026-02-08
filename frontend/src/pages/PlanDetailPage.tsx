@@ -120,6 +120,7 @@ const PlanDetailPage = () => {
   const { isAdmin } = useAuth();
   const detailRef = useRef<HTMLDivElement | null>(null);
   const initialSelectionDoneRef = useRef(false);
+  const cloneLibraryRequestedRef = useRef(false);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [assessment, setAssessment] = useState<Assessment | null>(null);
   const [overrides, setOverrides] = useState<DayOverride[]>([]);
@@ -252,11 +253,16 @@ const PlanDetailPage = () => {
   }, [selectedDate]);
 
   useEffect(() => {
-    if (!cloneOpen) return;
-    if (!mealLibraryLoading && mealLibrary.length === 0) {
+    if (!cloneOpen) {
+      cloneLibraryRequestedRef.current = false;
+      return;
+    }
+    if (cloneLibraryRequestedRef.current) return;
+    cloneLibraryRequestedRef.current = true;
+    if (mealLibrary.length === 0) {
       void loadMealLibrary();
     }
-  }, [cloneOpen, mealLibraryLoading, mealLibrary.length]);
+  }, [cloneOpen, mealLibrary.length]);
 
   useEffect(() => {
     if (!cloneOpen) return;
