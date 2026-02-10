@@ -436,35 +436,6 @@ const DayEditDialog = ({
                         />
                       )}
                     />
-                    <Controller
-                      name={`trainings.${idx}.met`}
-                      control={control}
-                      render={({ field }) => (
-                        <TextField
-                          {...field}
-                          type="number"
-                          label="MET (editable)"
-                          fullWidth
-                          size="small"
-                          required
-                          inputProps={{ min: 1, max: 30, step: 0.1 }}
-                          value={field.value ?? ""}
-                          disabled
-                          onChange={(event) =>
-                            field.onChange(
-                              event.target.value === ""
-                                ? undefined
-                                : Number(event.target.value)
-                            )
-                          }
-                          error={!!errors.trainings?.[idx]?.met}
-                          helperText={
-                            (errors.trainings?.[idx] as any)?.met?.message ??
-                            "Se precarga segun el tipo elegido"
-                          }
-                        />
-                      )}
-                    />
                   </Stack>
                 </Stack>
               </AccordionDetails>
