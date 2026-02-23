@@ -1,5 +1,5 @@
 import { calculateInitials, adjustCarbFat, getEeeFactor } from './calc'
-import type { DayOverrideInputs, WizardInputs } from '../types'
+import type { DayOverrideInputs, WizardInputs } from '../domainTypes'
 import { metMap } from './metMap'
 
 const roundInt = (v: number) => Math.round(v)

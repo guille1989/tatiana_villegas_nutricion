@@ -1,5 +1,5 @@
 import { metMap } from './metMap'
-import type { WizardInputs } from '../types'
+import type { WizardInputs } from '../domainTypes'
 
 const roundInt = (v: number) => Math.round(v)
 const round1 = (v: number) => Math.round(v * 10) / 10

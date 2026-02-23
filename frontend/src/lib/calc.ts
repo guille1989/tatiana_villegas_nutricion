@@ -26,15 +26,16 @@ export { getCarbFactor, getEeeFactor }
 export { MACRO_PORTION_GRAMS }
 
 export const calculateInitials = (inputs: WizardInputs): CalculationResult =>
-  calculateInitialsCore(inputs as unknown as import('../../../backend/src/modules/types.ts').WizardInputs).outputs as CalculationResult
+  calculateInitialsCore(inputs as unknown as import('../../../backend/src/modules/domainTypes.ts').WizardInputs)
+    .outputs as CalculationResult
 
 export const calculateDayFromBase = (
   baseInputs: WizardInputs,
   overrideInputs: DayOverrideInputs,
 ): CalculationResult =>
   calculateDayFromBaseCore(
-    baseInputs as unknown as import('../../../backend/src/modules/types.ts').WizardInputs,
-    overrideInputs as unknown as import('../../../backend/src/modules/types.ts').DayOverrideInputs,
+    baseInputs as unknown as import('../../../backend/src/modules/domainTypes.ts').WizardInputs,
+    overrideInputs as unknown as import('../../../backend/src/modules/domainTypes.ts').DayOverrideInputs,
   ).outputs as CalculationResult
 
 export const calcKcalFromMacros = (macros: MacroOverrideValue) => calcKcalFromMacrosCore(macros)
@@ -65,7 +66,7 @@ export const applyMacroOverrideToOutputs = <T extends CalculationOutputs>({
     overrideMacros,
     dayType,
     trainingType,
-    goal: goal as import('../../../backend/src/modules/types.ts').WizardInputs['goal'],
+    goal: goal as import('../../../backend/src/modules/domainTypes.ts').WizardInputs['goal'],
     weight,
     activityDelta,
   })
