@@ -1,6 +1,7 @@
 import type { Food } from '../types'
 import foodsLocal from '../data/foods.json'
 import { searchFoodsApi } from './api'
+import { MACRO_PORTION_GRAMS } from './calc'
 
 const localFoods: Food[] = (foodsLocal as Food[]).map((f) => ({
   ...f,
@@ -113,15 +114,15 @@ export const gramsFromPortions = (food: Food, portions: number) => {
   if (isNonMacroGroup(food)) return fallback()
   if (food.group === 'proteinas') {
     if (!food.prot_100g) return fallback()
-    return (portions * 10 * 100) / food.prot_100g
+    return (portions * MACRO_PORTION_GRAMS.protein * 100) / food.prot_100g
   }
   if (food.group === 'carbohidratos') {
     if (!food.cho_100g) return fallback()
-    return (portions * 15 * 100) / food.cho_100g
+    return (portions * MACRO_PORTION_GRAMS.carbs * 100) / food.cho_100g
   }
   if (food.group === 'grasas') {
     if (!food.fat_100g) return fallback()
-    return (portions * 5 * 100) / food.fat_100g
+    return (portions * MACRO_PORTION_GRAMS.fat * 100) / food.fat_100g
   }
   return fallback()
 }

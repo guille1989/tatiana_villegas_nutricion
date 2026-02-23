@@ -1,5 +1,6 @@
 import {
   AppBar,
+  Badge,
   Button,
   Box,
   CssBaseline,
@@ -13,17 +14,26 @@ import {
 } from '@mui/material'
 import { LocalizationProvider } from '@mui/x-date-pickers'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
-import { useEffect, useState, type PropsWithChildren } from 'react'
-import { BrowserRouter, Link as RouterLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useState, type PropsWithChildren } from 'react'
+import {
+  BrowserRouter,
+  Link as RouterLink,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from 'react-router-dom'
 import WhatsAppIcon from '@mui/icons-material/WhatsApp'
 import './App.css'
 import { AuthProvider, useAuth } from './context/AuthContext'
-import { listPlans } from './lib/api'
+import { getUnreadInboxCount, listPlans } from './lib/api'
 import AdminDashboardPage from './pages/AdminDashboardPage'
 import AccessPage from './pages/AccessPage'
 import PlanDetailPage from './pages/PlanDetailPage'
 import PlanPendingPage from './pages/PlanPendingPage'
 import PlansPage from './pages/PlansPage'
+import MessagesPage from './pages/MessagesPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import WizardPage from './pages/WizardPage'
 
@@ -73,6 +83,7 @@ const WHATSAPP_SUPPORT_NUMBER = (import.meta.env.VITE_WHATSAPP_NUMBER ?? '').tri
 const WHATSAPP_SUPPORT_MESSAGE = 'Hola, necesito ayuda con mi plan nutricional.'
 const WHATSAPP_BUTTON_OFFSET = { xs: 16, sm: 24 }
 const WHATSAPP_BUTTON_ENABLED = true
+const MESSAGES_ENABLED = `${import.meta.env.VITE_MESSAGES_ENABLED ?? ''}`.toLowerCase() === 'true'
 
 const buildWhatsAppLink = (rawNumber: string, message: string) => {
   const digits = rawNumber.replace(/[^\d]/g, '')
@@ -158,6 +169,13 @@ const RequireAdmin = ({ children }: PropsWithChildren) => {
   return <>{children}</>
 }
 
+const RequireMember = ({ children }: PropsWithChildren) => {
+  const { token, isAdmin } = useAuth()
+  if (!token) return <Navigate to="/access" replace />
+  if (isAdmin) return <Navigate to="/admin" replace />
+  return <>{children}</>
+}
+
 const RequireWizard = ({
   children,
   planGate,
@@ -224,8 +242,32 @@ const RequirePendingPlan = ({
 const AppShell = () => {
   const { token, isAdmin, logout } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const planGate = useMemberPlanStatus(!!token && !isAdmin)
   const whatsappHref = buildWhatsAppLink(WHATSAPP_SUPPORT_NUMBER, WHATSAPP_SUPPORT_MESSAGE)
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0)
+  const showAdminSectionNav = isAdmin && location.pathname.startsWith('/admin')
+  const adminSection = new URLSearchParams(location.search).get('section') === 'ingredients' ? 'ingredients' : 'overview'
+
+  const refreshUnreadMessageCount = useCallback(async () => {
+    if (!MESSAGES_ENABLED || !token || isAdmin) {
+      setUnreadMessageCount(0)
+      return
+    }
+    try {
+      const count = await getUnreadInboxCount()
+      setUnreadMessageCount(count)
+    } catch {
+      // Keep previous counter state on transient failures.
+    }
+  }, [isAdmin, token])
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void refreshUnreadMessageCount()
+    }, 0)
+    return () => window.clearTimeout(timeoutId)
+  }, [location.pathname, refreshUnreadMessageCount])
 
   const renderMemberLanding = () => {
     if (!token) return <Navigate to="/access" replace />
@@ -259,13 +301,50 @@ const AppShell = () => {
           <Stack direction="row" spacing={1}>
             {token ? (
               <>
-                <Button component={RouterLink} to="/plans" color="primary">
-                  Planes
-                </Button>
-                {isAdmin && (
-                  <Button component={RouterLink} to="/admin" color="primary">
-                    Admin
+                {!isAdmin && MESSAGES_ENABLED && (
+                  <Badge
+                    color="error"
+                    badgeContent={unreadMessageCount > 99 ? '99+' : unreadMessageCount}
+                    invisible={unreadMessageCount < 1}
+                  >
+                    <Button component={RouterLink} to="/messages" color="primary">
+                      Mensajes
+                    </Button>
+                  </Badge>
+                )}
+                {!isAdmin && (
+                  <Button component={RouterLink} to="/plans" color="primary">
+                    Planes
                   </Button>
+                )}
+                {isAdmin && (
+                  <>
+                    {!showAdminSectionNav && (
+                      <Button component={RouterLink} to="/admin" color="primary">
+                        Admin
+                      </Button>
+                    )}
+                    {showAdminSectionNav && (
+                      <>
+                        <Button
+                          component={RouterLink}
+                          to="/admin?section=overview"
+                          color="primary"
+                          variant={adminSection === 'overview' ? 'contained' : 'text'}
+                        >
+                          Resumen
+                        </Button>
+                        <Button
+                          component={RouterLink}
+                          to="/admin?section=ingredients"
+                          color="primary"
+                          variant={adminSection === 'ingredients' ? 'contained' : 'text'}
+                        >
+                          Ingredientes
+                        </Button>
+                      </>
+                    )}
+                  </>
                 )}
                 <Button onClick={handleLogout} color="primary">
                   Salir
@@ -315,11 +394,29 @@ const AppShell = () => {
             </RequireActivePlan>
           }
         />
+        {MESSAGES_ENABLED && (
+          <Route
+            path="/messages"
+            element={
+              <RequireMember>
+                <MessagesPage onUnreadCountRefresh={refreshUnreadMessageCount} />
+              </RequireMember>
+            }
+          />
+        )}
         <Route
           path="/admin"
           element={
             <RequireAdmin>
               <AdminDashboardPage />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/client/:userId"
+          element={
+            <RequireAdmin>
+              <AdminDashboardPage mode="client-detail" />
             </RequireAdmin>
           }
         />

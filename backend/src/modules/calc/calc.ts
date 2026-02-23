@@ -18,7 +18,7 @@ const carbFactorRules: Array<{ factor: number; types?: ReadonlySet<string>; pref
   {
     factor: 0.75,
     types: new Set(['circuit_training', 'bootcamp']),
-    prefixes: ['hiit', 'crossfit', 'elliptical_', 'rowing_'],
+    prefixes: ['hiit', 'crossfit', 'cardio_', 'elliptical_', 'rowing_'],
   },
   { factor: 0.6, types: new Set(['mobility']), prefixes: ['pilates_', 'yoga_'] },
 ]
@@ -37,35 +37,81 @@ export const getCarbFactor = (dayType: WizardInputs['dayType'], trainingType?: W
   return getTrainingCarbFactor(trainingType)
 }
 
+export type MacroOverrideValue = {
+  protein: number
+  carbsAdjusted: number
+  fatsAdjusted: number
+}
+
+export type MacroGramsValue = {
+  protein: number
+  carbs: number
+  fat: number
+}
+
+export const MACRO_PORTION_GRAMS = {
+  protein: 10,
+  carbs: 15,
+  fat: 5,
+} as const
+
+export type MacroPortionKey = keyof typeof MACRO_PORTION_GRAMS
+
+export const toMacroPortionValue = (grams: number, macro: MacroPortionKey) =>
+  grams / MACRO_PORTION_GRAMS[macro]
+
+export const toMacroPortions = (macros: MacroGramsValue) => ({
+  protein: toMacroPortionValue(macros.protein, 'protein'),
+  carbs: toMacroPortionValue(macros.carbs, 'carbs'),
+  fat: toMacroPortionValue(macros.fat, 'fat'),
+})
+
+export const getMacroKcalBreakdown = (macros: MacroGramsValue) => {
+  const proteinKcal = macros.protein * 4
+  const carbsKcal = macros.carbs * 4
+  const fatKcal = macros.fat * 9
+  return {
+    proteinKcal,
+    carbsKcal,
+    fatKcal,
+    totalKcal: proteinKcal + carbsKcal + fatKcal,
+  }
+}
+
+export const calcKcalFromMacroGrams = (macros: MacroGramsValue) =>
+  Math.round(getMacroKcalBreakdown(macros).totalKcal)
+
+export const calcKcalFromMacros = (macros: MacroOverrideValue) =>
+  calcKcalFromMacroGrams({
+    protein: macros.protein,
+    carbs: macros.carbsAdjusted,
+    fat: macros.fatsAdjusted,
+  })
+
 export const adjustCarbFat = ({
-  protein,
   fats,
   carbs,
-  kcalObjectiveDay,
   dayType,
   trainingType,
   eee = 0,
   goal,
   weight,
-  source = 'unknown',
 }: {
-  protein: number
   fats: number
   carbs: number
-  kcalObjectiveDay: number
   dayType: WizardInputs['dayType']
   trainingType?: WizardInputs['trainingType'] | null
   eee?: number
   goal?: WizardInputs['goal'] | null
   weight: number
-  source?: string
 }) => {
-  const carbFactor = dayType === 'training' ? getCarbFactor(dayType, trainingType) : 0.85
+  const carbFactor = dayType === 'training' ? getCarbFactor(dayType, trainingType) : 0
   const fatFactor = dayType === 'training' ? 1 - carbFactor : 0
-  const eeeFactor = goal ? getEeeFactor(goal) : 1
-  const rec = goal === 'fat_loss' ? 0.7 : 1
+  // Mirror spreadsheet behavior from "Calculos iniciales" (AH/AI): macro redistribution uses full EEE.
+  void goal
+  const rec = 1
   const grasaMin = 0.6 * weight
-  const eeeSafe = Math.max(eee, 0)  
+  const eeeSafe = Math.max(eee, 0)
   const baseCarbs = Math.max(carbs, 0)
   let carbsAdjusted: number
   if (dayType === 'training') {
@@ -79,9 +125,63 @@ export const adjustCarbFat = ({
   if (dayType === 'training') {
     const extraFat = (eeeSafe * rec * fatFactor) / 9
     fatsAdjusted = baseFats + extraFat
+    fatsAdjusted = round1(Math.max(grasaMin, fatsAdjusted))
+  } else {
+    fatsAdjusted = round1(baseFats)
   }
-  fatsAdjusted = round1(Math.max(grasaMin, fatsAdjusted))
   return { carbsAdjusted, fatsAdjusted }
+}
+
+export type MacroOutputsLike = {
+  eee?: number
+  kcalObjectiveDay: number
+  protein: number
+  carbsAdjusted: number
+  fatsAdjusted: number
+}
+
+export const applyMacroOverrideToOutputs = <T extends MacroOutputsLike>({
+  outputs,
+  overrideMacros,
+  dayType,
+  trainingType,
+  goal,
+  weight,
+  activityDelta = 0,
+}: {
+  outputs: T
+  overrideMacros: MacroOverrideValue
+  dayType: WizardInputs['dayType']
+  trainingType?: WizardInputs['trainingType'] | null
+  goal: WizardInputs['goal']
+  weight: number
+  activityDelta?: number
+}): T => {
+  const eeeFactor = getEeeFactor(goal)
+  const macroKcal = calcKcalFromMacros(overrideMacros) + (outputs.eee ?? 0) * eeeFactor
+  const kcalObjectiveDay = macroKcal + activityDelta
+  const carbFactor = dayType === 'training' ? getCarbFactor(dayType, trainingType) : 0
+  const fatFactor = dayType === 'training' ? 1 - carbFactor : 0
+  const activityCarbDelta = activityDelta ? (activityDelta * carbFactor) / 4 : 0
+  const activityFatDelta = activityDelta ? (activityDelta * fatFactor) / 9 : 0
+  const baseCarbs = Math.max(0, round1(overrideMacros.carbsAdjusted + activityCarbDelta))
+  const baseFats = Math.max(0, round1(overrideMacros.fatsAdjusted + activityFatDelta))
+  const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
+    fats: baseFats,
+    carbs: baseCarbs,
+    dayType,
+    trainingType,
+    eee: outputs.eee ?? 0,
+    goal,
+    weight,
+  })
+  return {
+    ...outputs,
+    kcalObjectiveDay,
+    protein: overrideMacros.protein,
+    carbsAdjusted,
+    fatsAdjusted,
+  }
 }
 
 export type CalculationOutputs = {
@@ -158,16 +258,13 @@ export const calculateInitials = (inputs: WizardInputs): { outputs: CalculationO
   const kcalObjectiveDay = kcalObjectiveBase + eeeAdjusted
 
   const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
-    protein,
     fats,
     carbs,
-    kcalObjectiveDay: roundInt(kcalObjectiveDay),
     dayType: inputs.dayType,
     trainingType: training?.type ?? inputs.trainingType ?? null,
     eee,
     goal: inputs.goal,
     weight: inputs.weight,
-    source: 'calculateInitials',
   })
 
   const ea = ffm ? (kcalObjectiveDay - eeeAdjusted) / ffm : undefined

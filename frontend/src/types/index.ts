@@ -78,6 +78,11 @@ export type Ingredient = Food & {
 export type DayOverrideInputs = {
   activityLevel?: WizardFormData['activityLevel'] | null
   dayType?: WizardFormData['dayType'] | null
+  macroOverride?: {
+    protein: number
+    carbsAdjusted: number
+    fatsAdjusted: number
+  } | null
   trainings?: TrainingSession[] | null
   // Legacy support
   training?: TrainingSession

@@ -1,8 +1,10 @@
 import crypto from 'crypto'
 import { Router } from 'express'
+import { Types } from 'mongoose'
 import { z } from 'zod'
 import { AssessmentModel } from '../models/Assessment'
 import { InviteCodeModel } from '../models/InviteCode'
+import { MessageModel } from '../models/Message'
 import { PlanDayOverrideModel } from '../models/PlanDayOverride'
 import { PlanModel } from '../models/Plan'
 import { UserModel } from '../models/User'
@@ -26,12 +28,37 @@ const inviteSchema = z.object({
 const userStatusSchema = z.object({
   status: z.enum(['active', 'disabled']),
 })
+const adminMessageSchema = z.object({
+  body: z.string().trim().min(1).max(1000),
+})
+const messageListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  before: z.string().optional(),
+})
 
 const hashCode = (value: string) => crypto.createHash('sha256').update(value).digest('hex')
 
 const generateCode = () => crypto.randomBytes(8).toString('hex').toUpperCase()
 
 const RESET_TOKEN_TTL_MINUTES = 60
+
+const mapMessage = (message: {
+  _id: unknown
+  senderUserId: string
+  recipientUserId: string
+  body: string
+  readAt?: Date | null
+  createdAt?: Date
+  updatedAt?: Date
+}) => ({
+  _id: message._id,
+  senderUserId: message.senderUserId,
+  recipientUserId: message.recipientUserId,
+  body: message.body,
+  readAt: message.readAt ?? null,
+  createdAt: message.createdAt,
+  updatedAt: message.updatedAt,
+})
 
 const mapInvite = (invite: {
   _id: unknown
@@ -130,6 +157,23 @@ router.get(
   }),
 )
 
+router.get(
+  '/messages/unread-counts',
+  asyncHandler(async (_req, res) => {
+    const rows = await MessageModel.aggregate<{ _id: string; count: number }>([
+      { $match: { readAt: null } },
+      { $group: { _id: '$recipientUserId', count: { $sum: 1 } } },
+    ])
+
+    const counts = rows.reduce<Record<string, number>>((acc, row) => {
+      if (row._id) acc[row._id] = row.count
+      return acc
+    }, {})
+
+    res.json({ counts })
+  }),
+)
+
 router.put(
   '/users/:userId/status',
   asyncHandler(async (req, res) => {
@@ -174,6 +218,68 @@ router.post(
       resetUrl,
       expiresAt: user.resetPasswordTokenExpiresAt,
       email: user.email,
+    })
+  }),
+)
+
+router.post(
+  '/users/:userId/messages',
+  asyncHandler(async (req, res) => {
+    const parsed = adminMessageSchema.safeParse(req.body)
+    if (!parsed.success) throw badRequest('Validation failed', parsed.error.flatten())
+
+    const { userId } = req.params
+    if (!Types.ObjectId.isValid(userId)) throw badRequest('userId invalido')
+    const recipient = await UserModel.findById(userId)
+    if (!recipient || recipient.role !== 'member') throw badRequest('Cliente no encontrado')
+
+    const senderUserId = req.user?.id
+    if (!senderUserId) throw badRequest('Usuario no autenticado')
+
+    const message = await MessageModel.create({
+      senderUserId,
+      recipientUserId: userId,
+      body: parsed.data.body,
+    })
+
+    res.status(201).json({ message: mapMessage(message.toObject()) })
+  }),
+)
+
+router.get(
+  '/users/:userId/messages',
+  asyncHandler(async (req, res) => {
+    const { userId } = req.params
+    if (!Types.ObjectId.isValid(userId)) throw badRequest('userId invalido')
+    const recipient = await UserModel.findById(userId)
+    if (!recipient || recipient.role !== 'member') throw badRequest('Cliente no encontrado')
+
+    const parsedQuery = messageListQuerySchema.safeParse(req.query)
+    if (!parsedQuery.success) throw badRequest('Validation failed', parsedQuery.error.flatten())
+    const limit = parsedQuery.data.limit ?? 20
+
+    const filter: {
+      recipientUserId: string
+      _id?: { $lt: Types.ObjectId }
+    } = {
+      recipientUserId: userId,
+    }
+    if (parsedQuery.data.before) {
+      if (!Types.ObjectId.isValid(parsedQuery.data.before)) throw badRequest('Cursor invalido')
+      filter._id = { $lt: new Types.ObjectId(parsedQuery.data.before) }
+    }
+
+    const messages = await MessageModel.find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(limit + 1)
+      .lean()
+    const hasMore = messages.length > limit
+    const pageItems = hasMore ? messages.slice(0, limit) : messages
+    const nextBefore = hasMore ? pageItems[pageItems.length - 1]?._id?.toString() : undefined
+
+    res.json({
+      messages: pageItems.map(mapMessage),
+      nextBefore,
     })
   }),
 )

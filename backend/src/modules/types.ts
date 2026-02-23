@@ -56,6 +56,14 @@ export const wizardInputsSchema = z
 export const dayOverrideSchema = z.object({
   activityLevel: activityEnum.nullable().optional(),
   dayType: dayTypeEnum.nullable().optional(),
+  macroOverride: z
+    .object({
+      protein: z.coerce.number().nonnegative(),
+      carbsAdjusted: z.coerce.number().nonnegative(),
+      fatsAdjusted: z.coerce.number().nonnegative(),
+    })
+    .nullable()
+    .optional(),
   trainings: trainingsSchema.nullable().optional(),
   // Backward compatibility: allow single training object
   training: z

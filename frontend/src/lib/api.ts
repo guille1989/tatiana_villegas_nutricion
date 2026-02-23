@@ -88,6 +88,16 @@ type AdminUserDto = {
   overrides?: OverrideDto[]
 }
 
+type MessageDto = {
+  _id: string
+  senderUserId: string
+  recipientUserId: string
+  body: string
+  readAt?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export type Invite = {
   id: string
   createdAt: string
@@ -104,6 +114,16 @@ export type AdminOverviewItem = {
   assessment?: Assessment
   plan?: Plan
   overrides: DayOverride[]
+}
+
+export type AppMessage = {
+  id: string
+  senderUserId: string
+  recipientUserId: string
+  body: string
+  readAt: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 export type IngredientUsage = {
@@ -252,6 +272,16 @@ const mapMealTemplate = (raw: MealTemplateDto): MealTemplate => ({
   totals: raw.totals,
 })
 
+const mapMessage = (raw: MessageDto): AppMessage => ({
+  id: raw._id,
+  senderUserId: raw.senderUserId,
+  recipientUserId: raw.recipientUserId,
+  body: raw.body,
+  readAt: raw.readAt ?? null,
+  createdAt: raw.createdAt,
+  updatedAt: raw.updatedAt,
+})
+
 export const claimInvite = async (
   code: string,
   payload: { name?: string; email: string; password: string },
@@ -351,6 +381,62 @@ export const updateUserStatus = async (userId: string, status: 'active' | 'disab
   })
   if (error) throw new Error(error)
   return data.user
+}
+
+export const getAdminUnreadMessageCounts = async () => {
+  const { data, error } = await request<{ counts: Record<string, number> }>('/admin/messages/unread-counts')
+  if (error) throw new Error(error)
+  return data.counts ?? {}
+}
+
+export const sendAdminMessage = async (userId: string, body: string) => {
+  const { data, error } = await request<{ message: MessageDto }>(`/admin/users/${userId}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ body }),
+  })
+  if (error) throw new Error(error)
+  return mapMessage(data.message)
+}
+
+export const getAdminUserMessages = async (
+  userId: string,
+  params?: { limit?: number; before?: string },
+) => {
+  const searchParams = new URLSearchParams()
+  if (params?.limit !== undefined) searchParams.set('limit', String(params.limit))
+  if (params?.before) searchParams.set('before', params.before)
+  const qParam = searchParams.toString() ? `?${searchParams.toString()}` : ''
+  const { data, error } = await request<{ messages: MessageDto[]; nextBefore?: string }>(
+    `/admin/users/${userId}/messages${qParam}`,
+  )
+  if (error) throw new Error(error)
+  return { messages: (data.messages ?? []).map(mapMessage), nextBefore: data.nextBefore }
+}
+
+export const getInboxMessages = async (params?: { limit?: number; before?: string }) => {
+  const searchParams = new URLSearchParams()
+  if (params?.limit !== undefined) searchParams.set('limit', String(params.limit))
+  if (params?.before) searchParams.set('before', params.before)
+  const qParam = searchParams.toString() ? `?${searchParams.toString()}` : ''
+  const { data, error } = await request<{ messages: MessageDto[]; nextBefore?: string }>(
+    `/messages/inbox${qParam}`,
+  )
+  if (error) throw new Error(error)
+  return { messages: (data.messages ?? []).map(mapMessage), nextBefore: data.nextBefore }
+}
+
+export const getUnreadInboxCount = async () => {
+  const { data, error } = await request<{ count: number }>('/messages/unread-count')
+  if (error) throw new Error(error)
+  return data.count ?? 0
+}
+
+export const markMessageAsRead = async (messageId: string) => {
+  const { data, error } = await request<{ message: MessageDto }>(`/messages/${messageId}/read`, {
+    method: 'PATCH',
+  })
+  if (error) throw new Error(error)
+  return mapMessage(data.message)
 }
 
 export const listAdminIngredients = async (params?: {

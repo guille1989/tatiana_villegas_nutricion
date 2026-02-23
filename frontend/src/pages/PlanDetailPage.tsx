@@ -35,7 +35,13 @@ import { useTheme } from "@mui/material/styles";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import DayEditDialog from "../components/DayEditDialog";
-import { calculateDayFromBase, getCarbFactor, getEeeFactor } from "../lib/calc";
+import {
+  applyMacroOverrideToOutputs,
+  calculateDayFromBase,
+  getMacroKcalBreakdown,
+  toMacroPortionValue,
+  toMacroPortions,
+} from "../lib/calc";
 import {
   createMealTemplate,
   getPlan,
@@ -316,112 +322,29 @@ const PlanDetailPage = () => {
     );
   };
 
-  const calcKcalFromMacros = (macros: {
-    protein: number;
-    carbsAdjusted: number;
-    fatsAdjusted: number;
-  }) =>
-    Math.round(
-      macros.protein * 4 + macros.carbsAdjusted * 4 + macros.fatsAdjusted * 9
-    );
-
-  const round1 = (value: number) => Math.round(value * 10) / 10;
-
-  const adjustCarbFat = ({
-    protein,
-    fats,
-    carbs,
-    kcalObjectiveDay,
-    dayType,
-    trainingType,
-    eee = 0,
-    goal,
-    weight,
-  }: {
-    protein: number;
-    fats: number;
-    carbs: number;
-    kcalObjectiveDay: number;
-    dayType: "training" | "rest";
-    trainingType?: WizardInputs["trainingType"] | null;
-    eee?: number;
-    goal?: WizardInputs["goal"] | null;
-    weight: number;
-  }) => {
-    const carbFactor = dayType === "training" ? getCarbFactor(dayType, trainingType) : 0.85;
-    const fatFactor = dayType === "training" ? 1 - carbFactor : 0;
-    const eeeFactor = goal ? getEeeFactor(goal) : 1;
-    console.log({ protein, fats, carbs, kcalObjectiveDay, dayType, trainingType, eee, goal, weight, eeeFactor })
-    const rec = goal === "fat_loss" ? 0.7 : 1;
-    const grasaMin = 0.6 * weight;
-    const eeeSafe = Math.max(eee, 0);
-    const baseCarbs = Math.max(carbs, 0);
-    let carbsAdjusted: number;
-    if (dayType === "training") {
-      const extraCarbGrams = (eeeSafe * rec * carbFactor) / 4;
-      carbsAdjusted = round1(baseCarbs + extraCarbGrams);
-    } else {
-      carbsAdjusted = round1(baseCarbs);
-    }
-    const baseFats = Math.max(fats, 0);
-    let fatsAdjusted = baseFats;
-    if (dayType === "training") {
-      const extraFat = (eeeSafe * rec * fatFactor) / 9;
-      fatsAdjusted = baseFats + extraFat;
-    }
-    fatsAdjusted = round1(Math.max(grasaMin, fatsAdjusted));
-    return { carbsAdjusted, fatsAdjusted };
-  };
-
   const applyMacroOverride = (
     outputs: CalculationOutputs | undefined,
     date: string | null,
     dayType: "training" | "rest",
     trainingType: WizardInputs["trainingType"] | null,
-    activityDelta = 0
+    activityDelta = 0,
+    dayOverride?: DayOverride
   ) => {
     if (!outputs) return outputs;
-    const override = getMacroOverrideForDate(date, plan?.macroOverrides);
-    if (!override) return outputs;
-    const eeeFactor = baseInputs ? getEeeFactor(baseInputs.goal) : 1;
-    const macroKcal =
-      calcKcalFromMacros(override.macros) + (outputs.eee ?? 0) * eeeFactor;
-    const kcalObjectiveDay = macroKcal + activityDelta;
-    const carbFactor =
-      dayType === "training" ? getCarbFactor(dayType, trainingType) : 0.85;
-    const fatFactor = dayType === "training" ? 1 - carbFactor : 0;
-    const activityCarbDelta = activityDelta
-      ? (activityDelta * carbFactor) / 4
-      : 0;
-    const activityFatDelta = activityDelta
-      ? (activityDelta * fatFactor) / 9
-      : 0;
-    const baseCarbs = Math.max(
-      0,
-      round1(override.macros.carbsAdjusted + activityCarbDelta)
-    );
-    const baseFats = Math.max(
-      0,
-      round1(override.macros.fatsAdjusted + activityFatDelta)
-    );
-    const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
-      protein: override.macros.protein,
-      fats: baseFats,
-      carbs: baseCarbs,
-      kcalObjectiveDay,
+    const dailyOverride = dayOverride?.overrides?.macroOverride ?? null;
+    const planOverride = getMacroOverrideForDate(date, plan?.macroOverrides);
+    const overrideMacros = dailyOverride ?? planOverride?.macros ?? null;
+    if (!overrideMacros) return outputs;
+    if (!baseInputs?.goal) return outputs;
+    return applyMacroOverrideToOutputs({
+      outputs,
+      overrideMacros,
       dayType,
       trainingType,
-      eee: outputs.eee ?? 0,
-      goal: baseInputs?.goal ?? null,
-      weight: baseInputs?.weight ?? 0,
+      goal: baseInputs.goal,
+      weight: baseInputs.weight ?? 0,
+      activityDelta,
     });
-    return {
-      ...outputs,
-      kcalObjectiveDay,
-      protein: override.macros.protein,
-      carbsAdjusted,
-      fatsAdjusted,
-    };
   };
 
   const computeOutputs = (date: string | null, override?: DayOverride) => {
@@ -454,7 +377,8 @@ const PlanDetailPage = () => {
         date,
         dayType,
         trainingType,
-        activityDelta
+        activityDelta,
+        override
       );
     if (override?.computed)
       return applyMacroOverride(
@@ -462,7 +386,8 @@ const PlanDetailPage = () => {
         date,
         dayType,
         trainingType,
-        activityDelta
+        activityDelta,
+        override
       );
     if (override) {
       try {
@@ -471,14 +396,17 @@ const PlanDetailPage = () => {
           date,
           dayType,
           trainingType,
-          activityDelta
+          activityDelta,
+          override
         );
       } catch {
         return applyMacroOverride(
           baseOutputs ?? undefined,
           date,
           dayType,
-          trainingType
+          trainingType,
+          0,
+          override
         );
         }
       }
@@ -1004,10 +932,14 @@ const PlanDetailPage = () => {
     const radius = (size - stroke) / 2;
     const circumference = 2 * Math.PI * radius;
 
-    const proteinKcal = protein * 4;
-    const carbsKcal = carbs * 4;
-    const fatsKcal = fats * 9;
-    const total = proteinKcal + carbsKcal + fatsKcal;
+    const { proteinKcal, carbsKcal, fatKcal, totalKcal } = getMacroKcalBreakdown(
+      {
+        protein,
+        carbs,
+        fat: fats,
+      }
+    );
+    const total = totalKcal;
 
     const getDash = (val: number) =>
       total > 0 ? (val / total) * circumference : 0;
@@ -1015,7 +947,7 @@ const PlanDetailPage = () => {
     const segments = [
       { val: proteinKcal, color: theme.palette.primary.main },
       { val: carbsKcal, color: theme.palette.success.main },
-      { val: fatsKcal, color: theme.palette.warning.main },
+      { val: fatKcal, color: theme.palette.warning.main },
     ];
 
     let offset = 0;
@@ -1201,22 +1133,22 @@ const PlanDetailPage = () => {
             const dayMeals = getDayMeals(date);
             const dayMacroSources = calcMacroSources(dayMeals);
             const budgetPortions = outputs
-              ? {
-                  protein: outputs.protein / 10,
-                  carbs: outputs.carbsAdjusted / 15,
-                  fat: outputs.fatsAdjusted / 5,
-                }
+              ? toMacroPortions({
+                  protein: outputs.protein,
+                  carbs: outputs.carbsAdjusted,
+                  fat: outputs.fatsAdjusted,
+                })
               : { protein: 0, carbs: 0, fat: 0 };
-            const usedPortions = {
-              protein: dayMacroSources.protein.direct / 10,
-              carbs: dayMacroSources.carbs.total / 15,
-              fat: dayMacroSources.fat.total / 5,
-            };
+            const usedPortions = toMacroPortions({
+              protein: dayMacroSources.protein.direct,
+              carbs: dayMacroSources.carbs.total,
+              fat: dayMacroSources.fat.total,
+            });
             const remainingRawPortions = outputs
               ? {
-                  protein: outputs.protein / 10 - usedPortions.protein,
-                  carbs: outputs.carbsAdjusted / 15 - usedPortions.carbs,
-                  fat: outputs.fatsAdjusted / 5 - usedPortions.fat,
+                  protein: budgetPortions.protein - usedPortions.protein,
+                  carbs: budgetPortions.carbs - usedPortions.carbs,
+                  fat: budgetPortions.fat - usedPortions.fat,
                 }
               : { protein: 0, carbs: 0, fat: 0 };
             const remainingPortions = outputs
@@ -1449,16 +1381,25 @@ const PlanDetailPage = () => {
                             key === "protein" ? directGrams : totalGrams;
                           const budget =
                             key === "protein"
-                              ? selectedOutputs.protein / 10
+                              ? toMacroPortionValue(
+                                  selectedOutputs.protein,
+                                  "protein"
+                                )
                               : key === "carbs"
-                              ? selectedOutputs.carbsAdjusted / 15
-                              : selectedOutputs.fatsAdjusted / 5;
+                              ? toMacroPortionValue(
+                                  selectedOutputs.carbsAdjusted,
+                                  "carbs"
+                                )
+                              : toMacroPortionValue(
+                                  selectedOutputs.fatsAdjusted,
+                                  "fat"
+                                );
                           const usedPortions =
                             key === "protein"
-                              ? usedGrams / 10
+                              ? toMacroPortionValue(usedGrams, "protein")
                               : key === "carbs"
-                              ? usedGrams / 15
-                              : usedGrams / 5;
+                              ? toMacroPortionValue(usedGrams, "carbs")
+                              : toMacroPortionValue(usedGrams, "fat");
                           const remainingRaw = budget - usedPortions;
                           const tol = getTol(budget, key);
                           const remaining =

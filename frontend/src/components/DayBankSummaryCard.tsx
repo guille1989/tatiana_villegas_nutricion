@@ -1,4 +1,5 @@
 import { Box, Card, CardContent, Divider, Stack, Typography } from '@mui/material'
+import { toMacroPortions } from '../lib/calc'
 
 type Macros = { protein: number; carbs: number; fat: number }
 
@@ -8,20 +9,11 @@ type Props = {
   usedMacros: Macros
 }
 
-const portionSizes = { protein: 10, carbs: 15, fat: 5 }
 const formatInt = (value: number) => Math.round(value)
 
 const DayBankSummaryCard = ({ objectiveKcal, objectiveMacros, usedMacros }: Props) => {
-  const budgetPortions = {
-    protein: objectiveMacros.protein / portionSizes.protein,
-    carbs: objectiveMacros.carbs / portionSizes.carbs,
-    fat: objectiveMacros.fat / portionSizes.fat,
-  }
-  const usedPortions = {
-    protein: usedMacros.protein / portionSizes.protein,
-    carbs: usedMacros.carbs / portionSizes.carbs,
-    fat: usedMacros.fat / portionSizes.fat,
-  }
+  const budgetPortions = toMacroPortions(objectiveMacros)
+  const usedPortions = toMacroPortions(usedMacros)
   const remainingPortions = {
     protein: budgetPortions.protein - usedPortions.protein,
     carbs: budgetPortions.carbs - usedPortions.carbs,

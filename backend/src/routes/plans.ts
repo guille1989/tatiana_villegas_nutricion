@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { PlanDayOverrideModel } from '../models/PlanDayOverride'
 import { PlanModel } from '../models/Plan'
 import { calculateDayFromBase } from '../modules/calc/dayCalc'
-import { adjustCarbFat, getCarbFactor, getEeeFactor } from '../modules/calc/calc'
+import { applyMacroOverrideToOutputs, calcKcalFromMacros } from '../modules/calc/calc'
 import { AssessmentModel } from '../models/Assessment'
 import { authMiddleware } from '../middleware/auth'
 import { asyncHandler } from '../utils/asyncHandler'
@@ -67,11 +67,6 @@ const planStatusSchema = z.object({
 type MacroOverrideValue = z.infer<typeof macroOverrideSchema>
 type MacroOverrideEntry = { effectiveFrom: string; macros?: MacroOverrideValue | null }
 
-const calcKcalFromMacros = (macros: MacroOverrideValue) =>
-  Math.round(macros.protein * 4 + macros.carbsAdjusted * 4 + macros.fatsAdjusted * 9)
-
-const round1 = (value: number) => Math.round(value * 10) / 10
-
 const normalizeMacroOverrides = (overrides: Array<MacroOverrideEntry> | undefined) =>
   (overrides ?? []).filter(
     (item): item is { effectiveFrom: string; macros: MacroOverrideValue } =>
@@ -99,45 +94,36 @@ const getTrainingType = (
   return (overrideTraining ?? baseInputs?.trainingType ?? null) as WizardInputs['trainingType'] | null
 }
 
+const getDayMacroOverride = (overrides: DayOverrideInputs | null | undefined): MacroOverrideValue | null => {
+  if (!overrides?.macroOverride) return null
+  return {
+    protein: overrides.macroOverride.protein,
+    carbsAdjusted: overrides.macroOverride.carbsAdjusted,
+    fatsAdjusted: overrides.macroOverride.fatsAdjusted,
+  }
+}
+
 const applyMacroOverride = (
   outputs: ReturnType<typeof calculateDayFromBase>['outputs'],
-  override: { macros: MacroOverrideValue } | null,
+  planOverride: { macros: MacroOverrideValue } | null,
+  dayOverride: MacroOverrideValue | null,
   dayType: 'training' | 'rest',
   trainingType: WizardInputs['trainingType'] | null,
   goal: WizardInputs['goal'],
   weight: number,
   activityDelta = 0,
 ) => {
+  const override = dayOverride ?? planOverride?.macros ?? null
   if (!override) return outputs
-  const eeeFactor = getEeeFactor(goal)
-  const extraKcal = (outputs.eee ?? 0) * eeeFactor
-  const macroKcal = calcKcalFromMacros(override.macros) + extraKcal
-  const kcalObjectiveDay = macroKcal + activityDelta
-  const carbFactor = dayType === 'training' ? getCarbFactor(dayType, trainingType) : 0.85
-  const fatFactor = dayType === 'training' ? 1 - carbFactor : 0
-  const activityCarbDelta = activityDelta ? (activityDelta * carbFactor) / 4 : 0
-  const activityFatDelta = activityDelta ? (activityDelta * fatFactor) / 9 : 0
-  const baseCarbs = Math.max(0, round1(override.macros.carbsAdjusted + activityCarbDelta))
-  const baseFats = Math.max(0, round1(override.macros.fatsAdjusted + activityFatDelta))
-  const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
-    protein: override.macros.protein,
-    fats: baseFats,
-    carbs: baseCarbs,
-    kcalObjectiveDay,
+  return applyMacroOverrideToOutputs({
+    outputs,
+    overrideMacros: override,
     dayType,
     trainingType,
-    eee: outputs.eee ?? 0,
     goal,
     weight,
-    source: 'applyMacroOverride',
+    activityDelta,
   })
-  return {
-    ...outputs,
-    kcalObjectiveDay,
-    protein: override.macros.protein,
-    carbsAdjusted,
-    fatsAdjusted,
-  }
 }
 
 const isMemberPlanActive = (plan: { status?: string | null }) =>
@@ -301,11 +287,13 @@ router.put(
     const { outputs: baseOutputs } = calculateDayFromBase(assessment.inputs, baseOverrides)
     const activityDelta = (outputs.kcalObjectiveDay ?? 0) - (baseOutputs.kcalObjectiveDay ?? 0)
     const macroOverride = getMacroOverrideForDate(plan.macroOverrides, parsed.data.date)
+    const dayMacroOverride = getDayMacroOverride(parsed.data.overrides)
     const dayType = parsed.data.overrides.dayType ?? assessment.inputs.dayType ?? 'rest'
     const trainingType = getTrainingType(parsed.data.overrides, assessment.inputs)
     const computed = applyMacroOverride(
       outputs,
       macroOverride,
+      dayMacroOverride,
       dayType,
       trainingType,
       assessment.inputs.goal,
@@ -368,6 +356,7 @@ router.get(
     const existing = await PlanDayOverrideModel.findOne({ planId, date })
     if (existing) {
       const macroOverride = getMacroOverrideForDate(plan.macroOverrides, date)
+      const dayMacroOverride = getDayMacroOverride(existing.overrides ?? null)
       const dayType = existing.overrides?.dayType ?? assessment.inputs.dayType ?? 'rest'
       const { outputs } = calculateDayFromBase(assessment.inputs, existing.overrides ?? {})
       const baseOverrides = { ...(existing.overrides ?? {}), activityLevel: undefined }
@@ -377,6 +366,7 @@ router.get(
       const computed = applyMacroOverride(
         outputs,
         macroOverride,
+        dayMacroOverride,
         dayType,
         trainingType,
         assessment.inputs.goal,
@@ -389,10 +379,12 @@ router.get(
 
     const { outputs } = calculateDayFromBase(assessment.inputs, {})
     const macroOverride = getMacroOverrideForDate(plan.macroOverrides, date)
+    const dayMacroOverride = null
     const dayType = assessment.inputs.dayType ?? 'rest'
     const computed = applyMacroOverride(
       outputs,
       macroOverride,
+      dayMacroOverride,
       dayType,
       assessment.inputs.trainingType ?? null,
       assessment.inputs.goal,

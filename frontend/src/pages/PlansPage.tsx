@@ -21,12 +21,12 @@ import {
 import { alpha, useTheme } from '@mui/material/styles'
 import AutoGraphRoundedIcon from '@mui/icons-material/AutoGraphRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
-import SyncRoundedIcon from '@mui/icons-material/SyncRounded'
 import dayjs from 'dayjs'
-import { useEffect, useMemo, useState, type MouseEvent } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import WeeklyIntakeCard from '../components/WeeklyIntakeCard'
 import { createPlan, deletePlan, getLatestAssessment, getPlan, listPlans } from '../lib/api'
-import { calculateDayFromBase, getCarbFactor, getEeeFactor } from '../lib/calc'
+import { applyMacroOverrideToOutputs, calculateDayFromBase, getMacroKcalBreakdown } from '../lib/calc'
 import type { Assessment, CalculationOutputs, DayOverride, Meal, Plan, WizardInputs } from '../types'
 
 type PlanDetail = {
@@ -47,59 +47,33 @@ type SyncPoint = {
 }
 
 type DayType = 'training' | 'rest'
+const DAY_LABELS = ['D', 'L', 'M', 'X', 'J', 'V', 'S'] as const
 
-const calcKcalFromMacros = (macros: {
-  protein: number
-  carbsAdjusted: number
-  fatsAdjusted: number
-}) => Math.round(macros.protein * 4 + macros.carbsAdjusted * 4 + macros.fatsAdjusted * 9)
+const buildSevenDaySyncWindow = (syncSeries: SyncPoint[]): SyncPoint[] => {
+  if (syncSeries.length === 0) return []
 
-const round1 = (value: number) => Math.round(value * 10) / 10
+  const dateMap = new Map(syncSeries.map((item) => [item.date, item]))
+  const sortedDates = [...syncSeries]
+    .map((item) => dayjs(item.date).startOf('day'))
+    .sort((a, b) => a.valueOf() - b.valueOf())
 
-const adjustCarbFat = ({
-  protein,
-  fats,
-  carbs,
-  kcalObjectiveDay,
-  dayType,
-  trainingType,
-  eee = 0,
-  goal,
-  weight,
-}: {
-  protein: number
-  fats: number
-  carbs: number
-  kcalObjectiveDay: number
-  dayType: DayType
-  trainingType?: WizardInputs['trainingType'] | null
-  eee?: number
-  goal?: WizardInputs['goal'] | null
-  weight: number
-}) => {
-  const carbFactor = dayType === 'training' ? getCarbFactor(dayType, trainingType) : 0.85
-  const fatFactor = dayType === 'training' ? 1 - carbFactor : 0
-  const eeeFactor = goal ? getEeeFactor(goal) : 1
-  console.log({ protein, fats, carbs, kcalObjectiveDay, dayType, trainingType, eee, goal, weight, eeeFactor })
-  const rec = goal === 'fat_loss' ? 0.7 : 1
-  const grasaMin = 0.6 * weight
-  const eeeSafe = Math.max(eee, 0)
-  const baseCarbs = Math.max(carbs, 0)
-  let carbsAdjusted: number
-  if (dayType === 'training') {
-    const extraCarbGrams = (eeeSafe * rec * carbFactor) / 4
-    carbsAdjusted = round1(baseCarbs + extraCarbGrams)
-  } else {
-    carbsAdjusted = round1(baseCarbs)
-  }
-  const baseFats = Math.max(fats, 0)
-  let fatsAdjusted = baseFats
-  if (dayType === 'training') {
-    const extraFat = (eeeSafe * rec * fatFactor) / 9
-    fatsAdjusted = baseFats + extraFat
-  }
-  fatsAdjusted = round1(Math.max(grasaMin, fatsAdjusted))
-  return { carbsAdjusted, fatsAdjusted }
+  const planStart = sortedDates[0]
+
+  const fallbackPoint =
+    syncSeries.find((item) => (item.targetKcal ?? 0) > 0) ?? syncSeries[0]
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = planStart.add(index, 'day').format('YYYY-MM-DD')
+    const existing = dateMap.get(date)
+    if (existing) return existing
+    return {
+      date,
+      targetKcal: fallbackPoint?.targetKcal ?? null,
+      consumedKcal: null,
+      targetMacros: fallbackPoint?.targetMacros ?? null,
+      consumedMacros: null,
+    }
+  })
 }
 
 const getPlanMacroOverrideForDate = (plan: Plan | null | undefined, date: string) => {
@@ -124,6 +98,15 @@ const getTrainingType = (
   return (overrideTraining ?? baseInputs?.trainingType ?? null) as WizardInputs['trainingType'] | null
 }
 
+const getDayMacroOverride = (override?: DayOverride | null) => {
+  if (!override?.overrides?.macroOverride) return null
+  return {
+    protein: override.overrides.macroOverride.protein,
+    carbsAdjusted: override.overrides.macroOverride.carbsAdjusted,
+    fatsAdjusted: override.overrides.macroOverride.fatsAdjusted,
+  }
+}
+
 const applyPlanMacroOverride = (
   outputs: CalculationOutputs | null | undefined,
   plan: Plan | null | undefined,
@@ -133,46 +116,33 @@ const applyPlanMacroOverride = (
   goal?: WizardInputs['goal'] | null,
   weight = 0,
   activityDelta = 0,
+  dayOverride?: DayOverride | null,
 ) => {
   if (!outputs) return outputs
-  const override = getPlanMacroOverrideForDate(plan, date)
-  if (!override) return outputs
-  const eeeFactor = goal ? getEeeFactor(goal) : 1
-  const macroKcal =
-    calcKcalFromMacros(override.macros) + (outputs.eee ?? 0) * eeeFactor
-  const kcalObjectiveDay = macroKcal + activityDelta
-  const carbFactor = dayType === 'training' ? getCarbFactor(dayType, trainingType) : 0.85
-  const fatFactor = dayType === 'training' ? 1 - carbFactor : 0
-  const activityCarbDelta = activityDelta ? (activityDelta * carbFactor) / 4 : 0
-  const activityFatDelta = activityDelta ? (activityDelta * fatFactor) / 9 : 0
-  const baseCarbs = Math.max(0, round1(override.macros.carbsAdjusted + activityCarbDelta))
-  const baseFats = Math.max(0, round1(override.macros.fatsAdjusted + activityFatDelta))
-  const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
-    protein: override.macros.protein,
-    fats: baseFats,
-    carbs: baseCarbs,
-    kcalObjectiveDay,
+  const dailyOverride = getDayMacroOverride(dayOverride)
+  const planOverride = getPlanMacroOverrideForDate(plan, date)
+  const overrideMacros = dailyOverride ?? planOverride?.macros ?? null
+  if (!overrideMacros) return outputs
+  if (!goal) return outputs
+  return applyMacroOverrideToOutputs({
+    outputs,
+    overrideMacros,
     dayType,
     trainingType,
-    eee: outputs.eee ?? 0,
     goal,
     weight,
+    activityDelta,
   })
-  return {
-    ...outputs,
-    kcalObjectiveDay,
-    protein: override.macros.protein,
-    carbsAdjusted,
-    fatsAdjusted,
-  }
 }
 
 const getMacroPercentages = (outputs?: CalculationOutputs | null) => {
   if (!outputs) return null
-  const proteinKcal = outputs.protein * 4
-  const carbsKcal = outputs.carbsAdjusted * 4
-  const fatKcal = outputs.fatsAdjusted * 9
-  const total = proteinKcal + carbsKcal + fatKcal
+  const { proteinKcal, carbsKcal, fatKcal, totalKcal } = getMacroKcalBreakdown({
+    protein: outputs.protein,
+    carbs: outputs.carbsAdjusted,
+    fat: outputs.fatsAdjusted,
+  })
+  const total = totalKcal
   if (total <= 0) return null
   return {
     protein: Math.round((proteinKcal / total) * 100),
@@ -253,6 +223,7 @@ const buildSyncSeries = (
       baseInputs?.goal ?? null,
       baseInputs?.weight ?? 0,
       activityDelta,
+      override,
     )
     const target = getTargetMacros(targetBase)
     const meals = getOverrideMeals(override)
@@ -292,15 +263,17 @@ const MacroDonut = ({ outputs }: { outputs?: CalculationOutputs | null }) => {
     )
   }
 
-  const proteinKcal = outputs.protein * 4
-  const carbsKcal = outputs.carbsAdjusted * 4
-  const fatsKcal = outputs.fatsAdjusted * 9
-  const total = proteinKcal + carbsKcal + fatsKcal
+  const { proteinKcal, carbsKcal, fatKcal, totalKcal } = getMacroKcalBreakdown({
+    protein: outputs.protein,
+    carbs: outputs.carbsAdjusted,
+    fat: outputs.fatsAdjusted,
+  })
+  const total = totalKcal
 
   const segments = [
     { val: proteinKcal, color: theme.palette.primary.main },
     { val: carbsKcal, color: theme.palette.success.main },
-    { val: fatsKcal, color: theme.palette.warning.main },
+    { val: fatKcal, color: theme.palette.warning.main },
   ]
 
   let offset = 0
@@ -341,199 +314,6 @@ const MacroDonut = ({ outputs }: { outputs?: CalculationOutputs | null }) => {
   )
 }
 
-type LineSeries = { values: (number | null)[]; color: string; dashed?: boolean; label: string }
-
-const LineChart = ({ series, labels }: { series: LineSeries[]; labels: string[] }) => {
-  const theme = useTheme()
-  if (series.length === 0) return null
-
-  const allValues = series
-    .flatMap((item) => item.values)
-    .filter((value): value is number => value !== null)
-  if (allValues.length === 0) return null
-
-  const width = 360
-  const height = 160
-  const min = Math.min(...allValues)
-  const max = Math.max(...allValues)
-  const range = max - min || 1
-  const paddingY = 16
-  const paddingX = 8
-  const pointsCount = labels.length || Math.max(...series.map((item) => item.values.length))
-  const xStep = (width - paddingX * 2) / Math.max(pointsCount - 1, 1)
-  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
-  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null)
-
-  const getPoint = (value: number, idx: number) => {
-    const x = paddingX + idx * xStep
-    const y = height - paddingY - ((value - min) / range) * (height - paddingY * 2)
-    return { x, y, point: `${x},${y}` }
-  }
-
-  const buildSegments = (values: (number | null)[]) => {
-    const segments: string[] = []
-    let current: string[] = []
-    values.forEach((value, idx) => {
-      if (value === null) {
-        if (current.length > 0) {
-          segments.push(current.join(' '))
-          current = []
-        }
-        return
-      }
-      const { point } = getPoint(value, idx)
-      current.push(point)
-    })
-    if (current.length > 0) segments.push(current.join(' '))
-    return segments
-  }
-
-  const gridLines = Array.from({ length: 4 }, (_, idx) => {
-    const y = paddingY + ((height - paddingY * 2) / 3) * idx
-    return y
-  })
-
-  const handleMouseMove = (event: MouseEvent<SVGSVGElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect()
-    const x = event.clientX - rect.left
-    const y = event.clientY - rect.top
-    const svgX = (x / rect.width) * width
-    const index = Math.round((svgX - paddingX) / xStep)
-    const clamped = Math.max(0, Math.min(pointsCount - 1, index))
-    const hasValueAtIndex = series.some((item) => item.values[clamped] !== null)
-    if (!hasValueAtIndex) {
-      setHoverIndex(null)
-      setTooltipPos(null)
-      return
-    }
-    setHoverIndex(clamped)
-    setTooltipPos({ x, y })
-  }
-
-  const handleMouseLeave = () => {
-    setHoverIndex(null)
-    setTooltipPos(null)
-  }
-
-  const hoverX = hoverIndex !== null ? paddingX + hoverIndex * xStep : null
-
-  return (
-    <Box sx={{ position: 'relative', width: '100%', height }}>
-      <svg
-        width="100%"
-        height={height}
-        viewBox={`0 0 ${width} ${height}`}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
-      >
-        {gridLines.map((y, idx) => (
-          <line
-            key={idx}
-            x1={0}
-            y1={y}
-            x2={width}
-            y2={y}
-            stroke={theme.palette.grey[200]}
-            strokeWidth={1}
-          />
-        ))}
-        {hoverX !== null && (
-          <line
-            x1={hoverX}
-            y1={paddingY}
-            x2={hoverX}
-            y2={height - paddingY}
-            stroke={theme.palette.grey[300]}
-            strokeDasharray="4 4"
-            strokeWidth={1}
-          />
-        )}
-        {series.map((item, seriesIdx) => {
-          const segments = buildSegments(item.values)
-          let lastIndex = -1
-          for (let i = item.values.length - 1; i >= 0; i -= 1) {
-            if (item.values[i] !== null) {
-              lastIndex = i
-              break
-            }
-          }
-          const lastValue = lastIndex >= 0 ? item.values[lastIndex] : null
-          const lastPoint = lastValue !== null ? getPoint(lastValue, lastIndex) : null
-          return (
-            <g key={seriesIdx}>
-              {segments.map((segment, idx) => (
-                <polyline
-                  key={idx}
-                  fill="none"
-                  stroke={item.color}
-                  strokeWidth={2.5}
-                  strokeDasharray={item.dashed ? '6 6' : undefined}
-                  points={segment}
-                />
-              ))}
-              {lastPoint && <circle cx={lastPoint.x} cy={lastPoint.y} r={3.5} fill={item.color} />}
-              {hoverIndex !== null && item.values[hoverIndex] !== null && (
-                <circle
-                  cx={getPoint(item.values[hoverIndex] as number, hoverIndex).x}
-                  cy={getPoint(item.values[hoverIndex] as number, hoverIndex).y}
-                  r={4}
-                  fill={item.color}
-                  stroke={theme.palette.common.white}
-                  strokeWidth={2}
-                />
-              )}
-            </g>
-          )
-        })}
-      </svg>
-      {hoverIndex !== null && tooltipPos && (
-        <Box
-          sx={{
-            position: 'absolute',
-            left: tooltipPos.x,
-            top: tooltipPos.y,
-            transform: 'translate(-50%, -120%)',
-            bgcolor: 'common.white',
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: 2,
-            boxShadow: '0 12px 28px rgba(15, 23, 42, 0.12)',
-            px: 1.5,
-            py: 1,
-            minWidth: 160,
-            pointerEvents: 'none',
-            zIndex: 2,
-          }}
-        >
-          <Typography variant="caption" color="text.secondary">
-            {labels[hoverIndex] ?? ''}
-          </Typography>
-          <Stack spacing={0.5} mt={0.5}>
-            {series.map((item) => (
-              <Stack key={item.label} direction="row" spacing={1} alignItems="center">
-                <Box
-                  sx={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: '50%',
-                    bgcolor: item.color,
-                  }}
-                />
-                <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
-                  {item.label}
-                </Typography>
-                <Typography variant="subtitle2" fontWeight={700}>
-                  {item.values[hoverIndex] !== null ? Math.round(item.values[hoverIndex] as number) : '--'}
-                </Typography>
-              </Stack>
-            ))}
-          </Stack>
-        </Box>
-      )}
-    </Box>
-  )
-}
-
 const PlansPage = () => {
   const theme = useTheme()
   const navigate = useNavigate()
@@ -558,7 +338,7 @@ const PlansPage = () => {
         const res = await listPlans()
         if (!active) return
         setPlans(res)
-      } catch (err) {
+      } catch {
         if (active) setPlans([])
       } finally {
         if (active) setLoading(false)
@@ -635,55 +415,31 @@ const PlansPage = () => {
     )
   }, [selectedPlan, selectedPlanDetail])
 
-  const syncLabels = syncSeries.map((item) => dayjs(item.date).format('DD/MM'))
-  const targetSeries = syncSeries.map((item) => item.targetKcal)
-  const consumedSeries = syncSeries.map((item) => item.consumedKcal)
-  const consumedValues = consumedSeries.filter((value): value is number => value !== null)
-  const hasConsumedData = consumedValues.length > 0
-  const hasTargetData = targetSeries.some((value) => value !== null)
+  const weeklySyncSeries = useMemo(() => {
+    return buildSevenDaySyncWindow(syncSeries)
+  }, [syncSeries])
 
-  const avgConsumed = consumedValues.length
-    ? Math.round(consumedValues.reduce((acc, value) => acc + value, 0) / consumedValues.length)
-    : null
+  const hasTargetData = weeklySyncSeries.some((item) => (item.targetKcal ?? 0) > 0)
 
-  let latestConsumedPoint: SyncPoint | null = null
-  for (let i = syncSeries.length - 1; i >= 0; i -= 1) {
-    if (syncSeries[i].consumedKcal !== null) {
-      latestConsumedPoint = syncSeries[i]
-      break
-    }
-  }
-
-  let latestTargetPoint: SyncPoint | null = null
-  for (let i = syncSeries.length - 1; i >= 0; i -= 1) {
-    if (syncSeries[i].targetKcal !== null) {
-      latestTargetPoint = syncSeries[i]
-      break
-    }
-  }
-
-  const latestConsumed = latestConsumedPoint?.consumedKcal ?? null
-  const latestTarget = latestConsumedPoint?.targetKcal ?? latestTargetPoint?.targetKcal ?? null
-  const macroSummary =
-    latestConsumedPoint?.targetMacros && latestConsumedPoint?.consumedMacros
-      ? [
-          {
-            label: 'P',
-            target: latestConsumedPoint.targetMacros.protein,
-            consumed: latestConsumedPoint.consumedMacros.protein,
-          },
-          {
-            label: 'C',
-            target: latestConsumedPoint.targetMacros.carbs,
-            consumed: latestConsumedPoint.consumedMacros.carbs,
-          },
-          {
-            label: 'G',
-            target: latestConsumedPoint.targetMacros.fat,
-            consumed: latestConsumedPoint.consumedMacros.fat,
-          },
-        ]
-      : null
+  const weeklyIntakeData = useMemo(
+    () =>
+      weeklySyncSeries.map((item) => {
+        const dayIndex = dayjs(item.date).day()
+        return {
+          date: item.date,
+          dayLabel: DAY_LABELS[dayIndex],
+          caloriesConsumed: item.consumedKcal,
+          caloriesTarget: item.targetKcal ?? 0,
+          proteinConsumedG: item.consumedMacros?.protein ?? null,
+          carbsConsumedG: item.consumedMacros?.carbs ?? null,
+          fatsConsumedG: item.consumedMacros?.fat ?? null,
+          proteinTargetG: item.targetMacros?.protein ?? 0,
+          carbsTargetG: item.targetMacros?.carbs ?? 0,
+          fatsTargetG: item.targetMacros?.fat ?? 0,
+        }
+      }),
+    [weeklySyncSeries],
+  )
 
   const handleDelete = async () => {
     if (!deleteTarget) return
@@ -850,6 +606,7 @@ const PlansPage = () => {
                       baseInputs?.goal ?? null,
                       baseInputs?.weight ?? 0,
                       activityDelta,
+                      displayOverride,
                     )
                     const planKcal = adjustedOutputs?.kcalObjectiveDay
                     const macros = getMacroPercentages(adjustedOutputs)
@@ -1033,142 +790,31 @@ const PlansPage = () => {
 
           <Card elevation={0} sx={lightCard}>
             <CardContent sx={{ height: '100%' }}>
-              <Stack spacing={2} height="100%">
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Stack spacing={0.5}>
-                    <Typography variant="h6" fontWeight={700}>
-                      Consumo de calorias
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Progreso en los últimos 30 días
-                    </Typography>
-                  </Stack>
-                  <SyncRoundedIcon sx={{ color: 'text.secondary' }} />
+              {!hasTargetData ? (
+                <Stack
+                  spacing={1.5}
+                  alignItems="center"
+                  justifyContent="center"
+                  sx={{ height: '100%', textAlign: 'center' }}
+                >
+                  <Typography variant="subtitle1" fontWeight={700}>
+                    Sin datos del plan
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Aun no hay objetivos disponibles para graficar.
+                  </Typography>
                 </Stack>
-
-                {!hasTargetData ? (
-                  <Stack
-                    spacing={1.5}
-                    alignItems="center"
-                    justifyContent="center"
-                    sx={{ flex: 1, textAlign: 'center' }}
-                  >
-                    <Typography variant="subtitle1" fontWeight={700}>
-                      Sin datos del plan
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Aun no hay objetivos disponibles para graficar.
-                    </Typography>
-                  </Stack>
-                ) : (
-                  <Stack spacing={2} flex={1}>
-                    <Stack
-                      direction={{ xs: 'column', sm: 'row' }}
-                      spacing={2}
-                      alignItems={{ xs: 'flex-start', sm: 'center' }}
-                      justifyContent="space-between"
-                    >
-                      <Stack direction="row" spacing={3} alignItems="baseline" flexWrap="wrap">
-                        <Stack spacing={0.5}>
-                          <Typography variant="h5" fontWeight={800}>
-                            {avgConsumed !== null ? avgConsumed : '--'}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Promedio consumido
-                          </Typography>
-                        </Stack>
-                        <Stack spacing={0.5}>
-                          <Typography variant="h5" fontWeight={800}>
-                            {latestConsumed !== null ? Math.round(latestConsumed) : '--'}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Ultimo dia
-                          </Typography>
-                        </Stack>
-                        <Stack spacing={0.5}>
-                          <Typography variant="h5" fontWeight={800}>
-                            {latestTarget !== null ? Math.round(latestTarget) : '--'}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Objetivo kcal
-                          </Typography>
-                        </Stack>
-                      </Stack>
-                      <Stack direction="row" spacing={1.5} alignItems="center">
-                        {hasTargetData && (
-                          <Stack direction="row" spacing={0.75} alignItems="center">
-                            <Box
-                              sx={{
-                                width: 8,
-                                height: 8,
-                                borderRadius: '50%',
-                                bgcolor: theme.palette.secondary.main,
-                              }}
-                            />
-                            <Typography variant="caption" color="text.secondary">
-                              Objetivo
-                            </Typography>
-                          </Stack>
-                        )}
-                        <Stack direction="row" spacing={0.75} alignItems="center">
-                          <Box
-                            sx={{
-                              width: 8,
-                              height: 8,
-                              borderRadius: '50%',
-                              bgcolor: theme.palette.primary.main,
-                            }}
-                          />
-                          <Typography variant="caption" color="text.secondary">
-                            Consumido
-                          </Typography>
-                        </Stack>
-                      </Stack>
-                    </Stack>
-                    {!hasConsumedData && (
-                      <Typography variant="caption" color="text.secondary">
-                        Sin consumos registrados aun.
-                      </Typography>
-                    )}
-                    <Box sx={{ flex: 1 }}>
-                      <LineChart
-                        labels={syncLabels}
-                        series={[
-                          ...(hasTargetData
-                            ? [
-                                {
-                                  values: targetSeries,
-                                  color: theme.palette.secondary.main,
-                                  dashed: true,
-                                  label: 'Objetivo kcal',
-                                },
-                              ]
-                            : []),
-                          {
-                            values: consumedSeries,
-                            color: theme.palette.primary.main,
-                            label: 'Consumidas kcal',
-                          },
-                        ]}
-                      />
-                    </Box>
-                    {macroSummary && (
-                      <Stack direction="row" spacing={2} flexWrap="wrap">
-                        {macroSummary.map((item) => (
-                          <Stack key={item.label} spacing={0.25}>
-                            <Typography variant="caption" color="text.secondary">
-                              {item.label}
-                            </Typography>
-                            <Typography variant="subtitle2" fontWeight={700}>
-                              {Math.round(item.target)}g / {Math.round(item.consumed)}g
-                            </Typography>
-                          </Stack>
-                        ))}
-                      </Stack>
-                    )}
-                  </Stack>
-                )}
-              </Stack>
+              ) : (
+                <WeeklyIntakeCard
+                  weeklyData={weeklyIntakeData}
+                  adherenceTolerancePct={5}
+                  title="Seguimiento semanal"
+                  subtitle="Resumen nutricional de los ultimos 7 dias"
+                  fillChartHeight
+                  centerTooltip
+                  detailStatusRule="macros"
+                />
+              )}
             </CardContent>
           </Card>
         </Box>

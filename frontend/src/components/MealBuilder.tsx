@@ -33,6 +33,7 @@ import {
   FOOD_GROUP_OPTIONS,
   type FoodGroupFilter,
 } from "../lib/foods";
+import { calcKcalFromMacroGrams } from "../lib/calc";
 import { getMacroState, macroStateColor, type MacroKey } from "../lib/macroStatus";
 import type { MacroTargets } from "../lib/meals";
 import type { Food, Meal, MealItem } from "../types";
@@ -85,7 +86,11 @@ const cloneMeal = (meal: Meal): Meal => ({
 });
 
 const calcTargetKcal = (targets: MacroTargets) =>
-  Math.round(targets.protein * 4 + targets.carbs * 4 + targets.fat * 9);
+  calcKcalFromMacroGrams({
+    protein: targets.protein,
+    carbs: targets.carbs,
+    fat: targets.fat,
+  });
 
 const formatTargets = (targets: MacroTargets) =>
   `P ${targets.protein.toFixed(0)} C ${targets.carbs.toFixed(0)} G ${targets.fat.toFixed(0)}`;

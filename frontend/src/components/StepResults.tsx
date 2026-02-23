@@ -1,7 +1,7 @@
 import { Box, Button, Chip, Card, CardContent, CardHeader, Divider, Stack, Typography } from '@mui/material'
 import { useMemo } from 'react'
 import { useFormContext, useWatch } from 'react-hook-form'
-import { calculateInitials } from '../lib/calc'
+import { calculateInitials, getMacroKcalBreakdown } from '../lib/calc'
 import { DEFAULT_VALUES, type WizardFormData } from '../lib/schema'
 
 type Props = {
@@ -44,6 +44,15 @@ const StepResults = ({ onReset, onSaveAssessment, onGoPlans, hasSavedAssessment,
   const values = useWatch({ control, defaultValue: DEFAULT_VALUES }) as WizardFormData
 
   const result = useMemo(() => calculateInitials(values), [values])
+  const macroKcal = useMemo(
+    () =>
+      getMacroKcalBreakdown({
+        protein: result.protein,
+        carbs: result.carbs,
+        fat: result.fats,
+      }),
+    [result.carbs, result.fats, result.protein],
+  )
 
   return (
     <Card elevation={0} className="step-card">
@@ -72,9 +81,9 @@ const StepResults = ({ onReset, onSaveAssessment, onGoPlans, hasSavedAssessment,
           <ResultCard title="Kcal objetivo base" value={`${formatInt(result.kcalObjectiveBase)} kcal`} />
           <ResultCard title="EEE (si entrenas)" value={`${formatInt(result.eee)} kcal`} subtitle="Gasto de ejercicio" />
           <ResultCard title="Kcal objetivo del dia" value={`${formatInt(result.kcalObjectiveDay)} kcal`} subtitle="Incluye ejercicio" accent="#2563eb" />
-          <ResultCard title="Proteina" value={`${formatInt(result.protein)} g`} subtitle={`~${Math.round(result.protein * 4)} kcal`} />
-          <ResultCard title="Grasas" value={`${formatInt(result.fats)} g`} subtitle={`~${Math.round(result.fats * 9)} kcal`} />
-          <ResultCard title="Carbohidratos" value={`${formatInt(result.carbs)} g`} subtitle={`~${Math.round(result.carbs * 4)} kcal`} />
+          <ResultCard title="Proteina" value={`${formatInt(result.protein)} g`} subtitle={`~${Math.round(macroKcal.proteinKcal)} kcal`} />
+          <ResultCard title="Grasas" value={`${formatInt(result.fats)} g`} subtitle={`~${Math.round(macroKcal.fatKcal)} kcal`} />
+          <ResultCard title="Carbohidratos" value={`${formatInt(result.carbs)} g`} subtitle={`~${Math.round(macroKcal.carbsKcal)} kcal`} />
           <ResultCard
             title="Carbs ajustados"
             value={`${formatInt(result.carbsAdjusted)} g`}
