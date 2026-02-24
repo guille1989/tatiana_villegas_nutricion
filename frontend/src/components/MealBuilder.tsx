@@ -4,6 +4,7 @@ import {
   AccordionSummary,
   Box,
   Button,
+  Collapse,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -94,6 +95,9 @@ const calcTargetKcal = (targets: MacroTargets) =>
 
 const formatTargets = (targets: MacroTargets) =>
   `P ${targets.protein.toFixed(0)} C ${targets.carbs.toFixed(0)} G ${targets.fat.toFixed(0)}`;
+
+const formatPortionValue = (value: number) =>
+  (Math.round((Number.isFinite(value) ? value : 0) * 10) / 10).toFixed(1);
 
 type MacroGaugeProps = {
   label: string;
@@ -255,6 +259,12 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
   const [expanded, setExpanded] = useState<string | null>(null);
   const [builderOpen, setBuilderOpen] = useState(false);
   const [activeMealKey, setActiveMealKey] = useState<Meal["key"] | null>(null);
+  const [expandedMealIngredientsKey, setExpandedMealIngredientsKey] = useState<
+    Meal["key"] | null
+  >(null);
+  const [showAllMealIngredientsKey, setShowAllMealIngredientsKey] = useState<
+    Meal["key"] | null
+  >(null);
   const [draftMeal, setDraftMeal] = useState<Meal | null>(null);
   const [selectedGroup, setSelectedGroup] =
     useState<FoodGroupFilter>(DEFAULT_GROUP);
@@ -399,6 +409,26 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
     onChange(nextMeals);
     onSave?.(nextMeals);
     handleCloseBuilder();
+  };
+
+  const handleClearMeal = (mealKey: Meal["key"]) => {
+    const currentMeal = meals.find((meal) => meal.key === mealKey);
+    if (!currentMeal || currentMeal.items.length === 0) return;
+    const confirmed = window.confirm(
+      `¿Eliminar todo el plato de ${currentMeal.name}? Se quitarán todos los insumos.`
+    );
+    if (!confirmed) return;
+    const nextMeals = meals.map((meal) =>
+      meal.key === mealKey ? { ...meal, items: [], totals: calcMealTotals([]) } : meal
+    );
+    onChange(nextMeals);
+    onSave?.(nextMeals);
+    if (expandedMealIngredientsKey === mealKey) {
+      setExpandedMealIngredientsKey(null);
+    }
+    if (showAllMealIngredientsKey === mealKey) {
+      setShowAllMealIngredientsKey(null);
+    }
   };
 
   const addFoodToDraft = (
@@ -672,6 +702,30 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
             fat: 0,
           };
           const targetKcal = calcTargetKcal(targets);
+          const mealPortions = {
+            protein: meal.totals.protein / 10,
+            carbs: meal.totals.carbs / 15,
+            fat: meal.totals.fat / 5,
+          };
+          const ingredientNames = meal.items
+            .map((item) => item.nameSnapshot?.trim() ?? "")
+            .filter((name) => name.length > 0);
+          const ingredientPreview = ingredientNames.slice(0, 4);
+          const hiddenIngredientCount = Math.max(
+            ingredientNames.length - ingredientPreview.length,
+            0
+          );
+          const ingredientPreviewLabel = ingredientPreview.length
+            ? `${ingredientPreview.join(" · ")}${
+                hiddenIngredientCount ? ` · +${hiddenIngredientCount}` : ""
+              }`
+            : "Sin insumos";
+          const isIngredientsExpanded = expandedMealIngredientsKey === meal.key;
+          const showAllIngredients = showAllMealIngredientsKey === meal.key;
+          const visibleIngredients = showAllIngredients
+            ? meal.items
+            : meal.items.slice(0, 4);
+          const hasMoreIngredients = meal.items.length > 4;
           return (
             <Accordion
               key={meal.key}
@@ -750,48 +804,247 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
                 </Stack>
               </AccordionSummary>
               <AccordionDetails sx={{ px: 1.5, pb: 1.5, pt: 0.5 }}>
-                <Stack spacing={1.5}>
-                  <Stack spacing={1}>
-                    <Typography variant="subtitle2" fontWeight={700}>
-                      Ingredientes
-                    </Typography>
-                    {meal.items.length ? (
-                      <Stack spacing={1}>
-                        {meal.items.map((item, idx) => (
+                {meal.items.length ? (
+                  <Box
+                    sx={{
+                      p: 1.5,
+                      borderRadius: 2,
+                      border: "1px solid",
+                      borderColor: "divider",
+                    }}
+                  >
+                    <Stack spacing={1.25}>
+                      <Stack
+                        direction={{ xs: "column", sm: "row" }}
+                        spacing={1}
+                        alignItems={{ xs: "flex-start", sm: "flex-start" }}
+                        justifyContent="space-between"
+                      >
+                        <Box sx={{ minWidth: 0, flex: 1 }}>
+                          <Typography
+                            variant="body2"
+                            fontWeight={700}
+                            sx={{ lineHeight: 1.35, wordBreak: "break-word" }}
+                          >
+                            {meal.name} · {meal.items.length} insumos
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Objetivo {targetKcal} kcal · {formatTargets(targets)}
+                          </Typography>
+                        </Box>
+                        <Typography
+                          variant="subtitle2"
+                          fontWeight={800}
+                          sx={{ whiteSpace: "nowrap", lineHeight: 1.2 }}
+                        >
+                          {Math.round(meal.totals.kcal)} kcal
+                        </Typography>
+                      </Stack>
+
+                      <Stack spacing={0.5}>
+                        <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
                           <Box
-                            key={`${item.foodId}-${idx}-ingredients`}
                             sx={{
-                              p: 1,
+                              px: 1,
+                              py: 0.4,
+                              borderRadius: 999,
+                              bgcolor: "primary.main",
+                              color: "primary.contrastText",
+                              fontSize: 12,
+                              fontWeight: 700,
+                              lineHeight: 1.2,
+                            }}
+                          >
+                            P {Math.round(meal.totals.protein)}
+                          </Box>
+                          <Box
+                            sx={{
+                              px: 1,
+                              py: 0.4,
+                              borderRadius: 999,
+                              border: "1px solid",
+                              borderColor: "divider",
+                              fontSize: 12,
+                              lineHeight: 1.2,
+                            }}
+                          >
+                            C {Math.round(meal.totals.carbs)}
+                          </Box>
+                          <Box
+                            sx={{
+                              px: 1,
+                              py: 0.4,
+                              borderRadius: 999,
+                              border: "1px solid",
+                              borderColor: "divider",
+                              fontSize: 12,
+                              lineHeight: 1.2,
+                            }}
+                          >
+                            G {Math.round(meal.totals.fat)}
+                          </Box>
+                        </Stack>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ lineHeight: 1.35, wordBreak: "break-word" }}
+                        >
+                          Porciones: P {formatPortionValue(mealPortions.protein)} · C{" "}
+                          {formatPortionValue(mealPortions.carbs)} · G{" "}
+                          {formatPortionValue(mealPortions.fat)}
+                        </Typography>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ lineHeight: 1.35, wordBreak: "break-word" }}
+                        >
+                          Insumos: {ingredientPreviewLabel}
+                        </Typography>
+                      </Stack>
+
+                      <Stack
+                        direction={{ xs: "column", sm: "row" }}
+                        spacing={1}
+                        alignItems={{ xs: "stretch", sm: "center" }}
+                        justifyContent="space-between"
+                      >
+                        <Stack
+                          direction="row"
+                          spacing={1}
+                          alignItems="center"
+                          flexWrap="wrap"
+                          useFlexGap
+                        >
+                          <Button
+                            size="small"
+                            variant="text"
+                            onClick={() => {
+                              const nextOpen = isIngredientsExpanded ? null : meal.key;
+                              setExpandedMealIngredientsKey(nextOpen);
+                              if (!nextOpen) {
+                                setShowAllMealIngredientsKey(null);
+                              }
+                            }}
+                            sx={{ minHeight: 40, px: 1 }}
+                          >
+                            {isIngredientsExpanded ? "Ocultar insumos" : "Ver insumos"}
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => handleOpenBuilder(meal.key)}
+                            sx={{ minHeight: 40 }}
+                          >
+                            Editar plato
+                          </Button>
+                        </Stack>
+                        <Button
+                          size="small"
+                          color="error"
+                          variant="text"
+                          startIcon={<DeleteOutlineIcon fontSize="small" />}
+                          onClick={() => handleClearMeal(meal.key)}
+                          sx={{ minHeight: 40, alignSelf: { xs: "flex-start", sm: "auto" } }}
+                        >
+                          Eliminar plato
+                        </Button>
+                      </Stack>
+
+                      <Collapse in={isIngredientsExpanded}>
+                        <Stack spacing={1}>
+                          <Box
+                            sx={{
                               borderRadius: 2,
                               border: "1px solid",
                               borderColor: "divider",
+                              overflow: "hidden",
                             }}
                           >
-                            <Typography variant="body2" fontWeight={700}>
-                              {item.nameSnapshot}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {item.grams.toFixed(0)} g | {item.kcal.toFixed(0)} kcal | P{" "}
-                              {item.macros.protein.toFixed(0)} C{" "}
-                              {item.macros.carbs.toFixed(0)} G{" "}
-                              {item.macros.fat.toFixed(0)}
-                            </Typography>
+                            {visibleIngredients.map((item, idx) => (
+                              <Stack
+                                key={`${item.foodId}-${idx}-ingredients`}
+                                direction="row"
+                                spacing={1}
+                                alignItems="center"
+                                justifyContent="space-between"
+                                sx={{
+                                  px: 1,
+                                  py: 0.75,
+                                  minHeight: 38,
+                                  borderBottom:
+                                    idx < visibleIngredients.length - 1 ? "1px solid" : "none",
+                                  borderColor: "divider",
+                                }}
+                              >
+                                <Typography
+                                  variant="body2"
+                                  sx={{
+                                    minWidth: 0,
+                                    flex: 1,
+                                    lineHeight: 1.25,
+                                    wordBreak: "break-word",
+                                  }}
+                                >
+                                  {item.nameSnapshot}
+                                </Typography>
+                                <Typography
+                                  variant="caption"
+                                  sx={{
+                                    flexShrink: 0,
+                                    px: 0.9,
+                                    py: 0.25,
+                                    borderRadius: 999,
+                                    border: "1px solid",
+                                    borderColor: "divider",
+                                    color: "text.secondary",
+                                    lineHeight: 1.2,
+                                  }}
+                                >
+                                  {Math.round(item.grams)} g
+                                </Typography>
+                              </Stack>
+                            ))}
                           </Box>
-                        ))}
-                      </Stack>
-                    ) : (
-                      <Typography variant="caption" color="text.secondary">
-                        Sin alimentos.
+                          {hasMoreIngredients && (
+                            <Button
+                              size="small"
+                              variant="text"
+                              onClick={() =>
+                                setShowAllMealIngredientsKey(
+                                  showAllIngredients ? null : meal.key
+                                )
+                              }
+                              sx={{ alignSelf: "flex-start", minHeight: 36 }}
+                            >
+                              {showAllIngredients ? "Ver menos" : "Ver todos"}
+                            </Button>
+                          )}
+                        </Stack>
+                      </Collapse>
+                    </Stack>
+                  </Box>
+                ) : (
+                  <Stack spacing={1.25}>
+                    <Box
+                      sx={{
+                        p: 1.25,
+                        borderRadius: 2,
+                        border: "1px dashed",
+                        borderColor: "divider",
+                      }}
+                    >
+                      <Typography variant="body2" fontWeight={700}>
+                        Sin plato armado
                       </Typography>
-                    )}
+                      <Typography variant="caption" color="text.secondary">
+                        Agrega insumos para construir {meal.name.toLowerCase()}.
+                      </Typography>
+                    </Box>
+                    <Button variant="contained" onClick={() => handleOpenBuilder(meal.key)}>
+                      Armar plato
+                    </Button>
                   </Stack>
-                  <Button
-                    variant="contained"
-                    onClick={() => handleOpenBuilder(meal.key)}
-                  >
-                    Armar plato
-                  </Button>
-                </Stack>
+                )}
               </AccordionDetails>
             </Accordion>
           );

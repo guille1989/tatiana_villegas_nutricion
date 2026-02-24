@@ -1962,6 +1962,20 @@ const PlanDetailPage = () => {
                         const visibleItems = showAll ? item.items : item.items.slice(0, 4);
                         const hasMoreItems = item.items.length > 4;
                         const displayName = getTemplateDisplayName(item);
+                        const mealNameLabel = getTemplateMealName(item.name) || displayName;
+                        const ingredientNames = item.items
+                          .map((mealItem) => mealItem.nameSnapshot?.trim() ?? "")
+                          .filter((name) => name.length > 0);
+                        const previewIngredients = ingredientNames.slice(0, 4);
+                        const hiddenIngredientsCount = Math.max(
+                          ingredientNames.length - previewIngredients.length,
+                          0
+                        );
+                        const ingredientPreviewLabel = previewIngredients.length
+                          ? `${previewIngredients.join(" · ")}${
+                              hiddenIngredientsCount ? ` · +${hiddenIngredientsCount}` : ""
+                            }`
+                          : "Sin ingredientes";
                         // Prefer persisted template totals. If a legacy template misses totals,
                         // sum ingredient macros inline to avoid changing models or API payloads.
                         const fallbackTotals = item.items.reduce(
@@ -1984,7 +1998,7 @@ const PlanDetailPage = () => {
                           carbs: templateTotals.carbs,
                           fat: templateTotals.fat,
                         });
-                        const templateLabel = `${displayName} · ${item.items.length} items`;
+                        const templateLabel = `${mealNameLabel} · ${item.items.length} items`;
                         return (
                           <Box
                             key={item.id}
@@ -2067,6 +2081,13 @@ const PlanDetailPage = () => {
                                     {formatPortions(templatePortions.carbs)} · G{" "}
                                     {formatPortions(templatePortions.fat)}
                                   </Typography>
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{ lineHeight: 1.35, wordBreak: "break-word" }}
+                                  >
+                                    Ingredientes: {ingredientPreviewLabel}
+                                  </Typography>
                                 </Stack>
                                 <Stack
                                   direction="row"
@@ -2102,28 +2123,61 @@ const PlanDetailPage = () => {
                               <Collapse in={isExpanded}>
                                 <Stack spacing={1}>
                                   {visibleItems.length ? (
-                                    visibleItems.map((mealItem, idx) => (
-                                      <Box
-                                        key={`${item.id}-${mealItem.foodId}-${idx}`}
-                                        sx={{
-                                          p: 1,
-                                          borderRadius: 2,
-                                          border: "1px solid",
-                                          borderColor: "divider",
-                                        }}
-                                      >
-                                        <Typography variant="body2" fontWeight={700}>
-                                          {mealItem.nameSnapshot}
-                                        </Typography>
-                                        <Typography variant="caption" color="text.secondary">
-                                          {mealItem.grams.toFixed(0)} g |{" "}
-                                          {mealItem.kcal.toFixed(0)} kcal | P{" "}
-                                          {mealItem.macros.protein.toFixed(0)} C{" "}
-                                          {mealItem.macros.carbs.toFixed(0)} G{" "}
-                                          {mealItem.macros.fat.toFixed(0)}
-                                        </Typography>
-                                      </Box>
-                                    ))
+                                    <Box
+                                      sx={{
+                                        borderRadius: 2,
+                                        border: "1px solid",
+                                        borderColor: "divider",
+                                        overflow: "hidden",
+                                      }}
+                                    >
+                                      {visibleItems.map((mealItem, idx) => (
+                                        <Stack
+                                          key={`${item.id}-${mealItem.foodId}-${idx}`}
+                                          direction="row"
+                                          spacing={1}
+                                          alignItems="center"
+                                          justifyContent="space-between"
+                                          sx={{
+                                            px: 1,
+                                            py: 0.75,
+                                            minHeight: 38,
+                                            borderBottom:
+                                              idx < visibleItems.length - 1
+                                                ? "1px solid"
+                                                : "none",
+                                            borderColor: "divider",
+                                          }}
+                                        >
+                                          <Typography
+                                            variant="body2"
+                                            sx={{
+                                              minWidth: 0,
+                                              flex: 1,
+                                              lineHeight: 1.25,
+                                              wordBreak: "break-word",
+                                            }}
+                                          >
+                                            {mealItem.nameSnapshot}
+                                          </Typography>
+                                          <Typography
+                                            variant="caption"
+                                            sx={{
+                                              flexShrink: 0,
+                                              px: 0.9,
+                                              py: 0.25,
+                                              borderRadius: 999,
+                                              border: "1px solid",
+                                              borderColor: "divider",
+                                              color: "text.secondary",
+                                              lineHeight: 1.2,
+                                            }}
+                                          >
+                                            {Math.round(mealItem.grams)} g
+                                          </Typography>
+                                        </Stack>
+                                      ))}
+                                    </Box>
                                   ) : (
                                     <Typography variant="caption" color="text.secondary">
                                       Sin alimentos.
