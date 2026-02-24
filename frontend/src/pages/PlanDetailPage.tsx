@@ -3,6 +3,7 @@ import {
   Box,
   Button,
   ButtonBase,
+  Checkbox,
   IconButton,
   Collapse,
   Card,
@@ -161,6 +162,16 @@ const PlanDetailPage = () => {
   const [cloneMealTypeLocked, setCloneMealTypeLocked] = useState(true);
   const [cloneSearch, setCloneSearch] = useState("");
   const [cloneVisibleCount, setCloneVisibleCount] = useState(CLONE_PAGE_SIZE);
+  const [repeatOpen, setRepeatOpen] = useState(false);
+  const [repeatSaving, setRepeatSaving] = useState(false);
+  const [repeatError, setRepeatError] = useState<string | null>(null);
+  const [repeatSourceDate, setRepeatSourceDate] = useState<string | null>(null);
+  const [repeatSourceMeal, setRepeatSourceMeal] = useState<Meal | null>(null);
+  const [repeatSourceMealCount, setRepeatSourceMealCount] = useState<MealCount | null>(
+    null
+  );
+  const [repeatTargetDates, setRepeatTargetDates] = useState<string[]>([]);
+  const [repeatMode, setRepeatMode] = useState<"replace" | "only_if_empty">("replace");
 
   useEffect(() => {
     if (!planId) return;
@@ -802,6 +813,181 @@ const PlanDetailPage = () => {
     }
   };
 
+  const handleOpenRepeatMeal = (meal: Meal) => {
+    if (!planId || !selectedDate) {
+      setSnackbar("Selecciona un dia para repetir el plato");
+      return;
+    }
+    if (!meal.items.length) {
+      setSnackbar("Primero arma un plato");
+      return;
+    }
+    const sourceMealCount = getMealCount(currentMeals);
+    if (!sourceMealCount) {
+      setSnackbar("Configura las comidas del dia antes de repetir");
+      return;
+    }
+    setRepeatOpen(true);
+    setRepeatSaving(false);
+    setRepeatError(null);
+    setRepeatSourceDate(selectedDate);
+    setRepeatSourceMealCount(sourceMealCount);
+    setRepeatTargetDates([]);
+    setRepeatMode("replace");
+    setRepeatSourceMeal({
+      ...meal,
+      items: meal.items.map((item) => ({
+        ...item,
+        macros: { ...item.macros },
+      })),
+      totals: { ...meal.totals },
+    });
+  };
+
+  const handleCloseRepeatMeal = () => {
+    setRepeatOpen(false);
+    setRepeatSaving(false);
+    setRepeatError(null);
+    setRepeatSourceDate(null);
+    setRepeatSourceMeal(null);
+    setRepeatSourceMealCount(null);
+    setRepeatTargetDates([]);
+    setRepeatMode("replace");
+  };
+
+  const handleConfirmRepeatMeal = async () => {
+    if (!planId || !repeatSourceMeal || !repeatSourceDate) {
+      setRepeatError("No se pudo identificar el plato origen.");
+      return;
+    }
+    const today = dayjs().startOf("day");
+    const sourceDay = dayjs(repeatSourceDate).startOf("day");
+    const validTargetSet = new Set(
+      dates.filter((date) => {
+        const day = dayjs(date).startOf("day");
+        return day.isAfter(today, "day") && day.isAfter(sourceDay, "day");
+      })
+    );
+    const targetDates = repeatTargetDates.filter((date) => validTargetSet.has(date));
+    if (targetDates.length === 0) {
+      setRepeatError("Selecciona al menos un dia futuro dentro del plan.");
+      return;
+    }
+    const fallbackMealCount = repeatSourceMealCount ?? getMealCount(currentMeals);
+    if (!fallbackMealCount) {
+      setRepeatError("No se pudo determinar el numero de comidas para repetir.");
+      return;
+    }
+
+    setRepeatSaving(true);
+    setRepeatError(null);
+    try {
+      const results = await Promise.allSettled(
+        targetDates.map(async (targetDate) => {
+          const targetBaseMeals = targetDate === selectedDate ? currentMeals : getDayMeals(targetDate);
+          const targetMealCount = getMealCount(targetBaseMeals) ?? fallbackMealCount;
+          const mergedMeals = mergeMealsWithTemplate(
+            targetBaseMeals,
+            getMealsByCount(targetMealCount)
+          );
+          const targetMeal = mergedMeals.find((meal) => meal.key === repeatSourceMeal.key);
+          if (!targetMeal) {
+            return { kind: "skipped" as const, date: targetDate };
+          }
+          if (repeatMode === "only_if_empty" && targetMeal.items.length > 0) {
+            return { kind: "skipped" as const, date: targetDate };
+          }
+
+          const nextMeals = mergedMeals.map((meal) => {
+            if (meal.key !== repeatSourceMeal.key) return meal;
+            return {
+              ...meal,
+              items: repeatSourceMeal.items.map((item) => ({
+                ...item,
+                macros: { ...item.macros },
+              })),
+              totals: { ...repeatSourceMeal.totals },
+            };
+          });
+
+          const existingOverride =
+            targetDate === selectedDate
+              ? selectedOverride
+              : overrides.find((item) => item.date === targetDate);
+          const planAssessment = assessment ?? undefined;
+          const baseOverride =
+            existingOverride?.overrides ??
+            (planAssessment?.inputs
+              ? {
+                  dayType: planAssessment.inputs.dayType,
+                  activityLevel: planAssessment.inputs.activityLevel,
+                }
+              : {});
+
+          const record = await upsertOverride({
+            planId,
+            date: targetDate,
+            overrides: baseOverride,
+            meals: nextMeals,
+          });
+
+          return { kind: "saved" as const, record };
+        })
+      );
+
+      const savedRecords: DayOverride[] = [];
+      let skippedCount = 0;
+      let failedCount = 0;
+      results.forEach((result) => {
+        if (result.status === "rejected") {
+          failedCount += 1;
+          return;
+        }
+        if (result.value.kind === "saved") {
+          savedRecords.push(result.value.record);
+        } else {
+          skippedCount += 1;
+        }
+      });
+
+      if (savedRecords.length > 0) {
+        setOverrides((prev) => {
+          const map = new Map(prev.map((item) => [item.date, item]));
+          savedRecords.forEach((record) => map.set(record.date, record));
+          return Array.from(map.values());
+        });
+        setMealsByDate((prev) => {
+          const next = { ...prev };
+          savedRecords.forEach((record) => {
+            next[record.date] = (record.meals ?? []) as Meal[];
+          });
+          return next;
+        });
+        handleCloseRepeatMeal();
+      }
+
+      if (savedRecords.length === 0) {
+        setRepeatError(
+          skippedCount > 0 && failedCount === 0
+            ? "No se aplico en ningun dia (ya tenian plato o no eran compatibles)."
+            : "No se pudo aplicar la repeticion."
+        );
+      }
+
+      const summaryParts = [];
+      if (savedRecords.length > 0) summaryParts.push(`Aplicado en ${savedRecords.length} dias`);
+      if (skippedCount > 0) summaryParts.push(`${skippedCount} omitidos`);
+      if (failedCount > 0) summaryParts.push(`${failedCount} con error`);
+      if (summaryParts.length > 0) {
+        setSnackbar(summaryParts.join(" · "));
+      }
+    } catch (err) {
+      setRepeatError("No se pudo repetir el plato.");
+    } finally {
+      setRepeatSaving(false);
+    }
+  };
+
   const handleOpenClone = (meal: Meal) => {
     setCloneError(null);
     setCloneOpen(true);
@@ -979,6 +1165,32 @@ const PlanDetailPage = () => {
           fat: cloneTargetSummary.fat,
         })
       : null;
+  const repeatEligibleDates = useMemo(() => {
+    if (!repeatSourceDate) return [];
+    const today = dayjs().startOf("day");
+    const sourceDay = dayjs(repeatSourceDate).startOf("day");
+    return dates.filter((date) => {
+      const current = dayjs(date).startOf("day");
+      return current.isAfter(today, "day") && current.isAfter(sourceDay, "day");
+    });
+  }, [dates, repeatSourceDate]);
+  const repeatEligibleDateSet = useMemo(
+    () => new Set(repeatEligibleDates),
+    [repeatEligibleDates]
+  );
+  const repeatSelectedCount = repeatTargetDates.filter((date) =>
+    repeatEligibleDateSet.has(date)
+  ).length;
+  const repeatSourcePortions =
+    repeatSourceMeal
+      ? toMacroPortions({
+          protein: repeatSourceMeal.totals.protein,
+          carbs: repeatSourceMeal.totals.carbs,
+          fat: repeatSourceMeal.totals.fat,
+        })
+      : null;
+  const repeatApplyDisabled =
+    repeatSaving || !repeatSourceMeal || repeatSelectedCount === 0;
 
   const MacroDonut = ({
     protein,
@@ -1795,6 +2007,7 @@ const PlanDetailPage = () => {
                     mealTargets={mealTargets}
                     onError={(msg) => setSnackbar(msg)}
                     onCloneMeal={handleOpenClone}
+                    onRepeatMeal={handleOpenRepeatMeal}
                   />
                 )}
               </Stack>
@@ -2248,6 +2461,183 @@ const PlanDetailPage = () => {
             disabled={cloneDisabled}
           >
             {cloneSaving ? "Clonando..." : "Clonar"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={repeatOpen}
+        onClose={repeatSaving ? undefined : handleCloseRepeatMeal}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle sx={{ pb: 1 }}>Repetir en otros dias</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ pt: 0.5 }}>
+            {repeatSourceMeal && (
+              <Box
+                sx={{
+                  p: 1.25,
+                  borderRadius: 2,
+                  border: "1px solid",
+                  borderColor: "divider",
+                }}
+              >
+                <Stack spacing={0.5}>
+                  <Typography variant="subtitle2" fontWeight={700}>
+                    {repeatSourceMeal.name} · {repeatSourceMeal.items.length} insumos
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {Math.round(repeatSourceMeal.totals.kcal)} kcal · P{" "}
+                    {Math.round(repeatSourceMeal.totals.protein)} · C{" "}
+                    {Math.round(repeatSourceMeal.totals.carbs)} · G{" "}
+                    {Math.round(repeatSourceMeal.totals.fat)}
+                  </Typography>
+                  {repeatSourcePortions && (
+                    <Typography variant="caption" color="text.secondary">
+                      Porciones: P {formatPortions(repeatSourcePortions.protein)} · C{" "}
+                      {formatPortions(repeatSourcePortions.carbs)} · G{" "}
+                      {formatPortions(repeatSourcePortions.fat)}
+                    </Typography>
+                  )}
+                  <Typography variant="caption" color="text.secondary">
+                    Origen:{" "}
+                    {repeatSourceDate
+                      ? dayjs(repeatSourceDate).format("ddd, DD MMM YYYY")
+                      : "-"}
+                  </Typography>
+                </Stack>
+              </Box>
+            )}
+
+            <TextField
+              select
+              size="small"
+              label="Modo de aplicacion"
+              value={repeatMode}
+              onChange={(e) =>
+                setRepeatMode(e.target.value as "replace" | "only_if_empty")
+              }
+              disabled={repeatSaving}
+            >
+              <MenuItem value="replace">Reemplazar la comida en los dias seleccionados</MenuItem>
+              <MenuItem value="only_if_empty">Solo aplicar si esa comida esta vacia</MenuItem>
+            </TextField>
+
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={1}
+              justifyContent="space-between"
+              alignItems={{ xs: "stretch", sm: "center" }}
+            >
+              <Typography variant="caption" color="text.secondary">
+                Solo dias futuros dentro de la duracion del plan.
+              </Typography>
+              <Stack direction="row" spacing={1}>
+                <Button
+                  size="small"
+                  variant="text"
+                  disabled={repeatSaving || repeatEligibleDates.length === 0}
+                  onClick={() => setRepeatTargetDates(repeatEligibleDates)}
+                >
+                  Seleccionar todos
+                </Button>
+                <Button
+                  size="small"
+                  variant="text"
+                  disabled={repeatSaving || repeatTargetDates.length === 0}
+                  onClick={() => setRepeatTargetDates([])}
+                >
+                  Limpiar
+                </Button>
+              </Stack>
+            </Stack>
+
+            <Box
+              sx={{
+                borderRadius: 2,
+                border: "1px solid",
+                borderColor: "divider",
+                overflow: "hidden",
+                maxHeight: 320,
+                overflowY: "auto",
+              }}
+            >
+              {repeatEligibleDates.length === 0 ? (
+                <Box sx={{ p: 1.5 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    No hay dias futuros disponibles dentro de este plan.
+                  </Typography>
+                </Box>
+              ) : (
+                <Stack spacing={0}>
+                  {repeatEligibleDates.map((date, idx) => {
+                    const checked = repeatTargetDates.includes(date);
+                    return (
+                      <ButtonBase
+                        key={date}
+                        onClick={() => {
+                          if (repeatSaving) return;
+                          setRepeatTargetDates((prev) =>
+                            prev.includes(date)
+                              ? prev.filter((item) => item !== date)
+                              : [...prev, date]
+                          );
+                        }}
+                        sx={{
+                          width: "100%",
+                          justifyContent: "flex-start",
+                          textAlign: "left",
+                          px: 1,
+                          py: 0.5,
+                          minHeight: 48,
+                          borderBottom: idx < repeatEligibleDates.length - 1 ? "1px solid" : "none",
+                          borderColor: "divider",
+                        }}
+                      >
+                        <Checkbox
+                          size="small"
+                          checked={checked}
+                          disableRipple
+                          tabIndex={-1}
+                          sx={{ mr: 0.5 }}
+                        />
+                        <Stack spacing={0} sx={{ minWidth: 0 }}>
+                          <Typography variant="body2" fontWeight={600}>
+                            {dayjs(date).format("ddd, DD MMM YYYY")}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {date}
+                          </Typography>
+                        </Stack>
+                      </ButtonBase>
+                    );
+                  })}
+                </Stack>
+              )}
+            </Box>
+
+            <Typography variant="caption" color="text.secondary">
+              Seleccionados: {repeatSelectedCount}
+            </Typography>
+            {repeatSaving && <LinearProgress />}
+            {repeatError && (
+              <Typography variant="caption" color="error">
+                {repeatError}
+              </Typography>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseRepeatMeal} disabled={repeatSaving}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleConfirmRepeatMeal}
+            disabled={repeatApplyDisabled}
+          >
+            {repeatSaving ? "Aplicando..." : `Aplicar a ${repeatSelectedCount} dias`}
           </Button>
         </DialogActions>
       </Dialog>

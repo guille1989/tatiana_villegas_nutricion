@@ -49,6 +49,7 @@ type Props = {
   onSave?: (meals: Meal[]) => void;
   onError: (msg: string) => void;
   onCloneMeal?: (meal: Meal) => void;
+  onRepeatMeal?: (meal: Meal) => void;
 };
 
 const DEFAULT_GROUP = FOOD_GROUP_OPTIONS[0]?.value ?? "proteinas";
@@ -253,7 +254,15 @@ const MacroGauge = ({
   );
 };
 
-const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMeal }: Props) => {
+const MealBuilder = ({
+  meals,
+  mealTargets,
+  onChange,
+  onSave,
+  onError,
+  onCloneMeal,
+  onRepeatMeal,
+}: Props) => {
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -937,6 +946,16 @@ const MealBuilder = ({ meals, mealTargets, onChange, onSave, onError, onCloneMea
                           >
                             Editar plato
                           </Button>
+                          {onRepeatMeal && (
+                            <Button
+                              size="small"
+                              variant="text"
+                              onClick={() => onRepeatMeal(meal)}
+                              sx={{ minHeight: 40, px: 1 }}
+                            >
+                              Repetir en otros dias
+                            </Button>
+                          )}
                         </Stack>
                         <Button
                           size="small"
