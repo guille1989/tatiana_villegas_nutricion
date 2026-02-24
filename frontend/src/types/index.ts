@@ -28,6 +28,7 @@ export type Assessment = {
 
 export type Plan = {
   id: string
+  userId?: string
   createdAt: string
   baseAssessmentId: string
   startDate: string

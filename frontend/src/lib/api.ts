@@ -27,6 +27,7 @@ type AssessmentDto = {
 
 type PlanDto = {
   _id: string
+  userId?: string
   createdAt: string
   baseAssessmentId: string | AssessmentDto
   startDate: string
@@ -204,6 +205,7 @@ const mapAssessment = (raw: AssessmentDto): Assessment => ({
 
 const mapPlan = (raw: PlanDto): Plan => ({
   id: raw._id,
+  userId: raw.userId,
   createdAt: raw.createdAt,
   baseAssessmentId: typeof raw.baseAssessmentId === 'string' ? raw.baseAssessmentId : raw.baseAssessmentId._id,
   startDate: raw.startDate,
@@ -625,12 +627,34 @@ export const listMealTemplates = async () => {
   return (data.templates ?? []).map(mapMealTemplate)
 }
 
+export const listAdminUserMealTemplates = async (userId: string) => {
+  const { data, error } = await request<{ templates: MealTemplateDto[] }>(`/admin/users/${userId}/meal-library`)
+  if (error) throw new Error(error)
+  return (data.templates ?? []).map(mapMealTemplate)
+}
+
 export const createMealTemplate = async (payload: {
   name: string
   items: MealItem[]
   totals: { protein: number; carbs: number; fat: number; kcal: number }
 }) => {
   const { data, error } = await request<{ template: MealTemplateDto }>('/meal-library', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  if (error) throw new Error(error)
+  return mapMealTemplate(data.template)
+}
+
+export const createAdminUserMealTemplate = async (
+  userId: string,
+  payload: {
+    name: string
+    items: MealItem[]
+    totals: { protein: number; carbs: number; fat: number; kcal: number }
+  },
+) => {
+  const { data, error } = await request<{ template: MealTemplateDto }>(`/admin/users/${userId}/meal-library`, {
     method: 'POST',
     body: JSON.stringify(payload),
   })

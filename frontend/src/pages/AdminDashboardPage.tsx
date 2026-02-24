@@ -803,7 +803,7 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     return [
       {
         label: 'Edad',
-        value: formatWithUnit(inputs.age, 'anos'),
+        value: formatWithUnit(inputs.age, 'años'),
         icon: <CakeRoundedIcon fontSize="small" color="action" />,
       },
       {
@@ -1160,7 +1160,7 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     return [
       { label: 'Nombre', value: formatValue(inputs.name) },
       { label: 'Sexo', value: optionLabel(inputs.sex, sexOptions) },
-      { label: 'Edad', value: formatWithUnit(inputs.age, 'anos') },
+      { label: 'Edad', value: formatWithUnit(inputs.age, 'años') },
       { label: 'Peso', value: formatWithUnit(inputs.weight, 'kg') },
       { label: 'Talla', value: formatWithUnit(inputs.height, 'cm') },
       { label: '% Grasa', value: formatWithUnit(inputs.bodyFat ?? null, '%') },

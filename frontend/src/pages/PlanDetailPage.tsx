@@ -43,8 +43,10 @@ import {
   toMacroPortions,
 } from "../lib/calc";
 import {
+  createAdminUserMealTemplate,
   createMealTemplate,
   getPlan,
+  listAdminUserMealTemplates,
   listMealTemplates,
   upsertOverride,
 } from "../lib/api";
@@ -192,6 +194,12 @@ const PlanDetailPage = () => {
 
   useEffect(() => {
     initialSelectionDoneRef.current = false;
+  }, [planId]);
+
+  useEffect(() => {
+    setMealLibrary([]);
+    setMealLibraryError(null);
+    cloneLibraryRequestedRef.current = false;
   }, [planId]);
 
   useEffect(() => {
@@ -547,6 +555,7 @@ const PlanDetailPage = () => {
   };
 
   const formatInt = (value: number) => Math.round(value);
+  const formatPortions = (value: number) => (Math.round(value * 10) / 10).toFixed(1);
 
   const buildMealTemplateName = (
     mealName: string,
@@ -728,12 +737,15 @@ const PlanDetailPage = () => {
 
   const saveMealsToLibrary = async (meals: Meal[]) => {
     if (!selectedDate) return;
+    if (isAdmin && !plan?.userId) return;
     const candidates = meals.filter((meal) => meal.items.length > 0);
     if (candidates.length === 0) return;
     let templates = mealLibrary;
     if (templates.length === 0) {
       try {
-        templates = await listMealTemplates();
+        templates = isAdmin && plan?.userId
+          ? await listAdminUserMealTemplates(plan.userId)
+          : await listMealTemplates();
       } catch (err) {
         console.error(err);
         templates = [];
@@ -744,11 +756,17 @@ const PlanDetailPage = () => {
     try {
       const created = await Promise.all(
         candidates.map((meal) =>
-          createMealTemplate({
-            name: buildMealTemplateName(meal.name, dateLabel, usedNames),
-            items: meal.items,
-            totals: meal.totals,
-          })
+          (isAdmin && plan?.userId
+            ? createAdminUserMealTemplate(plan.userId, {
+                name: buildMealTemplateName(meal.name, dateLabel, usedNames),
+                items: meal.items,
+                totals: meal.totals,
+              })
+            : createMealTemplate({
+                name: buildMealTemplateName(meal.name, dateLabel, usedNames),
+                items: meal.items,
+                totals: meal.totals,
+              }))
         )
       );
       setMealLibrary((prev) => {
@@ -766,10 +784,14 @@ const PlanDetailPage = () => {
   };
 
   const loadMealLibrary = async () => {
+    if (isAdmin && !plan?.userId) return;
     setMealLibraryLoading(true);
     setMealLibraryError(null);
     try {
-      const templates = await listMealTemplates();
+      const templates =
+        isAdmin && plan?.userId
+          ? await listAdminUserMealTemplates(plan.userId)
+          : await listMealTemplates();
       setMealLibrary(templates);
     } catch (err) {
       setMealLibraryError(
@@ -915,6 +937,48 @@ const PlanDetailPage = () => {
       trainingCount: getTrainingCount(override),
     };
   };
+  const cloneTargetDayData =
+    cloneTargetDate && cloneTargetPlanId === plan?.id ? getDayData(cloneTargetDate) : null;
+  const cloneTargetBaseMeals =
+    cloneTargetDate && cloneTargetPlanId === plan?.id ? getDayMeals(cloneTargetDate) : [];
+  const cloneTargetMealCount = getMealCount(cloneTargetBaseMeals);
+  const cloneTargetMealMacros =
+    cloneTargetMealKey &&
+    cloneTargetDayData?.outputs &&
+    cloneTargetMealCount
+      ? distributeMacros(
+          {
+            protein: cloneTargetDayData.outputs.protein,
+            carbs: cloneTargetDayData.outputs.carbsAdjusted,
+            fat: cloneTargetDayData.outputs.fatsAdjusted,
+          },
+          getWeightsByCount(cloneTargetMealCount)
+        )[cloneTargetMealKey]
+      : null;
+  const cloneTargetSummary =
+    cloneTargetMealMacros &&
+    (cloneTargetMealMacros.protein > 0 ||
+      cloneTargetMealMacros.carbs > 0 ||
+      cloneTargetMealMacros.fat > 0)
+      ? {
+          protein: Math.round(cloneTargetMealMacros.protein),
+          carbs: Math.round(cloneTargetMealMacros.carbs),
+          fat: Math.round(cloneTargetMealMacros.fat),
+          kcal: Math.round(
+            cloneTargetMealMacros.protein * 4 +
+              cloneTargetMealMacros.carbs * 4 +
+              cloneTargetMealMacros.fat * 9
+          ),
+        }
+      : null;
+  const cloneTargetPortions =
+    cloneTargetSummary
+      ? toMacroPortions({
+          protein: cloneTargetSummary.protein,
+          carbs: cloneTargetSummary.carbs,
+          fat: cloneTargetSummary.fat,
+        })
+      : null;
 
   const MacroDonut = ({
     protein,
@@ -1828,7 +1892,7 @@ const PlanDetailPage = () => {
 
             <TextField
               size="small"
-              placeholder="Buscar por nombre o ingredientes..."
+              placeholder="Buscar por nombre o ingrediente..."
               value={cloneSearch}
               onChange={(event) => setCloneSearch(event.target.value)}
               InputProps={{
@@ -1840,6 +1904,27 @@ const PlanDetailPage = () => {
               }}
               fullWidth
             />
+            {cloneTargetSummary && (
+              <Stack spacing={0.25} sx={{ px: 0.25 }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{
+                    lineHeight: 1.4,
+                  }}
+                >
+                  Objetivo: {cloneTargetSummary.kcal} kcal · P{cloneTargetSummary.protein} · C
+                  {cloneTargetSummary.carbs} · G{cloneTargetSummary.fat}
+                </Typography>
+                {cloneTargetPortions && (
+                  <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.35 }}>
+                    Porciones: P {formatPortions(cloneTargetPortions.protein)} · C{" "}
+                    {formatPortions(cloneTargetPortions.carbs)} · G{" "}
+                    {formatPortions(cloneTargetPortions.fat)}
+                  </Typography>
+                )}
+              </Stack>
+            )}
 
             {mealLibraryLoading ? (
               <Typography variant="caption" color="text.secondary">
@@ -1877,6 +1962,29 @@ const PlanDetailPage = () => {
                         const visibleItems = showAll ? item.items : item.items.slice(0, 4);
                         const hasMoreItems = item.items.length > 4;
                         const displayName = getTemplateDisplayName(item);
+                        // Prefer persisted template totals. If a legacy template misses totals,
+                        // sum ingredient macros inline to avoid changing models or API payloads.
+                        const fallbackTotals = item.items.reduce(
+                          (acc, mealItem) => ({
+                            protein: acc.protein + (mealItem.macros?.protein ?? 0),
+                            carbs: acc.carbs + (mealItem.macros?.carbs ?? 0),
+                            fat: acc.fat + (mealItem.macros?.fat ?? 0),
+                            kcal: acc.kcal + (mealItem.kcal ?? 0),
+                          }),
+                          { protein: 0, carbs: 0, fat: 0, kcal: 0 }
+                        );
+                        const templateTotals = {
+                          protein: item.totals?.protein ?? fallbackTotals.protein,
+                          carbs: item.totals?.carbs ?? fallbackTotals.carbs,
+                          fat: item.totals?.fat ?? fallbackTotals.fat,
+                          kcal: item.totals?.kcal ?? fallbackTotals.kcal,
+                        };
+                        const templatePortions = toMacroPortions({
+                          protein: templateTotals.protein,
+                          carbs: templateTotals.carbs,
+                          fat: templateTotals.fat,
+                        });
+                        const templateLabel = `${displayName} · ${item.items.length} items`;
                         return (
                           <Box
                             key={item.id}
@@ -1888,22 +1996,85 @@ const PlanDetailPage = () => {
                               bgcolor: isSelected ? "primary.main" + "0D" : "transparent",
                             }}
                           >
-                            <Stack spacing={1}>
+                            <Stack spacing={1.25}>
                               <Stack
                                 direction={{ xs: "column", sm: "row" }}
                                 spacing={1}
-                                alignItems={{ xs: "flex-start", sm: "center" }}
+                                alignItems={{ xs: "flex-start", sm: "flex-start" }}
                                 justifyContent="space-between"
                               >
-                                <Stack spacing={0.25}>
-                                  <Typography variant="body2" fontWeight={700}>
-                                    {displayName}
+                                <Box sx={{ minWidth: 0, flex: 1 }}>
+                                  <Typography
+                                    variant="body2"
+                                    fontWeight={700}
+                                    sx={{ lineHeight: 1.35, wordBreak: "break-word" }}
+                                  >
+                                    {templateLabel}
                                   </Typography>
-                                  <Typography variant="caption" color="text.secondary">
-                                    {item.items.length} items | {item.totals.kcal.toFixed(0)} kcal
+                                </Box>
+                                <Typography
+                                  variant="subtitle2"
+                                  fontWeight={800}
+                                  sx={{ whiteSpace: "nowrap", lineHeight: 1.2 }}
+                                >
+                                  {Math.round(templateTotals.kcal)} kcal
+                                </Typography>
+                              </Stack>
+
+                              <Stack
+                                direction={{ xs: "column", sm: "row" }}
+                                spacing={1}
+                                alignItems={{ xs: "stretch", sm: "center" }}
+                                justifyContent="space-between"
+                              >
+                                <Stack spacing={0.5} sx={{ minWidth: 0, flex: 1 }}>
+                                  <Stack
+                                    direction="row"
+                                    spacing={0.75}
+                                    useFlexGap
+                                    flexWrap="wrap"
+                                    alignItems="center"
+                                  >
+                                    <Chip
+                                      size="small"
+                                      label={`P ${Math.round(templateTotals.protein)}`}
+                                      sx={{
+                                        fontWeight: 700,
+                                        bgcolor: "primary.main",
+                                        color: "primary.contrastText",
+                                        height: 26,
+                                      }}
+                                    />
+                                    <Chip
+                                      size="small"
+                                      label={`C ${Math.round(templateTotals.carbs)}`}
+                                      variant="outlined"
+                                      sx={{ height: 26 }}
+                                    />
+                                    <Chip
+                                      size="small"
+                                      label={`G ${Math.round(templateTotals.fat)}`}
+                                      variant="outlined"
+                                      sx={{ height: 26 }}
+                                    />
+                                  </Stack>
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{ lineHeight: 1.35, wordBreak: "break-word" }}
+                                  >
+                                    Porciones: P {formatPortions(templatePortions.protein)} · C{" "}
+                                    {formatPortions(templatePortions.carbs)} · G{" "}
+                                    {formatPortions(templatePortions.fat)}
                                   </Typography>
                                 </Stack>
-                                <Stack direction="row" spacing={1} alignItems="center">
+                                <Stack
+                                  direction="row"
+                                  spacing={1}
+                                  alignItems="center"
+                                  justifyContent={{ xs: "space-between", sm: "flex-end" }}
+                                  sx={{ width: { xs: "100%", sm: "auto" } }}
+                                >
                                   <Button
                                     size="small"
                                     variant="text"
@@ -1913,6 +2084,7 @@ const PlanDetailPage = () => {
                                         setCloneShowAllId(null);
                                       }
                                     }}
+                                    sx={{ minHeight: 44, px: 1 }}
                                   >
                                     {isExpanded ? "Ocultar ingredientes" : "Ver ingredientes"}
                                   </Button>
@@ -1920,6 +2092,7 @@ const PlanDetailPage = () => {
                                     size="small"
                                     variant={isSelected ? "contained" : "outlined"}
                                     onClick={() => setCloneSourceId(item.id)}
+                                    sx={{ minHeight: 44, minWidth: 108 }}
                                   >
                                     {isSelected ? "Seleccionado" : "Seleccionar"}
                                   </Button>
@@ -1963,6 +2136,7 @@ const PlanDetailPage = () => {
                                       onClick={() =>
                                         setCloneShowAllId(showAll ? null : item.id)
                                       }
+                                      sx={{ alignSelf: "flex-start", minHeight: 40 }}
                                     >
                                       {showAll ? "Ver menos" : "Ver todos"}
                                     </Button>

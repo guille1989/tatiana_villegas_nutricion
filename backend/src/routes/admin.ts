@@ -4,6 +4,7 @@ import { Types } from 'mongoose'
 import { z } from 'zod'
 import { AssessmentModel } from '../models/Assessment'
 import { InviteCodeModel } from '../models/InviteCode'
+import { MealTemplateModel } from '../models/MealTemplate'
 import { MessageModel } from '../models/Message'
 import { PlanDayOverrideModel } from '../models/PlanDayOverride'
 import { PlanModel } from '../models/Plan'
@@ -35,8 +36,47 @@ const messageListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
   before: z.string().optional(),
 })
+const mealTemplateItemSchema = z.object({
+  foodId: z.string().min(1),
+  nameSnapshot: z.string().min(1),
+  grams: z.number().nonnegative(),
+  amount: z.number().optional(),
+  mode: z.enum(['grams', 'portions']).optional(),
+  macros: z.object({
+    protein: z.number().nonnegative(),
+    carbs: z.number().nonnegative(),
+    fat: z.number().nonnegative(),
+  }),
+  kcal: z.number().nonnegative(),
+})
+const mealTemplateBodySchema = z.object({
+  name: z.string().min(1),
+  items: z.array(mealTemplateItemSchema).min(1),
+  totals: z.object({
+    protein: z.number().nonnegative(),
+    carbs: z.number().nonnegative(),
+    fat: z.number().nonnegative(),
+    kcal: z.number().nonnegative(),
+  }),
+})
 
 const hashCode = (value: string) => crypto.createHash('sha256').update(value).digest('hex')
+const buildMealTemplateSignature = (items: z.infer<typeof mealTemplateItemSchema>[]) => {
+  const normalized = items.map((item) => ({
+    foodId: item.foodId,
+    nameSnapshot: item.nameSnapshot,
+    grams: Number(item.grams.toFixed(3)),
+    amount: item.amount !== undefined ? Number(item.amount.toFixed(3)) : null,
+    mode: item.mode ?? null,
+    macros: {
+      protein: Number(item.macros.protein.toFixed(3)),
+      carbs: Number(item.macros.carbs.toFixed(3)),
+      fat: Number(item.macros.fat.toFixed(3)),
+    },
+    kcal: Number(item.kcal.toFixed(3)),
+  }))
+  return crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex')
+}
 
 const generateCode = () => crypto.randomBytes(8).toString('hex').toUpperCase()
 
@@ -194,6 +234,49 @@ router.put(
         status: user.status,
       },
     })
+  }),
+)
+
+router.get(
+  '/users/:userId/meal-library',
+  asyncHandler(async (req, res) => {
+    const { userId } = req.params
+    if (!Types.ObjectId.isValid(userId)) throw badRequest('userId invalido')
+    const recipient = await UserModel.findById(userId)
+    if (!recipient || recipient.role !== 'member') throw badRequest('Cliente no encontrado')
+
+    const templates = await MealTemplateModel.find({ userId }).sort({ createdAt: -1 })
+    res.json({ templates })
+  }),
+)
+
+router.post(
+  '/users/:userId/meal-library',
+  asyncHandler(async (req, res) => {
+    const { userId } = req.params
+    if (!Types.ObjectId.isValid(userId)) throw badRequest('userId invalido')
+    const recipient = await UserModel.findById(userId)
+    if (!recipient || recipient.role !== 'member') throw badRequest('Cliente no encontrado')
+
+    const parsed = mealTemplateBodySchema.safeParse(req.body)
+    if (!parsed.success) throw badRequest('Validation failed', parsed.error.flatten())
+
+    const signature = buildMealTemplateSignature(parsed.data.items)
+    const existing = await MealTemplateModel.findOne({ userId, signature })
+    if (existing) {
+      res.json({ template: existing })
+      return
+    }
+
+    const template = await MealTemplateModel.create({
+      userId,
+      name: parsed.data.name,
+      items: parsed.data.items,
+      totals: parsed.data.totals,
+      signature,
+    })
+
+    res.status(201).json({ template })
   }),
 )
 

@@ -611,7 +611,18 @@ const PlansPage = () => {
                     const planKcal = adjustedOutputs?.kcalObjectiveDay
                     const macros = getMacroPercentages(adjustedOutputs)
                     const isActive = plan.status === 'active'
+                    const isEnded = isPlanEnded(plan)
                     const isSelected = plan.id === selectedPlanId
+                    const statusChipLabel = isActive
+                      ? isEnded
+                        ? 'Finalizado'
+                        : 'Activo'
+                      : 'No activo'
+                    const statusChipColor: 'success' | 'warning' | 'default' = isActive
+                      ? isEnded
+                        ? 'warning'
+                        : 'success'
+                      : 'default'
                     const statusColor =
                       isActive
                         ? theme.palette.success.main
@@ -662,10 +673,10 @@ const PlansPage = () => {
                               </Typography>
                             </Stack>
                             <Chip
-                              label={isActive ? 'Activo' : 'No activo'}
+                              label={statusChipLabel}
                               size="small"
-                              color={isActive ? 'success' : 'default'}
-                              variant={isActive ? 'filled' : 'outlined'}
+                              color={statusChipColor}
+                              variant={isActive && !isEnded ? 'filled' : 'outlined'}
                               sx={
                                 !isActive
                                   ? {
