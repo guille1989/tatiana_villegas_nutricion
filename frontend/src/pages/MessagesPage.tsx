@@ -129,7 +129,9 @@ const MessagesPage = ({ onUnreadCountRefresh }: MessagesPageProps) => {
                           variant={isUnread ? 'filled' : 'outlined'}
                         />
                       </Stack>
-                      <Typography variant="body1">{message.body}</Typography>
+                      <Typography variant="body1" sx={{ whiteSpace: 'pre-line' }}>
+                        {message.body}
+                      </Typography>
                       {markingId === message.id && (
                         <Typography variant="caption" color="text.secondary">
                           Marcando como leido...

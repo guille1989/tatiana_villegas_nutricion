@@ -3,9 +3,11 @@ import { Types } from 'mongoose'
 import { z } from 'zod'
 import { PlanDayOverrideModel } from '../models/PlanDayOverride'
 import { PlanModel } from '../models/Plan'
+import { MessageModel } from '../models/Message'
 import { calculateDayFromBase } from '../modules/calc/dayCalc'
 import { applyMacroOverrideToOutputs, calcKcalFromMacros } from '../modules/calc/calc'
 import { AssessmentModel } from '../models/Assessment'
+import { env } from '../config/env'
 import { authMiddleware } from '../middleware/auth'
 import { asyncHandler } from '../utils/asyncHandler'
 import { badRequest, notFound, unauthorized } from '../utils/apiError'
@@ -64,7 +66,86 @@ const planStatusSchema = z.object({
   status: z.enum(['active', 'archived']),
 })
 
-type MacroOverrideValue = z.infer<typeof macroOverrideSchema>
+const MAX_MESSAGE_LENGTH = 1000
+const DEFAULT_PLAN_DISPLAY_NAME = 'Plan nutricional'
+const DEFAULT_PLAN_ENABLED_MESSAGE_TEMPLATE = [
+  '{{greeting}}',
+  '',
+  'Ya tienes tu planificacion para el proximo mes.',
+  '',
+  'Segun lo que hablamos tu objetivo es {{kcalObjectiveDay}}.',
+  '',
+  'Este es tu plan "{{planName}}".',
+  '',
+  'Echale un vistazo a todo y me cuentas si tienes alguna duda. Acuerdate que me puedes hablar por WhatsApp o Email si te surge alguna duda o problema.',
+].join('\n')
+
+const resolvePlanDisplayName = (plan: { title?: string | null }) => {
+  const title = plan.title?.trim()
+  return title && title.length > 0 ? title : DEFAULT_PLAN_DISPLAY_NAME
+}
+
+const resolveGreeting = (date = new Date()) =>
+  date.getHours() < 14 ? 'Buenos dias' : 'Buenas tardes'
+
+const formatKcalObjectiveDay = (kcalObjectiveDay: number | null) =>
+  kcalObjectiveDay !== null && Number.isFinite(kcalObjectiveDay)
+    ? `${Math.round(kcalObjectiveDay)} kcal`
+    : 'las kcal definidas en tu plan'
+
+const resolvePlanKcalObjectiveDay = async (
+  plan: {
+    macroOverrides?: Array<MacroOverrideEntry>
+    baseAssessmentId: Types.ObjectId
+  },
+) => {
+  const normalized = normalizeMacroOverrides(plan.macroOverrides)
+  if (normalized.length > 0) {
+    const sorted = [...normalized].sort((a, b) =>
+      a.effectiveFrom < b.effectiveFrom ? 1 : -1,
+    )
+    const fromOverride = sorted.find((item) =>
+      Number.isFinite(item.macros.kcalObjectiveDay),
+    )?.macros.kcalObjectiveDay
+    if (fromOverride !== undefined && Number.isFinite(fromOverride)) return fromOverride
+  }
+
+  const assessment = await AssessmentModel.findById(plan.baseAssessmentId)
+    .select('outputs.kcalObjectiveDay')
+    .lean<{ outputs?: { kcalObjectiveDay?: number } }>()
+  const fromAssessment = assessment?.outputs?.kcalObjectiveDay
+  return fromAssessment !== undefined && Number.isFinite(fromAssessment)
+    ? fromAssessment
+    : null
+}
+
+const buildPlanEnabledMessage = (payload: {
+  planName: string
+  kcalObjectiveDay: number | null
+  now?: Date
+}) => {
+  const { planName, kcalObjectiveDay, now = new Date() } = payload
+  const template = env.planEnabledMessageTemplate?.trim()
+  const baseTemplate =
+    template && template.length > 0
+      ? template
+      : DEFAULT_PLAN_ENABLED_MESSAGE_TEMPLATE
+  const greeting = resolveGreeting(now)
+  const kcalLabel = formatKcalObjectiveDay(kcalObjectiveDay)
+
+  const interpolated = baseTemplate
+    .replace(/\{\{\s*greeting\s*\}\}|\{\s*greeting\s*\}/gi, greeting)
+    .replace(/\{\{\s*planName\s*\}\}|\{\s*planName\s*\}/gi, planName)
+    .replace(/\{\{\s*kcalObjectiveDay\s*\}\}|\{\s*kcalObjectiveDay\s*\}/gi, kcalLabel)
+
+  return interpolated.length > MAX_MESSAGE_LENGTH
+    ? `${interpolated.slice(0, MAX_MESSAGE_LENGTH - 3)}...`
+    : interpolated
+}
+
+type MacroOverrideValue = z.infer<typeof macroOverrideSchema> & {
+  kcalObjectiveDay?: number
+}
 type MacroOverrideEntry = { effectiveFrom: string; macros?: MacroOverrideValue | null }
 
 const normalizeMacroOverrides = (overrides: Array<MacroOverrideEntry> | undefined) =>
@@ -237,6 +318,8 @@ router.put(
     if (!plan) throw notFound('Plan no encontrado')
     const isAdmin = req.user?.role === 'admin'
     if (!isAdmin) throw badRequest('Acceso no permitido')
+    const actorUserId = req.user?.id ?? 'unknown'
+    const shouldNotifyPlanEnabled = parsed.data.status === 'active' && plan.status !== 'active'
 
     if (parsed.data.status === 'active') {
       await PlanModel.updateMany(
@@ -247,6 +330,24 @@ router.put(
 
     plan.status = parsed.data.status
     await plan.save()
+
+    if (shouldNotifyPlanEnabled) {
+      const planTitleSnapshot = resolvePlanDisplayName(plan)
+      const kcalObjectiveDay = await resolvePlanKcalObjectiveDay(plan)
+      const body = buildPlanEnabledMessage({
+        planName: planTitleSnapshot,
+        kcalObjectiveDay,
+      })
+      await MessageModel.create({
+        senderUserId: actorUserId,
+        recipientUserId: plan.userId,
+        body,
+        kind: 'plan_enabled',
+        planId: plan._id.toString(),
+        planTitleSnapshot,
+        triggeredByUserId: actorUserId,
+      })
+    }
 
     res.json({ plan })
   }),

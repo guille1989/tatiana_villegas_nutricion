@@ -18,6 +18,10 @@ const mapMessage = (message: {
   senderUserId: string
   recipientUserId: string
   body: string
+  kind?: 'manual' | 'plan_enabled'
+  planId?: string | null
+  planTitleSnapshot?: string | null
+  triggeredByUserId?: string | null
   readAt?: Date | null
   createdAt?: Date
   updatedAt?: Date
@@ -26,6 +30,10 @@ const mapMessage = (message: {
   senderUserId: message.senderUserId,
   recipientUserId: message.recipientUserId,
   body: message.body,
+  kind: message.kind ?? 'manual',
+  planId: message.planId ?? null,
+  planTitleSnapshot: message.planTitleSnapshot ?? null,
+  triggeredByUserId: message.triggeredByUserId ?? null,
   readAt: message.readAt ?? null,
   createdAt: message.createdAt,
   updatedAt: message.updatedAt,

@@ -2402,7 +2402,9 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
                           variant={item.readAt ? 'outlined' : 'filled'}
                         />
                       </Stack>
-                      <Typography variant="body2">{item.body}</Typography>
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
+                        {item.body}
+                      </Typography>
                     </Stack>
                   </Paper>
                 ))}

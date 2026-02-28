@@ -94,6 +94,10 @@ type MessageDto = {
   senderUserId: string
   recipientUserId: string
   body: string
+  kind?: 'manual' | 'plan_enabled'
+  planId?: string | null
+  planTitleSnapshot?: string | null
+  triggeredByUserId?: string | null
   readAt?: string | null
   createdAt: string
   updatedAt: string
@@ -122,6 +126,10 @@ export type AppMessage = {
   senderUserId: string
   recipientUserId: string
   body: string
+  kind: 'manual' | 'plan_enabled'
+  planId: string | null
+  planTitleSnapshot: string | null
+  triggeredByUserId: string | null
   readAt: string | null
   createdAt: string
   updatedAt: string
@@ -279,6 +287,10 @@ const mapMessage = (raw: MessageDto): AppMessage => ({
   senderUserId: raw.senderUserId,
   recipientUserId: raw.recipientUserId,
   body: raw.body,
+  kind: raw.kind ?? 'manual',
+  planId: raw.planId ?? null,
+  planTitleSnapshot: raw.planTitleSnapshot ?? null,
+  triggeredByUserId: raw.triggeredByUserId ?? null,
   readAt: raw.readAt ?? null,
   createdAt: raw.createdAt,
   updatedAt: raw.updatedAt,
