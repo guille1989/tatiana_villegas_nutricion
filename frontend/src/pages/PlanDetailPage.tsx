@@ -64,10 +64,12 @@ import {
   getWeightsByCount,
   type MealCount,
 } from "../lib/meals";
+import { activityOptions, trainingOptions } from "../lib/schema";
 import type {
   Assessment,
   CalculationOutputs,
   DayOverride,
+  DayOverrideInputs,
   Meal,
   MealItem,
   MealTemplate,
@@ -86,6 +88,14 @@ const MEAL_TYPE_OPTIONS = [
   "Merienda 1",
   "Merienda 2",
 ];
+
+type RepeatMode = "replace" | "only_if_empty";
+
+type RepeatConfigSource = {
+  activityLevel: DayOverrideInputs["activityLevel"];
+  dayType: "training" | "rest";
+  trainings: DayOverrideInputs["trainings"];
+};
 
 const getTemplateMealName = (name: string) => {
   const [mealName] = name.split(" - ");
@@ -171,7 +181,14 @@ const PlanDetailPage = () => {
     null
   );
   const [repeatTargetDates, setRepeatTargetDates] = useState<string[]>([]);
-  const [repeatMode, setRepeatMode] = useState<"replace" | "only_if_empty">("replace");
+  const [repeatMode, setRepeatMode] = useState<RepeatMode>("replace");
+  const [repeatConfigOpen, setRepeatConfigOpen] = useState(false);
+  const [repeatConfigSaving, setRepeatConfigSaving] = useState(false);
+  const [repeatConfigError, setRepeatConfigError] = useState<string | null>(null);
+  const [repeatConfigSourceDate, setRepeatConfigSourceDate] = useState<string | null>(null);
+  const [repeatConfigSource, setRepeatConfigSource] = useState<RepeatConfigSource | null>(null);
+  const [repeatConfigTargetDates, setRepeatConfigTargetDates] = useState<string[]>([]);
+  const [repeatConfigMode, setRepeatConfigMode] = useState<RepeatMode>("replace");
 
   useEffect(() => {
     if (!planId) return;
@@ -609,6 +626,64 @@ const PlanDetailPage = () => {
     (overrides.find((o) => o.date === date)?.meals as Meal[] | undefined) ||
     [];
 
+  const getDayOverride = (date: string) =>
+    date === selectedDate
+      ? selectedOverride
+      : overrides.find((item) => item.date === date);
+
+  const hasConfigOverride = (override?: DayOverride | null) => {
+    if (!override) return false;
+    const cfg = override.overrides ?? {};
+    const hasTrainings =
+      (cfg.trainings ?? []).some(
+        (item) => !!item && (!!item.type || item.durationMin !== undefined || item.met !== undefined)
+      ) ||
+      (!!cfg.training &&
+        (!!cfg.training.type ||
+          cfg.training.durationMin !== undefined ||
+          cfg.training.met !== undefined));
+    return cfg.activityLevel !== undefined || cfg.dayType !== undefined || hasTrainings;
+  };
+
+  const buildRepeatConfigSource = (sourceDate: string): RepeatConfigSource | null => {
+    if (!baseInputs) return null;
+    const sourceOverride = getDayOverride(sourceDate);
+    const dayType = sourceOverride?.overrides?.dayType ?? baseInputs.dayType ?? "rest";
+    const activityLevel =
+      sourceOverride?.overrides?.activityLevel ?? baseInputs.activityLevel ?? undefined;
+    const overrideTrainings =
+      sourceOverride?.overrides?.trainings ??
+      (sourceOverride?.overrides?.training ? [sourceOverride?.overrides?.training] : undefined);
+    const fallbackTraining =
+      baseInputs.trainingType && baseInputs.duration
+        ? [
+            {
+              type: baseInputs.trainingType,
+              met: baseInputs.trainingMet ?? undefined,
+              durationMin: baseInputs.duration,
+            },
+          ]
+        : [];
+    const normalizedTrainings =
+      dayType === "training"
+        ? (overrideTrainings ?? fallbackTraining).map((item) =>
+            item
+              ? {
+                  type: item.type ?? undefined,
+                  met: item.met ?? undefined,
+                  durationMin: item.durationMin ?? undefined,
+                }
+              : null
+          )
+        : null;
+
+    return {
+      activityLevel,
+      dayType,
+      trainings: normalizedTrainings,
+    };
+  };
+
   const rawMeals =
     (selectedDate && mealsByDate[selectedDate]) ||
     (selectedOverride?.meals as Meal[] | undefined);
@@ -988,6 +1063,149 @@ const PlanDetailPage = () => {
     }
   };
 
+  const handleOpenRepeatConfig = () => {
+    if (!planId || !selectedDate) {
+      setSnackbar("Selecciona un dia para repetir la configuracion");
+      return;
+    }
+    const sourceConfig = buildRepeatConfigSource(selectedDate);
+    if (!sourceConfig) {
+      setSnackbar("No hay datos base para repetir la configuracion");
+      return;
+    }
+    setRepeatConfigOpen(true);
+    setRepeatConfigSaving(false);
+    setRepeatConfigError(null);
+    setRepeatConfigSourceDate(selectedDate);
+    setRepeatConfigSource(sourceConfig);
+    setRepeatConfigTargetDates([]);
+    setRepeatConfigMode("replace");
+  };
+
+  const handleCloseRepeatConfig = () => {
+    setRepeatConfigOpen(false);
+    setRepeatConfigSaving(false);
+    setRepeatConfigError(null);
+    setRepeatConfigSourceDate(null);
+    setRepeatConfigSource(null);
+    setRepeatConfigTargetDates([]);
+    setRepeatConfigMode("replace");
+  };
+
+  const handleConfirmRepeatConfig = async () => {
+    if (!planId || !repeatConfigSourceDate || !repeatConfigSource) {
+      setRepeatConfigError("No se pudo identificar la configuracion origen.");
+      return;
+    }
+    const today = dayjs().startOf("day");
+    const sourceDay = dayjs(repeatConfigSourceDate).startOf("day");
+    const validTargetSet = new Set(
+      dates.filter((date) => {
+        const day = dayjs(date).startOf("day");
+        return day.isAfter(today, "day") && day.isAfter(sourceDay, "day");
+      })
+    );
+    const targetDates = repeatConfigTargetDates.filter((date) =>
+      validTargetSet.has(date)
+    );
+    if (targetDates.length === 0) {
+      setRepeatConfigError("Selecciona al menos un dia futuro dentro del plan.");
+      return;
+    }
+
+    setRepeatConfigSaving(true);
+    setRepeatConfigError(null);
+    try {
+      const results = await Promise.allSettled(
+        targetDates.map(async (targetDate) => {
+          const existingOverride = getDayOverride(targetDate);
+          if (
+            repeatConfigMode === "only_if_empty" &&
+            hasConfigOverride(existingOverride)
+          ) {
+            return { kind: "skipped" as const, date: targetDate };
+          }
+
+          const baseOverride = existingOverride?.overrides ?? {};
+          const nextOverrides: DayOverrideInputs = {
+            ...baseOverride,
+            activityLevel: repeatConfigSource.activityLevel,
+            dayType: repeatConfigSource.dayType,
+            trainings:
+              repeatConfigSource.dayType === "training"
+                ? (repeatConfigSource.trainings ?? []).map((item) =>
+                    item
+                      ? {
+                          type: item.type ?? undefined,
+                          met: item.met ?? undefined,
+                          durationMin: item.durationMin ?? undefined,
+                        }
+                      : null
+                  )
+                : null,
+            // Keep legacy field cleared when applying normalized multi-training config.
+            training: undefined,
+          };
+
+          const record = await upsertOverride({
+            planId,
+            date: targetDate,
+            overrides: nextOverrides,
+            meals: existingOverride?.meals,
+            note: existingOverride?.note,
+          });
+
+          return { kind: "saved" as const, record };
+        })
+      );
+
+      const savedRecords: DayOverride[] = [];
+      let skippedCount = 0;
+      let failedCount = 0;
+
+      results.forEach((result) => {
+        if (result.status === "rejected") {
+          failedCount += 1;
+          return;
+        }
+        if (result.value.kind === "saved") {
+          savedRecords.push(result.value.record);
+        } else {
+          skippedCount += 1;
+        }
+      });
+
+      if (savedRecords.length > 0) {
+        setOverrides((prev) => {
+          const map = new Map(prev.map((item) => [item.date, item]));
+          savedRecords.forEach((record) => map.set(record.date, record));
+          return Array.from(map.values());
+        });
+        handleCloseRepeatConfig();
+      }
+
+      if (savedRecords.length === 0) {
+        setRepeatConfigError(
+          skippedCount > 0 && failedCount === 0
+            ? "No se aplico en ningun dia (ya tenian configuracion)."
+            : "No se pudo aplicar la configuracion."
+        );
+      }
+
+      const summaryParts = [];
+      if (savedRecords.length > 0) summaryParts.push(`Aplicado en ${savedRecords.length} dias`);
+      if (skippedCount > 0) summaryParts.push(`${skippedCount} omitidos`);
+      if (failedCount > 0) summaryParts.push(`${failedCount} con error`);
+      if (summaryParts.length > 0) {
+        setSnackbar(summaryParts.join(" · "));
+      }
+    } catch (err) {
+      setRepeatConfigError("No se pudo repetir la configuracion.");
+    } finally {
+      setRepeatConfigSaving(false);
+    }
+  };
+
   const handleOpenClone = (meal: Meal) => {
     setCloneError(null);
     setCloneOpen(true);
@@ -1191,6 +1409,66 @@ const PlanDetailPage = () => {
       : null;
   const repeatApplyDisabled =
     repeatSaving || !repeatSourceMeal || repeatSelectedCount === 0;
+  const repeatConfigEligibleDates = useMemo(() => {
+    if (!repeatConfigSourceDate) return [];
+    const today = dayjs().startOf("day");
+    const sourceDay = dayjs(repeatConfigSourceDate).startOf("day");
+    return dates.filter((date) => {
+      const current = dayjs(date).startOf("day");
+      return current.isAfter(today, "day") && current.isAfter(sourceDay, "day");
+    });
+  }, [dates, repeatConfigSourceDate]);
+  const repeatConfigEligibleDateSet = useMemo(
+    () => new Set(repeatConfigEligibleDates),
+    [repeatConfigEligibleDates]
+  );
+  const repeatConfigSelectedCount = repeatConfigTargetDates.filter((date) =>
+    repeatConfigEligibleDateSet.has(date)
+  ).length;
+  const repeatConfigApplyDisabled =
+    repeatConfigSaving || !repeatConfigSource || repeatConfigSelectedCount === 0;
+  const repeatConfigSourceTrainingCount =
+    repeatConfigSource?.dayType === "training"
+      ? (repeatConfigSource.trainings ?? []).filter(
+          (item) =>
+            !!item && (!!item.type || item.durationMin !== undefined || item.met !== undefined)
+        ).length
+      : 0;
+  const repeatConfigSourceSummary = repeatConfigSource
+    ? repeatConfigSource.dayType === "training"
+      ? `Entreno${repeatConfigSourceTrainingCount > 1 ? ` ${repeatConfigSourceTrainingCount}x` : ""}`
+      : "Descanso"
+    : null;
+  const repeatConfigActivityLabel = useMemo(() => {
+    if (!repeatConfigSource?.activityLevel) return "Sin cambio";
+    const option = activityOptions.find(
+      (item) => item.value === repeatConfigSource.activityLevel
+    );
+    if (!option) return repeatConfigSource.activityLevel;
+    return option.label.split(":")[0]?.trim() || option.label;
+  }, [repeatConfigSource?.activityLevel]);
+  const repeatConfigSourceTrainingDetails = useMemo(() => {
+    if (!repeatConfigSource || repeatConfigSource.dayType !== "training") return [];
+    return (repeatConfigSource.trainings ?? [])
+      .filter(
+        (item): item is NonNullable<typeof item> =>
+          !!item &&
+          (!!item.type || item.durationMin !== undefined || item.met !== undefined)
+      )
+      .map((item, idx) => {
+        const option = trainingOptions.find((opt) => opt.value === item.type);
+        const label = option?.label ?? item.type ?? `Entreno ${idx + 1}`;
+        const duration =
+          item.durationMin !== undefined && item.durationMin !== null
+            ? `${Math.round(item.durationMin)} min`
+            : "duracion no definida";
+        const met =
+          item.met !== undefined && item.met !== null
+            ? `MET ${Number(item.met).toFixed(1).replace(/\.0$/, "")}`
+            : null;
+        return { label, duration, met };
+      });
+  }, [repeatConfigSource]);
 
   const MacroDonut = ({
     protein,
@@ -1566,15 +1844,30 @@ const PlanDetailPage = () => {
                     : "--"}
                 </Typography>
               </Box>
-              <Chip
-                label={selectedTrainingLabel}
-                color={selectedDayType === "training" ? "primary" : "default"}
-                variant={selectedDayType === "training" ? "outlined" : "filled"}
-                onClick={handleEditSelectedDay}
-                clickable
-                aria-label="Editar dia"
-                sx={{ alignSelf: { xs: "flex-start", sm: "center" } }}
-              />
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                spacing={1}
+                sx={{ alignSelf: { xs: "stretch", sm: "center" }, width: { xs: "100%", sm: "auto" } }}
+              >
+                <Chip
+                  label={selectedTrainingLabel}
+                  color={selectedDayType === "training" ? "primary" : "default"}
+                  variant={selectedDayType === "training" ? "outlined" : "filled"}
+                  onClick={handleEditSelectedDay}
+                  clickable
+                  aria-label="Editar dia"
+                  sx={{ alignSelf: { xs: "flex-start", sm: "center" } }}
+                />
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={handleOpenRepeatConfig}
+                  aria-label="Repetir configuracion"
+                  sx={{ width: { xs: "100%", sm: "auto" } }}
+                >
+                  Repetir configuracion
+                </Button>
+              </Stack>
             </Stack>
           </Paper>
         )}
@@ -1614,7 +1907,7 @@ const PlanDetailPage = () => {
                       aria-label="Editar dia"
                       sx={{ alignSelf: { xs: "stretch", md: "center" } }}
                     >
-                      Editar día
+                      Editar dia
                     </Button>
                   </Stack>
 
@@ -2642,6 +2935,204 @@ const PlanDetailPage = () => {
         </DialogActions>
       </Dialog>
 
+      <Dialog
+        open={repeatConfigOpen}
+        onClose={repeatConfigSaving ? undefined : handleCloseRepeatConfig}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle sx={{ pb: 1 }}>Repetir configuracion en otros dias</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ pt: 0.5 }}>
+            {repeatConfigSource && (
+              <Box
+                sx={{
+                  p: 1.25,
+                  borderRadius: 2,
+                  border: "1px solid",
+                  borderColor: "divider",
+                }}
+              >
+                <Stack spacing={0.5}>
+                  <Typography variant="subtitle2" fontWeight={700}>
+                    {repeatConfigSourceSummary ?? "Configuracion del dia"}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Actividad: {repeatConfigActivityLabel}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Tipo de dia: {repeatConfigSource.dayType === "training" ? "Entreno" : "Descanso"}
+                  </Typography>
+                  {repeatConfigSource.dayType === "training" && (
+                    <Stack spacing={0.25}>
+                      <Typography variant="caption" color="text.secondary">
+                        Entrenos: {Math.max(1, repeatConfigSourceTrainingCount)}
+                      </Typography>
+                      {repeatConfigSourceTrainingDetails.length > 0 ? (
+                        repeatConfigSourceTrainingDetails.map((item, idx) => (
+                          <Typography
+                            key={`repeat-training-${idx}`}
+                            variant="caption"
+                            color="text.secondary"
+                          >
+                            {idx + 1}. {item.label} · {item.duration}
+                            {item.met ? ` · ${item.met}` : ""}
+                          </Typography>
+                        ))
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">
+                          1. Entreno sin tipo definido
+                        </Typography>
+                      )}
+                    </Stack>
+                  )}
+                  <Typography variant="caption" color="text.secondary">
+                    Origen:{" "}
+                    {repeatConfigSourceDate
+                      ? dayjs(repeatConfigSourceDate).format("ddd, DD MMM YYYY")
+                      : "-"}
+                  </Typography>
+                </Stack>
+              </Box>
+            )}
+
+            <TextField
+              select
+              size="small"
+              label="Modo de aplicacion"
+              value={repeatConfigMode}
+              onChange={(e) => setRepeatConfigMode(e.target.value as RepeatMode)}
+              disabled={repeatConfigSaving}
+            >
+              <MenuItem value="replace">
+                Reemplazar la configuracion de actividad y entreno en los dias seleccionados
+              </MenuItem>
+              <MenuItem value="only_if_empty">
+                Solo aplicar si ese dia no tiene configuracion de actividad/entreno
+              </MenuItem>
+            </TextField>
+
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={1}
+              justifyContent="space-between"
+              alignItems={{ xs: "stretch", sm: "center" }}
+            >
+              <Typography variant="caption" color="text.secondary">
+                Solo dias futuros dentro de la duracion del plan.
+              </Typography>
+              <Stack direction="row" spacing={1}>
+                <Button
+                  size="small"
+                  variant="text"
+                  disabled={repeatConfigSaving || repeatConfigEligibleDates.length === 0}
+                  onClick={() => setRepeatConfigTargetDates(repeatConfigEligibleDates)}
+                >
+                  Seleccionar todos
+                </Button>
+                <Button
+                  size="small"
+                  variant="text"
+                  disabled={repeatConfigSaving || repeatConfigTargetDates.length === 0}
+                  onClick={() => setRepeatConfigTargetDates([])}
+                >
+                  Limpiar
+                </Button>
+              </Stack>
+            </Stack>
+
+            <Box
+              sx={{
+                borderRadius: 2,
+                border: "1px solid",
+                borderColor: "divider",
+                overflow: "hidden",
+                maxHeight: 320,
+                overflowY: "auto",
+              }}
+            >
+              {repeatConfigEligibleDates.length === 0 ? (
+                <Box sx={{ p: 1.5 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    No hay dias futuros disponibles dentro de este plan.
+                  </Typography>
+                </Box>
+              ) : (
+                <Stack spacing={0}>
+                  {repeatConfigEligibleDates.map((date, idx) => {
+                    const checked = repeatConfigTargetDates.includes(date);
+                    return (
+                      <ButtonBase
+                        key={date}
+                        onClick={() => {
+                          if (repeatConfigSaving) return;
+                          setRepeatConfigTargetDates((prev) =>
+                            prev.includes(date)
+                              ? prev.filter((item) => item !== date)
+                              : [...prev, date]
+                          );
+                        }}
+                        sx={{
+                          width: "100%",
+                          justifyContent: "flex-start",
+                          textAlign: "left",
+                          px: 1,
+                          py: 0.5,
+                          minHeight: 48,
+                          borderBottom:
+                            idx < repeatConfigEligibleDates.length - 1 ? "1px solid" : "none",
+                          borderColor: "divider",
+                        }}
+                      >
+                        <Checkbox
+                          size="small"
+                          checked={checked}
+                          disableRipple
+                          tabIndex={-1}
+                          sx={{ mr: 0.5 }}
+                        />
+                        <Stack spacing={0} sx={{ minWidth: 0 }}>
+                          <Typography variant="body2" fontWeight={600}>
+                            {dayjs(date).format("ddd, DD MMM YYYY")}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {date}
+                          </Typography>
+                        </Stack>
+                      </ButtonBase>
+                    );
+                  })}
+                </Stack>
+              )}
+            </Box>
+
+            <Typography variant="caption" color="text.secondary">
+              Seleccionados: {repeatConfigSelectedCount}
+            </Typography>
+            {repeatConfigSaving && <LinearProgress />}
+            {repeatConfigError && (
+              <Typography variant="caption" color="error">
+                {repeatConfigError}
+              </Typography>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseRepeatConfig} disabled={repeatConfigSaving}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleConfirmRepeatConfig}
+            disabled={repeatConfigApplyDisabled}
+          >
+            {repeatConfigSaving
+              ? "Aplicando..."
+              : `Aplicar a ${repeatConfigSelectedCount} dias`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {editingDate && baseInputs && (
         <DayEditDialog
           open
@@ -2666,3 +3157,4 @@ const PlanDetailPage = () => {
 };
 
 export default PlanDetailPage;
+

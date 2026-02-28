@@ -4,7 +4,6 @@ import {
   AccordionSummary,
   Box,
   Button,
-  Collapse,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -268,12 +267,6 @@ const MealBuilder = ({
   const [expanded, setExpanded] = useState<string | null>(null);
   const [builderOpen, setBuilderOpen] = useState(false);
   const [activeMealKey, setActiveMealKey] = useState<Meal["key"] | null>(null);
-  const [expandedMealIngredientsKey, setExpandedMealIngredientsKey] = useState<
-    Meal["key"] | null
-  >(null);
-  const [showAllMealIngredientsKey, setShowAllMealIngredientsKey] = useState<
-    Meal["key"] | null
-  >(null);
   const [draftMeal, setDraftMeal] = useState<Meal | null>(null);
   const [selectedGroup, setSelectedGroup] =
     useState<FoodGroupFilter>(DEFAULT_GROUP);
@@ -432,12 +425,6 @@ const MealBuilder = ({
     );
     onChange(nextMeals);
     onSave?.(nextMeals);
-    if (expandedMealIngredientsKey === mealKey) {
-      setExpandedMealIngredientsKey(null);
-    }
-    if (showAllMealIngredientsKey === mealKey) {
-      setShowAllMealIngredientsKey(null);
-    }
   };
 
   const addFoodToDraft = (
@@ -716,25 +703,6 @@ const MealBuilder = ({
             carbs: meal.totals.carbs / 15,
             fat: meal.totals.fat / 5,
           };
-          const ingredientNames = meal.items
-            .map((item) => item.nameSnapshot?.trim() ?? "")
-            .filter((name) => name.length > 0);
-          const ingredientPreview = ingredientNames.slice(0, 4);
-          const hiddenIngredientCount = Math.max(
-            ingredientNames.length - ingredientPreview.length,
-            0
-          );
-          const ingredientPreviewLabel = ingredientPreview.length
-            ? `${ingredientPreview.join(" · ")}${
-                hiddenIngredientCount ? ` · +${hiddenIngredientCount}` : ""
-              }`
-            : "Sin insumos";
-          const isIngredientsExpanded = expandedMealIngredientsKey === meal.key;
-          const showAllIngredients = showAllMealIngredientsKey === meal.key;
-          const visibleIngredients = showAllIngredients
-            ? meal.items
-            : meal.items.slice(0, 4);
-          const hasMoreIngredients = meal.items.length > 4;
           return (
             <Accordion
               key={meal.key}
@@ -902,144 +870,101 @@ const MealBuilder = ({
                           {formatPortionValue(mealPortions.carbs)} · G{" "}
                           {formatPortionValue(mealPortions.fat)}
                         </Typography>
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ lineHeight: 1.35, wordBreak: "break-word" }}
-                        >
-                          Insumos: {ingredientPreviewLabel}
-                        </Typography>
                       </Stack>
 
-                      <Stack
-                        direction={{ xs: "column", sm: "row" }}
-                        spacing={1}
-                        alignItems={{ xs: "stretch", sm: "center" }}
-                        justifyContent="space-between"
+                      <Box
+                        sx={{
+                          display: "grid",
+                          gridTemplateColumns: {
+                            xs: "minmax(0, 1fr)",
+                            md: "repeat(2, minmax(0, 1fr))",
+                          },
+                          gap: 0.75,
+                        }}
                       >
-                        <Stack
-                          direction="row"
-                          spacing={1}
-                          alignItems="center"
-                          flexWrap="wrap"
-                          useFlexGap
+                        {meal.items.map((item, idx) => (
+                          <Stack
+                            key={`${item.foodId}-${idx}-ingredients`}
+                            direction="row"
+                            spacing={1}
+                            alignItems="center"
+                            justifyContent="space-between"
+                            sx={{
+                              px: 1,
+                              py: 0.55,
+                              minHeight: 34,
+                              border: "1px solid",
+                              borderColor: "divider",
+                              borderRadius: 1.25,
+                            }}
+                          >
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                minWidth: 0,
+                                flex: 1,
+                                lineHeight: 1.25,
+                                wordBreak: "break-word",
+                              }}
+                            >
+                              {item.nameSnapshot}
+                            </Typography>
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                flexShrink: 0,
+                                px: 0.85,
+                                py: 0.2,
+                                borderRadius: 999,
+                                border: "1px solid",
+                                borderColor: "divider",
+                                color: "text.secondary",
+                                lineHeight: 1.2,
+                                fontWeight: 700,
+                              }}
+                            >
+                              {Math.round(item.grams)} g
+                            </Typography>
+                          </Stack>
+                        ))}
+                      </Box>
+
+                      <Stack
+                        direction="row"
+                        spacing={1}
+                        alignItems="center"
+                        flexWrap="wrap"
+                        useFlexGap
+                      >
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => handleOpenBuilder(meal.key)}
+                          sx={{ minHeight: 36 }}
                         >
+                          Editar plato
+                        </Button>
+                        {onRepeatMeal && (
                           <Button
                             size="small"
                             variant="text"
-                            onClick={() => {
-                              const nextOpen = isIngredientsExpanded ? null : meal.key;
-                              setExpandedMealIngredientsKey(nextOpen);
-                              if (!nextOpen) {
-                                setShowAllMealIngredientsKey(null);
-                              }
-                            }}
-                            sx={{ minHeight: 40, px: 1 }}
+                            onClick={() => onRepeatMeal(meal)}
+                            sx={{ minHeight: 36, px: 1 }}
                           >
-                            {isIngredientsExpanded ? "Ocultar insumos" : "Ver insumos"}
+                            Repetir en otros dias
                           </Button>
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={() => handleOpenBuilder(meal.key)}
-                            sx={{ minHeight: 40 }}
-                          >
-                            Editar plato
-                          </Button>
-                          {onRepeatMeal && (
-                            <Button
-                              size="small"
-                              variant="text"
-                              onClick={() => onRepeatMeal(meal)}
-                              sx={{ minHeight: 40, px: 1 }}
-                            >
-                              Repetir en otros dias
-                            </Button>
-                          )}
-                        </Stack>
+                        )}
                         <Button
                           size="small"
                           color="error"
                           variant="text"
                           startIcon={<DeleteOutlineIcon fontSize="small" />}
                           onClick={() => handleClearMeal(meal.key)}
-                          sx={{ minHeight: 40, alignSelf: { xs: "flex-start", sm: "auto" } }}
+                          sx={{ minHeight: 36, ml: { sm: "auto" } }}
                         >
                           Eliminar plato
                         </Button>
                       </Stack>
-
-                      <Collapse in={isIngredientsExpanded}>
-                        <Stack spacing={1}>
-                          <Box
-                            sx={{
-                              borderRadius: 2,
-                              border: "1px solid",
-                              borderColor: "divider",
-                              overflow: "hidden",
-                            }}
-                          >
-                            {visibleIngredients.map((item, idx) => (
-                              <Stack
-                                key={`${item.foodId}-${idx}-ingredients`}
-                                direction="row"
-                                spacing={1}
-                                alignItems="center"
-                                justifyContent="space-between"
-                                sx={{
-                                  px: 1,
-                                  py: 0.75,
-                                  minHeight: 38,
-                                  borderBottom:
-                                    idx < visibleIngredients.length - 1 ? "1px solid" : "none",
-                                  borderColor: "divider",
-                                }}
-                              >
-                                <Typography
-                                  variant="body2"
-                                  sx={{
-                                    minWidth: 0,
-                                    flex: 1,
-                                    lineHeight: 1.25,
-                                    wordBreak: "break-word",
-                                  }}
-                                >
-                                  {item.nameSnapshot}
-                                </Typography>
-                                <Typography
-                                  variant="caption"
-                                  sx={{
-                                    flexShrink: 0,
-                                    px: 0.9,
-                                    py: 0.25,
-                                    borderRadius: 999,
-                                    border: "1px solid",
-                                    borderColor: "divider",
-                                    color: "text.secondary",
-                                    lineHeight: 1.2,
-                                  }}
-                                >
-                                  {Math.round(item.grams)} g
-                                </Typography>
-                              </Stack>
-                            ))}
-                          </Box>
-                          {hasMoreIngredients && (
-                            <Button
-                              size="small"
-                              variant="text"
-                              onClick={() =>
-                                setShowAllMealIngredientsKey(
-                                  showAllIngredients ? null : meal.key
-                                )
-                              }
-                              sx={{ alignSelf: "flex-start", minHeight: 36 }}
-                            >
-                              {showAllIngredients ? "Ver menos" : "Ver todos"}
-                            </Button>
-                          )}
-                        </Stack>
-                      </Collapse>
                     </Stack>
                   </Box>
                 ) : (
@@ -1370,3 +1295,4 @@ const MealBuilder = ({
 };
 
 export default MealBuilder;
+
