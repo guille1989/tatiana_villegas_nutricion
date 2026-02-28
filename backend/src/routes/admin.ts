@@ -250,6 +250,19 @@ router.get(
   }),
 )
 
+router.get(
+  '/users/:userId/plans',
+  asyncHandler(async (req, res) => {
+    const { userId } = req.params
+    if (!Types.ObjectId.isValid(userId)) throw badRequest('userId invalido')
+    const recipient = await UserModel.findById(userId)
+    if (!recipient || recipient.role !== 'member') throw badRequest('Cliente no encontrado')
+
+    const plans = await PlanModel.find({ userId }).sort({ createdAt: -1 })
+    res.json({ plans })
+  }),
+)
+
 router.post(
   '/users/:userId/meal-library',
   asyncHandler(async (req, res) => {

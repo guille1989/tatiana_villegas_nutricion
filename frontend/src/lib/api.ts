@@ -358,6 +358,12 @@ export const getAdminOverview = async () => {
   }))
 }
 
+export const listAdminUserPlans = async (userId: string) => {
+  const { data, error } = await request<{ plans: PlanDto[] }>(`/admin/users/${userId}/plans`)
+  if (error) throw new Error(error)
+  return (data.plans ?? []).map(mapPlan)
+}
+
 export const createAdminPasswordReset = async (userId: string) => {
   const { data, error } = await request<{
     token: string

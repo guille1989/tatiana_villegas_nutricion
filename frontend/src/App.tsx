@@ -28,6 +28,7 @@ import WhatsAppIcon from '@mui/icons-material/WhatsApp'
 import './App.css'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { getUnreadInboxCount, listPlans } from './lib/api'
+import AdminClientPlansPage from './pages/AdminClientPlansPage'
 import AdminDashboardPage from './pages/AdminDashboardPage'
 import AccessPage from './pages/AccessPage'
 import PlanDetailPage from './pages/PlanDetailPage'
@@ -409,6 +410,14 @@ const AppShell = () => {
           element={
             <RequireAdmin>
               <AdminDashboardPage />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/client/:userId/plans"
+          element={
+            <RequireAdmin>
+              <AdminClientPlansPage />
             </RequireAdmin>
           }
         />

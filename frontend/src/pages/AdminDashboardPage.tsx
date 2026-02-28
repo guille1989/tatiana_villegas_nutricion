@@ -55,6 +55,7 @@ import {
   getAdminUnreadMessageCounts,
   getAdminUserMessages,
   getAdminOverview,
+  getPlan,
   listInvites,
   sendAdminMessage,
   upsertOverride,
@@ -131,6 +132,13 @@ type AdminRecord = {
   lastUpdate?: string | null
   adherence: AdherenceSummary
   trend: TrendPoint[]
+}
+
+type SelectedClientPlanState = {
+  planId: string
+  plan: Plan
+  assessment: Assessment | null
+  overrides: DayOverride[]
 }
 
 type AdminSection = 'overview' | 'ingredients'
@@ -513,6 +521,7 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
   const [error, setError] = useState<string | null>(null)
   const activeSection: AdminSection =
     searchParams.get('section') === 'ingredients' ? 'ingredients' : 'overview'
+  const selectedPlanIdFromQuery = isClientDetailMode ? searchParams.get('planId') : null
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [goalFilter, setGoalFilter] = useState('all')
@@ -562,6 +571,9 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     carbsAdjusted: '',
     fatsAdjusted: '',
   })
+  const [selectedClientPlan, setSelectedClientPlan] = useState<SelectedClientPlanState | null>(null)
+  const [selectedClientPlanLoading, setSelectedClientPlanLoading] = useState(false)
+  const [selectedClientPlanError, setSelectedClientPlanError] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -657,6 +669,50 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     }
   }, [])
 
+  useEffect(() => {
+    if (!isClientDetailMode || !routeUserId || !selectedPlanIdFromQuery) {
+      setSelectedClientPlan(null)
+      setSelectedClientPlanError(null)
+      setSelectedClientPlanLoading(false)
+      return
+    }
+
+    let active = true
+    setSelectedClientPlanLoading(true)
+    setSelectedClientPlanError(null)
+
+    getPlan(selectedPlanIdFromQuery)
+      .then((response) => {
+        if (!active) return
+        if (response.plan.userId && response.plan.userId !== routeUserId) {
+          setSelectedClientPlan(null)
+          setSelectedClientPlanError('El plan seleccionado no pertenece al cliente.')
+          return
+        }
+        setSelectedClientPlan({
+          planId: selectedPlanIdFromQuery,
+          plan: response.plan,
+          assessment: response.assessment ?? null,
+          overrides: response.overrides ?? [],
+        })
+      })
+      .catch((err) => {
+        if (!active) return
+        setSelectedClientPlan(null)
+        setSelectedClientPlanError(
+          err instanceof Error ? err.message : 'No se pudo cargar el plan seleccionado.',
+        )
+      })
+      .finally(() => {
+        if (!active) return
+        setSelectedClientPlanLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [isClientDetailMode, routeUserId, selectedPlanIdFromQuery])
+
   const filteredRecords = useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
     return records.filter((record) => {
@@ -682,7 +738,26 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
   }, [filteredRecords, selectedUserId])
 
   const selectedRecordId = isClientDetailMode ? routeUserId ?? null : selectedUserId
-  const selectedRecord = records.find((record) => record.userId === selectedRecordId) ?? null
+  const selectedRecordBase = records.find((record) => record.userId === selectedRecordId) ?? null
+  const selectedRecord = useMemo(() => {
+    if (!selectedRecordBase) return null
+    if (!selectedClientPlan) return selectedRecordBase
+    const effectiveAssessment = selectedClientPlan.assessment ?? selectedRecordBase.latestAssessment ?? null
+    return {
+      ...selectedRecordBase,
+      latestAssessment: effectiveAssessment,
+      plan: selectedClientPlan.plan,
+      overrides: selectedClientPlan.overrides,
+      lastUpdate: getLastUpdateDate(selectedClientPlan.plan, selectedClientPlan.overrides),
+      trend: buildTrend(
+        selectedClientPlan.overrides,
+        effectiveAssessment?.outputs ?? null,
+        selectedClientPlan.plan,
+        effectiveAssessment?.inputs.dayType,
+        effectiveAssessment?.inputs ?? null,
+      ),
+    }
+  }, [selectedClientPlan, selectedRecordBase])
   const assessment = selectedRecord?.latestAssessment ?? null
   useEffect(() => {
     setActionsMenuAnchor(null)
@@ -893,6 +968,19 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     return calcKcalFromMacros({ protein, carbsAdjusted, fatsAdjusted })
   })()
 
+  const applySelectedPlanUpdate = (nextPlan: Plan) => {
+    setRecords((prev) =>
+      prev.map((record) =>
+        record.plan?.id === nextPlan.id || record.userId === selectedRecord?.userId
+          ? { ...record, plan: nextPlan }
+          : record,
+      ),
+    )
+    setSelectedClientPlan((prev) =>
+      prev && prev.plan.id === nextPlan.id ? { ...prev, plan: nextPlan } : prev,
+    )
+  }
+
   const applyDayOverrideUpdate = (targetUserId: string, nextOverride: DayOverride) => {
     setRecords((prev) =>
       prev.map((record) => {
@@ -914,6 +1002,22 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
         }
       }),
     )
+    setSelectedClientPlan((prev) => {
+      if (!prev || prev.plan.id !== nextOverride.planId) return prev
+      const existingIndex = prev.overrides.findIndex((item) => item.date === nextOverride.date)
+      if (existingIndex < 0) {
+        return {
+          ...prev,
+          overrides: [...prev.overrides, nextOverride],
+        }
+      }
+      return {
+        ...prev,
+        overrides: prev.overrides.map((item, index) =>
+          index === existingIndex ? nextOverride : item,
+        ),
+      }
+    })
   }
 
   const handleOpenActionsMenu = (event: MouseEvent<HTMLElement>) => {
@@ -968,11 +1072,7 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
           fatsAdjusted: Math.round(fatsAdjusted),
         },
       })
-      setRecords((prev) =>
-        prev.map((record) =>
-          record.plan?.id === plan.id ? { ...record, plan } : record
-        )
-      )
+      applySelectedPlanUpdate(plan)
       setMacroDialogOpen(false)
     } catch (err) {
       setMacroError(err instanceof Error ? err.message : 'No se pudo guardar')
@@ -1070,11 +1170,7 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
         planId: selectedRecord.plan.id,
         status: 'archived',
       })
-      setRecords((prev) =>
-        prev.map((record) =>
-          record.userId === selectedRecord.userId ? { ...record, plan } : record,
-        ),
-      )
+      applySelectedPlanUpdate(plan)
       setClosePlanOpen(false)
     } catch (err) {
       setClosePlanError(err instanceof Error ? err.message : 'No se pudo cerrar el plan')
@@ -1092,11 +1188,7 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
         planId: selectedRecord.plan.id,
         status: 'active',
       })
-      setRecords((prev) =>
-        prev.map((record) =>
-          record.userId === selectedRecord.userId ? { ...record, plan } : record,
-        ),
-      )
+      applySelectedPlanUpdate(plan)
     } catch (err) {
       setEnablePlanError(err instanceof Error ? err.message : 'No se pudo habilitar el plan')
     } finally {
@@ -1630,8 +1722,18 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
                 )}
 
         {isClientDetailMode && (
-          <Button variant="outlined" onClick={() => navigate('/admin')} sx={{ alignSelf: 'flex-start' }}>
-            Volver al listado
+          <Button
+            variant="outlined"
+            onClick={() =>
+              navigate(
+                selectedPlanIdFromQuery && routeUserId
+                  ? `/admin/client/${routeUserId}/plans`
+                  : '/admin',
+              )
+            }
+            sx={{ alignSelf: 'flex-start' }}
+          >
+            {selectedPlanIdFromQuery ? 'Volver a planes' : 'Volver al listado'}
           </Button>
         )}
 
@@ -1699,7 +1801,7 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
                         key={record.userId}
                         hover
                         selected={record.userId === selectedUserId}
-                        onClick={() => navigate(`/admin/client/${record.userId}`)}
+                        onClick={() => navigate(`/admin/client/${record.userId}/plans`)}
                         sx={{ cursor: 'pointer' }}
                       >
                         <TableCell>
@@ -1737,11 +1839,10 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
                               variant="outlined"
                               onClick={(event) => {
                                 event.stopPropagation()
-                                if (record.plan) navigate(`/plans/${record.plan.id}`)
+                                navigate(`/admin/client/${record.userId}/plans`)
                               }}
-                              disabled={!record.plan}
                             >
-                              Abrir
+                              Planes
                             </Button>
                             {MESSAGES_ENABLED && (
                               <Badge
@@ -1779,16 +1880,18 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
               sx={{
                 flex: 1,
                 width: '100%',
-                minWidth: 0,
+              minWidth: 0,
               }}
             >
               <CardContent sx={{ p: { xs: 2, md: 3 } }}>
-                {loading ? (
+                {loading || selectedClientPlanLoading ? (
                   <Stack spacing={2}>
                     <Skeleton variant="text" width="50%" />
                     <Skeleton variant="rectangular" height={140} />
                     <Skeleton variant="rectangular" height={180} />
                   </Stack>
+                ) : selectedClientPlanError ? (
+                  <Alert severity="warning">{selectedClientPlanError}</Alert>
                 ) : !selectedRecord ? (
                   <Alert severity="info">No se encontro el socio seleccionado.</Alert>
                 ) : (
@@ -1906,11 +2009,19 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
                       <MenuItem
                         onClick={() => {
                           handleCloseActionsMenu()
+                          navigate(`/admin/client/${selectedRecord.userId}/plans`)
+                        }}
+                      >
+                        Ver planes
+                      </MenuItem>
+                      <MenuItem
+                        onClick={() => {
+                          handleCloseActionsMenu()
                           if (selectedRecord.plan) navigate(`/plans/${selectedRecord.plan.id}`)
                         }}
                         disabled={!selectedRecord.plan}
                       >
-                        Abrir plan
+                        Editar platos
                       </MenuItem>
                       <MenuItem
                         onClick={() => {
