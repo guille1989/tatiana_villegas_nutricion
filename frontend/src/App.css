@@ -17,3 +17,109 @@
     transform: translateY(0);
   }
 }
+
+@media (max-width: 768px) {
+  .tv-mobile-footer {
+    background: rgba(255, 255, 255, 0.78) !important;
+    border-top: 1px solid rgba(148, 163, 184, 0.26) !important;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 -10px 28px rgba(15, 23, 42, 0.08) !important;
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .tv-bottom-nav {
+    display: grid;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .tv-bottom-nav__badge {
+    display: block;
+    width: 100%;
+  }
+
+  .tv-bottom-nav__badge .MuiBadge-badge {
+    top: 4px;
+    right: 14px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    font-size: 10px;
+    line-height: 1;
+    border: 1px solid rgba(255, 255, 255, 0.8);
+  }
+
+  .tv-bottom-nav__item.MuiButton-root {
+    position: relative;
+    min-height: 56px;
+    padding: 7px 8px;
+    border-radius: 14px;
+    gap: 6px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-transform: none;
+    color: #64748b !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    border: none !important;
+    font-weight: 600;
+  }
+
+  .tv-bottom-nav__item::before {
+    content: "";
+    position: absolute;
+    inset: 4px;
+    border-radius: 11px;
+    background: transparent;
+    box-shadow: none;
+    transition: background-color 150ms ease, box-shadow 150ms ease;
+    z-index: 0;
+  }
+
+  .tv-bottom-nav__item.active,
+  .tv-bottom-nav__item.is-active,
+  .tv-bottom-nav__item[aria-current="page"] {
+    color: #006156 !important;
+  }
+
+  .tv-bottom-nav__item.active::before,
+  .tv-bottom-nav__item.is-active::before,
+  .tv-bottom-nav__item[aria-current="page"]::before {
+    background: rgba(0, 97, 86, 0.1);
+    box-shadow: 0 6px 16px rgba(0, 97, 86, 0.12);
+  }
+
+  .tv-icon,
+  .tv-label {
+    position: relative;
+    z-index: 1;
+  }
+
+  .tv-icon {
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .tv-icon svg {
+    width: 22px;
+    height: 22px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .tv-label {
+    font-size: 12px;
+    line-height: 1;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+}

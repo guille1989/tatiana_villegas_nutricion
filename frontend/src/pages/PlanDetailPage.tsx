@@ -18,6 +18,7 @@ import {
   Stack,
   Typography,
   Chip,
+  useMediaQuery,
   LinearProgress,
   InputAdornment,
   MenuItem,
@@ -88,6 +89,7 @@ const MEAL_TYPE_OPTIONS = [
   "Merienda 1",
   "Merienda 2",
 ];
+const MOBILE_WEEK_STICKY_TOP = 0;
 
 type RepeatMode = "replace" | "only_if_empty";
 
@@ -137,6 +139,8 @@ const PlanDetailPage = () => {
   const navigate = useNavigate();
   const theme = useTheme();
   const { isAdmin } = useAuth();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const isClientMobile = isMobile && !isAdmin;
   const detailRef = useRef<HTMLDivElement | null>(null);
   const initialSelectionDoneRef = useRef(false);
   const cloneLibraryRequestedRef = useRef(false);
@@ -1597,12 +1601,13 @@ const PlanDetailPage = () => {
   }
 
   return (
-    <Container maxWidth="lg" sx={{ py: { xs: 3, md: 5 } }}>
-      <Stack spacing={3}>
+    <Container maxWidth="lg" sx={{ py: { xs: 2, md: 5 } }}>
+      <Stack spacing={{ xs: 2, md: 3 }}>
+        {!isClientMobile && (
         <Stack
           direction={{ xs: "column", md: "row" }}
           justifyContent="space-between"
-          spacing={1.5}
+          spacing={1}
           alignItems={{ xs: "flex-start", md: "center" }}
           sx={{ pt: 1 }}
         >
@@ -1622,6 +1627,7 @@ const PlanDetailPage = () => {
             )}
           </Stack>
         </Stack>
+        )}
 
         {!baseOutputs && (
           <Alert severity="warning">
@@ -1631,18 +1637,44 @@ const PlanDetailPage = () => {
         )}
 
         {/* Week switcher */}
-        <Stack spacing={1.5}>
-          <Stack direction="row" alignItems="center" justifyContent="space-between">
+        <Stack
+          spacing={isClientMobile ? 0.5 : 1.5}
+          sx={
+            isClientMobile
+              ? {
+                  position: "sticky",
+                  top: MOBILE_WEEK_STICKY_TOP,
+                  zIndex: 30,
+                  py: 0.5,
+                  px: 0.5,
+                  bgcolor: "background.default",
+                  borderBottom: "1px solid",
+                  borderColor: "divider",
+                }
+              : undefined
+          }
+        >
+          <Stack
+            direction="row"
+            alignItems="center"
+            justifyContent="space-between"
+            spacing={1}
+          >
             <Stack direction="row" spacing={1} alignItems="center">
               <IconButton
                 size="small"
                 onClick={() => handleWeekChange(weekIndex - 1)}
                 disabled={!canGoPrevWeek}
                 aria-label="Semana anterior"
+                sx={isClientMobile ? { p: 0.35 } : undefined}
               >
                 <ChevronLeftRoundedIcon />
               </IconButton>
-              <Typography variant="subtitle2" fontWeight={700}>
+              <Typography
+                variant="subtitle2"
+                fontWeight={700}
+                sx={isClientMobile ? { fontSize: 13, lineHeight: 1.1 } : undefined}
+              >
                 Semana {weekIndex + 1} de {weeks.length}
               </Typography>
               <IconButton
@@ -1650,12 +1682,17 @@ const PlanDetailPage = () => {
                 onClick={() => handleWeekChange(weekIndex + 1)}
                 disabled={!canGoNextWeek}
                 aria-label="Semana siguiente"
+                sx={isClientMobile ? { p: 0.35 } : undefined}
               >
                 <ChevronRightRoundedIcon />
               </IconButton>
             </Stack>
             {visibleDates.length > 0 && (
-              <Typography variant="caption" color="text.secondary">
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={isClientMobile ? { fontSize: 11, opacity: 0.75 } : undefined}
+              >
                 {dayjs(visibleDates[0]).format("DD MMM")} -{" "}
                 {dayjs(visibleDates[visibleDates.length - 1]).format("DD MMM")}
               </Typography>
@@ -1663,10 +1700,11 @@ const PlanDetailPage = () => {
           </Stack>
           <Stack
             direction="row"
-            spacing={1.25}
+            spacing={isClientMobile ? 0.75 : 1.25}
             sx={{
               overflowX: "auto",
-              pb: 0.5,
+              pb: isClientMobile ? 0.25 : 0.5,
+              whiteSpace: "nowrap",
               "&::-webkit-scrollbar": { display: "none" },
               scrollSnapType: { xs: "x mandatory", md: "none" },
             }}
@@ -1740,14 +1778,14 @@ const PlanDetailPage = () => {
                 onClick={() => setSelectedDate(date)}
                 sx={{
                   borderRadius: 3,
-                  px: 1,
-                  py: 0.5,
+                  px: isClientMobile ? 0.5 : 1,
+                  py: isClientMobile ? 0.25 : 0.5,
                   scrollSnapAlign: "start",
                   border: "1px solid",
                   borderColor: isSelected ? "primary.main" : "transparent",
                   bgcolor: isSelected ? "primary.main" + "0D" : "transparent",
                   transition: "all 0.2s ease",
-                  minWidth: 82,
+                  minWidth: isClientMobile ? 56 : 82,
                   "&:hover": {
                     borderColor: "primary.light",
                     bgcolor: "primary.main" + "0A",
@@ -1757,14 +1795,18 @@ const PlanDetailPage = () => {
                   isTraining ? trainingLabel : "descanso"
                 } ${kcalLabel ?? ""} kcal`}
               >
-                <Stack spacing={0.5} alignItems="center" width="100%">
-                  <Typography variant="caption" color="text.secondary">
+                <Stack spacing={isClientMobile ? 0.25 : 0.5} alignItems="center" width="100%">
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={isClientMobile ? { fontSize: 10.5, lineHeight: 1 } : undefined}
+                  >
                     {day.format("ddd").toUpperCase()}
                   </Typography>
                   <Box
                     sx={{
-                      width: 48,
-                      height: 48,
+                      width: isClientMobile ? 32 : 48,
+                      height: isClientMobile ? 32 : 48,
                       borderRadius: "50%",
                       display: "grid",
                       placeItems: "center",
@@ -1772,6 +1814,7 @@ const PlanDetailPage = () => {
                       color: isTraining ? "primary.main" : "grey.50",
                       border: `2px solid ${statusColor}`,
                       fontWeight: 700,
+                      fontSize: isClientMobile ? 11 : 14,
                       boxShadow: isSelected
                         ? `0 0 0 3px ${statusColor}33`
                         : "0 0 0 1px transparent",
@@ -1788,22 +1831,24 @@ const PlanDetailPage = () => {
                     <Box
                       sx={{
                         position: "absolute",
-                        top: 4,
-                        right: 4,
-                        width: 8,
-                        height: 8,
+                        top: isClientMobile ? 3 : 4,
+                        right: isClientMobile ? 3 : 4,
+                        width: isClientMobile ? 6 : 8,
+                        height: isClientMobile ? 6 : 8,
                         borderRadius: "50%",
                         bgcolor: statusColor,
                       }}
                     />
                   </Box>
-                  <Chip
-                    size="small"
-                    label={isTraining ? trainingLabel : "Descanso"}
-                    color={isTraining ? "primary" : "default"}
-                    variant={isTraining ? "outlined" : "filled"}
-                  />
-                  {kcalLabel !== null && (
+                  {!isClientMobile && (
+                    <Chip
+                      size="small"
+                      label={isTraining ? trainingLabel : "Descanso"}
+                      color={isTraining ? "primary" : "default"}
+                      variant={isTraining ? "outlined" : "filled"}
+                    />
+                  )}
+                  {!isClientMobile && kcalLabel !== null && (
                     <Typography variant="caption" color="text.secondary">
                       {kcalLabel} kcal
                     </Typography>
