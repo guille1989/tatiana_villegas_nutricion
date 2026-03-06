@@ -465,19 +465,24 @@ const AppShell = () => {
         <Paper
           component="footer"
           className="tv-mobile-footer"
-          elevation={8}
+          elevation={0}
           sx={{
             position: 'fixed',
-            left: 0,
-            right: 0,
-            bottom: 0,
+            left: 12,
+            right: 12,
+            bottom: 10,
             zIndex: (theme) => theme.zIndex.appBar,
-            borderTop: '1px solid',
-            borderColor: 'divider',
-            px: 1,
-            pt: 1,
-            pb: 'calc(8px + env(safe-area-inset-bottom, 0px))',
-            bgcolor: 'background.paper',
+            px: 0.75,
+            pt: 0.75,
+            pb: 'calc(6px + env(safe-area-inset-bottom, 0px))',
+            borderRadius: '20px',
+            border: '1px solid',
+            borderColor: 'rgba(148, 163, 184, 0.24)',
+            bgcolor: 'rgba(255, 255, 255, 0.88)',
+            backdropFilter: 'blur(14px)',
+            WebkitBackdropFilter: 'blur(14px)',
+            boxShadow: '0 10px 28px rgba(15, 23, 42, 0.12)',
+            overflow: 'hidden',
           }}
         >
           <Box

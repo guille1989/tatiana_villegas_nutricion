@@ -142,8 +142,10 @@ const PlanDetailPage = () => {
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const isClientMobile = isMobile && !isAdmin;
   const detailRef = useRef<HTMLDivElement | null>(null);
+  const weekSwitcherRef = useRef<HTMLDivElement | null>(null);
   const initialSelectionDoneRef = useRef(false);
   const cloneLibraryRequestedRef = useRef(false);
+  const [mobileWeekSwitcherHeight, setMobileWeekSwitcherHeight] = useState(92);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [assessment, setAssessment] = useState<Assessment | null>(null);
   const [overrides, setOverrides] = useState<DayOverride[]>([]);
@@ -243,6 +245,40 @@ const PlanDetailPage = () => {
     setMealLibraryError(null);
     cloneLibraryRequestedRef.current = false;
   }, [planId]);
+
+  useEffect(() => {
+    if (!isClientMobile) {
+      setMobileWeekSwitcherHeight(0);
+      return;
+    }
+
+    const node = weekSwitcherRef.current;
+    if (!node) return;
+
+    const updateHeight = () => {
+      const nextHeight = Math.ceil(node.getBoundingClientRect().height);
+      setMobileWeekSwitcherHeight((prev) =>
+        prev === nextHeight ? prev : nextHeight,
+      );
+    };
+
+    updateHeight();
+    const handleResize = () => updateHeight();
+    window.addEventListener("resize", handleResize);
+
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(() => updateHeight());
+      observer.observe(node);
+      return () => {
+        observer.disconnect();
+        window.removeEventListener("resize", handleResize);
+      };
+    }
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [isClientMobile, weekIndex]);
 
   useEffect(() => {
     if (!plan || isAdmin) return;
@@ -1688,20 +1724,34 @@ const PlanDetailPage = () => {
           </Alert>
         )}
 
+        {isClientMobile && (
+          <Box aria-hidden="true" sx={{ height: mobileWeekSwitcherHeight }} />
+        )}
+
         {/* Week switcher */}
         <Stack
-          spacing={isClientMobile ? 0.5 : 1.5}
+          ref={weekSwitcherRef}
+          spacing={isClientMobile ? 0 : 1.5}
           sx={
             isClientMobile
               ? {
-                  position: "sticky",
+                  position: "fixed",
                   top: MOBILE_WEEK_STICKY_TOP,
+                  left: -5,
+                  right: "auto",
+                  mt: "0 !important",
                   zIndex: 30,
-                  py: 0.5,
-                  px: 0.5,
-                  bgcolor: "background.default",
+                  width: "calc(100vw + 10px)",
+                  maxWidth: "none",
+                  boxSizing: "border-box",
+                  py: 0,
+                  px: 0,
+                  bgcolor: "rgba(252, 253, 252, 0.96)",
                   borderBottom: "1px solid",
-                  borderColor: "divider"
+                  borderColor: "rgba(102, 179, 154, 0.24)",
+                  backdropFilter: "blur(10px)",
+                  WebkitBackdropFilter: "blur(10px)",
+                  boxShadow: "0 8px 20px rgba(15, 23, 42, 0.08)"
                 }
               : undefined
           }
@@ -1710,15 +1760,36 @@ const PlanDetailPage = () => {
             direction="row"
             alignItems="center"
             justifyContent="space-between"
-            spacing={1}
+            spacing={isClientMobile ? 0.75 : 1}
+            sx={isClientMobile ? { px: 1.25, pt: 0.4, pb: 0.2 } : undefined}
           >
-            <Stack direction="row" spacing={1} alignItems="center">
+            <Stack
+              direction="row"
+              spacing={isClientMobile ? 0.5 : 1}
+              alignItems="center"
+            >
               <IconButton
                 size="small"
                 onClick={() => handleWeekChange(weekIndex - 1)}
                 disabled={!canGoPrevWeek}
                 aria-label="Semana anterior"
-                sx={isClientMobile ? { p: 0.35 } : undefined}
+                sx={
+                  isClientMobile
+                    ? {
+                        p: 0.45,
+                        borderRadius: "10px",
+                        bgcolor: "rgba(15, 23, 42, 0.045)",
+                        color: "rgba(15, 23, 42, 0.7)",
+                        transition: "background-color 220ms ease, color 220ms ease",
+                        "&:hover": {
+                          bgcolor: "rgba(15, 23, 42, 0.085)",
+                        },
+                        "&.Mui-disabled": {
+                          opacity: 0.35,
+                        },
+                      }
+                    : undefined
+                }
               >
                 <ChevronLeftRoundedIcon />
               </IconButton>
@@ -1726,7 +1797,14 @@ const PlanDetailPage = () => {
                 variant="subtitle2"
                 fontWeight={700}
                 sx={
-                  isClientMobile ? { fontSize: 13, lineHeight: 1.1 } : undefined
+                  isClientMobile
+                    ? {
+                        fontSize: 13.5,
+                        lineHeight: 1.15,
+                        letterSpacing: "0.01em",
+                        color: "#0f172a",
+                      }
+                    : undefined
                 }
               >
                 Semana {weekIndex + 1} de {weeks.length}
@@ -1736,7 +1814,23 @@ const PlanDetailPage = () => {
                 onClick={() => handleWeekChange(weekIndex + 1)}
                 disabled={!canGoNextWeek}
                 aria-label="Semana siguiente"
-                sx={isClientMobile ? { p: 0.35 } : undefined}
+                sx={
+                  isClientMobile
+                    ? {
+                        p: 0.45,
+                        borderRadius: "10px",
+                        bgcolor: "rgba(15, 23, 42, 0.045)",
+                        color: "rgba(15, 23, 42, 0.7)",
+                        transition: "background-color 220ms ease, color 220ms ease",
+                        "&:hover": {
+                          bgcolor: "rgba(15, 23, 42, 0.085)",
+                        },
+                        "&.Mui-disabled": {
+                          opacity: 0.35,
+                        },
+                      }
+                    : undefined
+                }
               >
                 <ChevronRightRoundedIcon />
               </IconButton>
@@ -1746,7 +1840,15 @@ const PlanDetailPage = () => {
                 variant="caption"
                 color="text.secondary"
                 sx={
-                  isClientMobile ? { fontSize: 11, opacity: 0.75 } : undefined
+                  isClientMobile
+                    ? {
+                        fontSize: 10.5,
+                        opacity: 0.65,
+                        fontWeight: 500,
+                        color: "rgba(71, 85, 105, 0.8)",
+                        letterSpacing: "0.01em",
+                      }
+                    : undefined
                 }
               >
                 {dayjs(visibleDates[0]).format("DD MMM")} -{" "}
@@ -1756,13 +1858,16 @@ const PlanDetailPage = () => {
           </Stack>
           <Stack
             direction="row"
-            spacing={isClientMobile ? 0.75 : 1.25}
+            spacing={isClientMobile ? 1 : 1.25}
             sx={{
               overflowX: "auto",
-              pb: isClientMobile ? 0.25 : 0.5,
+              px: isClientMobile ? 1.25 : 0,
+              pt: isClientMobile ? 0.25 : 0,
+              pb: isClientMobile ? 0.8 : 0.5,
               whiteSpace: "nowrap",
               "&::-webkit-scrollbar": { display: "none" },
               scrollSnapType: { xs: "x mandatory", md: "none" },
+              scrollPaddingInline: { xs: "12px", md: "0px" },
             }}
           >
             {visibleDates.map((date) => {
@@ -1833,18 +1938,33 @@ const PlanDetailPage = () => {
                   key={date}
                   onClick={() => setSelectedDate(date)}
                   sx={{
-                    borderRadius: 3,
-                    px: isClientMobile ? 0.5 : 1,
-                    py: isClientMobile ? 0.25 : 0.5,
-                    scrollSnapAlign: "start",
+                    borderRadius: isClientMobile ? 14 : 3,
+                    px: isClientMobile ? 0.45 : 1,
+                    py: isClientMobile ? 0.55 : 0.5,
+                    scrollSnapAlign: isClientMobile ? "center" : "start",
                     border: "1px solid",
-                    borderColor: isSelected ? "primary.main" : "transparent",
-                    bgcolor: isSelected ? "primary.main" + "0D" : "transparent",
-                    transition: "all 0.2s ease",
-                    minWidth: isClientMobile ? 56 : 82,
+                    borderColor: isSelected
+                      ? "rgba(0, 97, 86, 0.28)"
+                      : "transparent",
+                    bgcolor: isSelected
+                      ? "rgba(0, 97, 86, 0.09)"
+                      : "transparent",
+                    transition:
+                      "background-color 220ms ease, border-color 220ms ease, box-shadow 220ms ease, transform 220ms ease",
+                    minWidth: isClientMobile ? 62 : 82,
+                    boxShadow: isSelected
+                      ? "0 6px 14px rgba(0, 97, 86, 0.12)"
+                      : "none",
                     "&:hover": {
-                      borderColor: "primary.light",
-                      bgcolor: "primary.main" + "0A",
+                      borderColor: isSelected
+                        ? "rgba(0, 97, 86, 0.3)"
+                        : "rgba(148, 163, 184, 0.3)",
+                      bgcolor: isSelected
+                        ? "rgba(0, 97, 86, 0.11)"
+                        : "rgba(15, 23, 42, 0.025)",
+                    },
+                    "&:active": {
+                      transform: "translateY(0.5px)",
                     },
                   }}
                   aria-label={`Seleccionar ${day.format("dddd")} ${
@@ -1852,7 +1972,7 @@ const PlanDetailPage = () => {
                   } ${kcalLabel ?? ""} kcal`}
                 >
                   <Stack
-                    spacing={isClientMobile ? 0.25 : 0.5}
+                    spacing={isClientMobile ? 0.35 : 0.5}
                     alignItems="center"
                     width="100%"
                   >
@@ -1861,7 +1981,16 @@ const PlanDetailPage = () => {
                       color="text.secondary"
                       sx={
                         isClientMobile
-                          ? { fontSize: 10.5, lineHeight: 1 }
+                          ? {
+                              fontSize: 10,
+                              lineHeight: 1,
+                              letterSpacing: "0.08em",
+                              fontWeight: isSelected ? 700 : 500,
+                              color: isSelected
+                                ? "#006156"
+                                : "rgba(71, 85, 105, 0.78)",
+                              transition: "color 220ms ease, font-weight 220ms ease",
+                            }
                           : undefined
                       }
                     >
@@ -1869,20 +1998,45 @@ const PlanDetailPage = () => {
                     </Typography>
                     <Box
                       sx={{
-                        width: isClientMobile ? 32 : 48,
-                        height: isClientMobile ? 32 : 48,
+                        width: isClientMobile ? 30 : 48,
+                        height: isClientMobile ? 30 : 48,
                         borderRadius: "50%",
                         display: "grid",
                         placeItems: "center",
-                        bgcolor: isTraining ? "transparent" : "grey.300",
-                        color: isTraining ? "primary.main" : "grey.50",
-                        border: `2px solid ${statusColor}`,
+                        bgcolor: isClientMobile
+                          ? isSelected
+                            ? "rgba(255, 255, 255, 0.98)"
+                            : isTraining
+                              ? "rgba(102, 179, 154, 0.12)"
+                              : "rgba(148, 163, 184, 0.16)"
+                          : isTraining
+                            ? "transparent"
+                            : "grey.300",
+                        color: isClientMobile
+                          ? isSelected
+                            ? "#006156"
+                            : isTraining
+                              ? "#006156"
+                              : "rgba(100, 116, 139, 0.92)"
+                          : isTraining
+                            ? "primary.main"
+                            : "grey.50",
+                        border: isClientMobile
+                          ? `1.6px solid ${
+                              isSelected ? "#006156" : statusColor
+                            }`
+                          : `2px solid ${statusColor}`,
                         fontWeight: 700,
                         fontSize: isClientMobile ? 11 : 14,
-                        boxShadow: isSelected
-                          ? `0 0 0 3px ${statusColor}33`
-                          : "0 0 0 1px transparent",
-                        transition: "all 0.2s ease",
+                        boxShadow: isClientMobile
+                          ? isSelected
+                            ? "0 0 0 2px rgba(102, 179, 154, 0.2)"
+                            : "none"
+                          : isSelected
+                            ? `0 0 0 3px ${statusColor}33`
+                            : "0 0 0 1px transparent",
+                        transition:
+                          "background-color 220ms ease, border-color 220ms ease, box-shadow 220ms ease, color 220ms ease",
                         position: "relative",
                       }}
                       title={`${statusLabel}. P ${remainingPortions.protein.toFixed(
@@ -1895,15 +2049,31 @@ const PlanDetailPage = () => {
                       <Box
                         sx={{
                           position: "absolute",
-                          top: isClientMobile ? 3 : 4,
-                          right: isClientMobile ? 3 : 4,
-                          width: isClientMobile ? 6 : 8,
-                          height: isClientMobile ? 6 : 8,
+                          top: isClientMobile ? 2.5 : 4,
+                          right: isClientMobile ? 2.5 : 4,
+                          width: isClientMobile ? 5 : 8,
+                          height: isClientMobile ? 5 : 8,
                           borderRadius: "50%",
                           bgcolor: statusColor,
+                          opacity: isClientMobile ? 0.9 : 1,
                         }}
                       />
                     </Box>
+                    {isClientMobile && (
+                      <Box
+                        sx={{
+                          width: isSelected ? 16 : 8,
+                          height: 2.5,
+                          borderRadius: 999,
+                          bgcolor: isSelected
+                            ? "rgba(0, 97, 86, 0.9)"
+                            : "rgba(148, 163, 184, 0.48)",
+                          opacity: isSelected ? 1 : 0.45,
+                          transition:
+                            "width 220ms ease, opacity 220ms ease, background-color 220ms ease",
+                        }}
+                      />
+                    )}
                     {!isClientMobile && (
                       <Chip
                         size="small"
