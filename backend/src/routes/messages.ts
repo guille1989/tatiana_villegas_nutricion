@@ -3,6 +3,7 @@ import { Types } from 'mongoose'
 import { z } from 'zod'
 import { authMiddleware } from '../middleware/auth'
 import { MessageModel } from '../models/Message'
+import { UserModel } from '../models/User'
 import { asyncHandler } from '../utils/asyncHandler'
 import { badRequest, forbidden, notFound } from '../utils/apiError'
 
@@ -11,6 +12,9 @@ const router = Router()
 const messageListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
   before: z.string().optional(),
+})
+const memberMessageSchema = z.object({
+  body: z.string().trim().min(1).max(1000),
 })
 
 const mapMessage = (message: {
@@ -39,6 +43,12 @@ const mapMessage = (message: {
   updatedAt: message.updatedAt,
 })
 
+const resolveAdminUserId = async () => {
+  const admin = await UserModel.findOne({ role: 'admin', status: 'active' }).select({ _id: 1 }).lean()
+  if (!admin?._id) throw notFound('Admin no encontrado')
+  return admin._id.toString()
+}
+
 router.use(authMiddleware)
 
 router.get(
@@ -49,12 +59,16 @@ router.get(
     const parsedQuery = messageListQuerySchema.safeParse(req.query)
     if (!parsedQuery.success) throw badRequest('Validation failed', parsedQuery.error.flatten())
     const limit = parsedQuery.data.limit ?? 20
+    const adminUserId = await resolveAdminUserId()
 
     const filter: {
-      recipientUserId: string
+      $or: Array<{ senderUserId: string; recipientUserId: string }>
       _id?: { $lt: Types.ObjectId }
     } = {
-      recipientUserId: req.user.id,
+      $or: [
+        { senderUserId: req.user.id, recipientUserId: adminUserId },
+        { senderUserId: adminUserId, recipientUserId: req.user.id },
+      ],
     }
     if (parsedQuery.data.before) {
       if (!Types.ObjectId.isValid(parsedQuery.data.before)) throw badRequest('Cursor invalido')
@@ -73,6 +87,25 @@ router.get(
       messages: pageItems.map(mapMessage),
       nextBefore,
     })
+  }),
+)
+
+router.post(
+  '/admin',
+  asyncHandler(async (req, res) => {
+    if (!req.user || req.user.role !== 'member') throw forbidden('Solo clientes')
+
+    const parsed = memberMessageSchema.safeParse(req.body)
+    if (!parsed.success) throw badRequest('Validation failed', parsed.error.flatten())
+
+    const adminUserId = await resolveAdminUserId()
+    const message = await MessageModel.create({
+      senderUserId: req.user.id,
+      recipientUserId: adminUserId,
+      body: parsed.data.body,
+    })
+
+    res.status(201).json({ message: mapMessage(message.toObject()) })
   }),
 )
 

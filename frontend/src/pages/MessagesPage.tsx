@@ -1,8 +1,9 @@
-import { Alert, Box, Button, Card, CardContent, Chip, Container, Stack, Typography } from '@mui/material'
+import { Alert, Box, Button, Card, CardContent, Chip, Container, Stack, TextField, Typography } from '@mui/material'
 import MailOutlineRoundedIcon from '@mui/icons-material/MailOutlineRounded'
 import dayjs from 'dayjs'
 import { useCallback, useEffect, useState } from 'react'
-import { getInboxMessages, markMessageAsRead, type AppMessage } from '../lib/api'
+import { useAuth } from '../context/AuthContext'
+import { getInboxMessages, markMessageAsRead, sendMemberMessage, type AppMessage } from '../lib/api'
 
 const PAGE_SIZE = 20
 
@@ -11,12 +12,15 @@ type MessagesPageProps = {
 }
 
 const MessagesPage = ({ onUnreadCountRefresh }: MessagesPageProps) => {
+  const { user } = useAuth()
   const [messages, setMessages] = useState<AppMessage[]>([])
   const [nextBefore, setNextBefore] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [markingId, setMarkingId] = useState<string | null>(null)
+  const [messageText, setMessageText] = useState('')
 
   const loadInitial = useCallback(async () => {
     setLoading(true)
@@ -53,7 +57,8 @@ const MessagesPage = ({ onUnreadCountRefresh }: MessagesPageProps) => {
   }
 
   const handleOpenMessage = async (message: AppMessage) => {
-    if (message.readAt) return
+    const isOwn = user?.id ? message.senderUserId === user.id : false
+    if (isOwn || message.readAt) return
     setMarkingId(message.id)
     try {
       const updated = await markMessageAsRead(message.id)
@@ -66,6 +71,26 @@ const MessagesPage = ({ onUnreadCountRefresh }: MessagesPageProps) => {
     }
   }
 
+  const handleSendMessage = async () => {
+    const body = messageText.trim()
+    if (!body) {
+      setError('Escribe un mensaje para enviar')
+      return
+    }
+
+    setSending(true)
+    setError(null)
+    try {
+      const created = await sendMemberMessage(body)
+      setMessages((prev) => [created, ...prev])
+      setMessageText('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo enviar el mensaje')
+    } finally {
+      setSending(false)
+    }
+  }
+
   return (
     <Container maxWidth="md" sx={{ py: { xs: 3, md: 5 } }}>
       <Stack spacing={2.5}>
@@ -74,9 +99,31 @@ const MessagesPage = ({ onUnreadCountRefresh }: MessagesPageProps) => {
             Mensajes
           </Typography>
           <Typography color="text.secondary">
-            Comunicaciones enviadas por tu administradora.
+            Conversacion con tu administradora.
           </Typography>
         </Box>
+
+        <Card elevation={0}>
+          <CardContent>
+            <Stack spacing={1.25}>
+              <TextField
+                label="Nuevo mensaje"
+                value={messageText}
+                onChange={(event) => setMessageText(event.target.value)}
+                fullWidth
+                multiline
+                minRows={3}
+                inputProps={{ maxLength: 1000 }}
+                disabled={sending}
+              />
+              <Box display="flex" justifyContent="flex-end">
+                <Button variant="contained" onClick={handleSendMessage} disabled={sending}>
+                  {sending ? 'Enviando...' : 'Enviar'}
+                </Button>
+              </Box>
+            </Stack>
+          </CardContent>
+        </Card>
 
         {error && <Alert severity="warning">{error}</Alert>}
 
@@ -95,7 +142,7 @@ const MessagesPage = ({ onUnreadCountRefresh }: MessagesPageProps) => {
                   Aun no tienes mensajes
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Cuando tu administradora te envie un mensaje lo veras aqui.
+                  Cuando tu administradora o tu envien mensajes, apareceran aqui.
                 </Typography>
               </Stack>
             </CardContent>
@@ -103,43 +150,56 @@ const MessagesPage = ({ onUnreadCountRefresh }: MessagesPageProps) => {
         ) : (
           <Stack spacing={1.25}>
             {messages.map((message) => {
-              const isUnread = !message.readAt
+              const isOwn = user?.id ? message.senderUserId === user.id : false
+              const isUnread = !isOwn && !message.readAt
               return (
-                <Card
-                  key={message.id}
-                  elevation={0}
-                  onClick={() => handleOpenMessage(message)}
-                  sx={{
-                    cursor: isUnread ? 'pointer' : 'default',
-                    border: '1px solid',
-                    borderColor: isUnread ? 'primary.light' : 'divider',
-                    bgcolor: isUnread ? 'rgba(37, 99, 235, 0.03)' : 'common.white',
-                  }}
-                >
-                  <CardContent>
-                    <Stack spacing={1}>
-                      <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Typography variant="caption" color="text.secondary">
-                          {dayjs(message.createdAt).format('DD/MM/YYYY HH:mm')}
+                <Box key={message.id} display="flex" justifyContent={isOwn ? 'flex-end' : 'flex-start'}>
+                  <Card
+                    elevation={0}
+                    onClick={() => handleOpenMessage(message)}
+                    sx={{
+                      width: { xs: '100%', sm: '85%' },
+                      cursor: isUnread ? 'pointer' : 'default',
+                      border: '1px solid',
+                      borderColor: isUnread ? 'primary.light' : 'divider',
+                      bgcolor: isOwn ? 'rgba(37, 99, 235, 0.08)' : 'common.white',
+                    }}
+                  >
+                    <CardContent>
+                      <Stack spacing={1}>
+                        <Stack direction="row" justifyContent="space-between" alignItems="center">
+                          <Typography variant="caption" color="text.secondary">
+                            {dayjs(message.createdAt).format('DD/MM/YYYY HH:mm')}
+                          </Typography>
+                          <Stack direction="row" spacing={0.75}>
+                            <Chip
+                              size="small"
+                              label={isOwn ? 'Tu' : 'Admin'}
+                              color={isOwn ? 'primary' : 'default'}
+                              variant={isOwn ? 'filled' : 'outlined'}
+                            />
+                            {!isOwn && (
+                              <Chip
+                                size="small"
+                                label={isUnread ? 'No leido' : 'Leido'}
+                                color={isUnread ? 'warning' : 'default'}
+                                variant={isUnread ? 'filled' : 'outlined'}
+                              />
+                            )}
+                          </Stack>
+                        </Stack>
+                        <Typography variant="body1" sx={{ whiteSpace: 'pre-line' }}>
+                          {message.body}
                         </Typography>
-                        <Chip
-                          size="small"
-                          label={isUnread ? 'No leido' : 'Leido'}
-                          color={isUnread ? 'warning' : 'default'}
-                          variant={isUnread ? 'filled' : 'outlined'}
-                        />
+                        {markingId === message.id && (
+                          <Typography variant="caption" color="text.secondary">
+                            Marcando como leido...
+                          </Typography>
+                        )}
                       </Stack>
-                      <Typography variant="body1" sx={{ whiteSpace: 'pre-line' }}>
-                        {message.body}
-                      </Typography>
-                      {markingId === message.id && (
-                        <Typography variant="caption" color="text.secondary">
-                          Marcando como leido...
-                        </Typography>
-                      )}
-                    </Stack>
-                  </CardContent>
-                </Card>
+                    </CardContent>
+                  </Card>
+                </Box>
               )
             })}
             {nextBefore && (

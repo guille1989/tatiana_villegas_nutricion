@@ -79,6 +79,7 @@ type PlanGateStatus = 'active' | 'draft' | 'none'
 type PlanGateState = {
   loading: boolean
   status: PlanGateStatus | null
+  activePlanId: string | null
   error: string | null
   reload: () => void
 }
@@ -101,6 +102,7 @@ const buildWhatsAppLink = (rawNumber: string, message: string) => {
 const useMemberPlanStatus = (enabled: boolean): PlanGateState => {
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState<PlanGateStatus | null>(null)
+  const [activePlanId, setActivePlanId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -108,6 +110,7 @@ const useMemberPlanStatus = (enabled: boolean): PlanGateState => {
     if (!enabled) {
       setLoading(false)
       setStatus(null)
+      setActivePlanId(null)
       setError(null)
       return
     }
@@ -120,12 +123,15 @@ const useMemberPlanStatus = (enabled: boolean): PlanGateState => {
         if (!active) return
         const hasActive = plans.some((plan) => plan.status === 'active' || !plan.status)
         const hasDraft = plans.some((plan) => plan.status === 'draft')
+        const defaultActivePlan = plans.find((plan) => plan.status === 'active' || !plan.status) ?? plans[0]
         const nextStatus: PlanGateStatus = hasActive ? 'active' : hasDraft ? 'draft' : 'none'
         setStatus(nextStatus)
+        setActivePlanId(defaultActivePlan?.id ?? null)
       })
       .catch((err) => {
         if (!active) return
         setStatus(null)
+        setActivePlanId(null)
         setError(err instanceof Error ? err.message : 'No se pudo verificar planes')
       })
       .finally(() => {
@@ -141,6 +147,7 @@ const useMemberPlanStatus = (enabled: boolean): PlanGateState => {
   return {
     loading,
     status,
+    activePlanId,
     error,
     reload: () => setRefreshKey((prev) => prev + 1),
   }
@@ -257,12 +264,10 @@ const AppShell = () => {
   const showAdminSectionNav = isAdmin && location.pathname.startsWith('/admin')
   const adminSection = new URLSearchParams(location.search).get('section') === 'ingredients' ? 'ingredients' : 'overview'
   const isMessagesActive = location.pathname.startsWith('/messages')
-  const isPlansActive =
-    location.pathname.startsWith('/plans') ||
-    location.pathname.startsWith('/plan-pending') ||
-    location.pathname.startsWith('/wizard')
-  const mobileFooterItemsCount =
-    2 + (MESSAGES_ENABLED ? 1 : 0) + (WHATSAPP_BUTTON_ENABLED ? 1 : 0)
+  const isAccountActive = location.pathname === '/plans'
+  const isPlanActive = location.pathname.startsWith('/plans/')
+  const memberActivePlanHref = planGate.activePlanId ? `/plans/${planGate.activePlanId}` : '/plans'
+  const mobileFooterItemsCount = 3 + (MESSAGES_ENABLED ? 1 : 0)
 
   const refreshUnreadMessageCount = useCallback(async () => {
     if (!MESSAGES_ENABLED || !token || isAdmin) {
@@ -488,9 +493,26 @@ const AppShell = () => {
             <Button
               component={RouterLink}
               to="/plans"
-              variant={isPlansActive ? 'contained' : 'text'}
-              className={`tv-bottom-nav__item${isPlansActive ? ' is-active' : ''}`}
-              aria-current={isPlansActive ? 'page' : undefined}
+              variant={isAccountActive ? 'contained' : 'text'}
+              className={`tv-bottom-nav__item${isAccountActive ? ' is-active' : ''}`}
+              aria-current={isAccountActive ? 'page' : undefined}
+              fullWidth
+            >
+              <span className="tv-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <circle cx="12" cy="8" r="3.25" />
+                  <path d="M5 19c.9-3.2 3.5-5 7-5s6.1 1.8 7 5" />
+                </svg>
+              </span>
+              <span className="tv-label">Cuenta</span>
+            </Button>
+
+            <Button
+              component={RouterLink}
+              to={memberActivePlanHref}
+              variant={isPlanActive ? 'contained' : 'text'}
+              className={`tv-bottom-nav__item${isPlanActive ? ' is-active' : ''}`}
+              aria-current={isPlanActive ? 'page' : undefined}
               fullWidth
             >
               <span className="tv-icon" aria-hidden="true">
@@ -499,7 +521,7 @@ const AppShell = () => {
                   <path d="M8 3.5V7M16 3.5V7M4 9.5h16M8 13h3.5M8 16.5h6.5" />
                 </svg>
               </span>
-              <span className="tv-label">Planes</span>
+              <span className="tv-label">Plan</span>
             </Button>
 
             {MESSAGES_ENABLED && (
@@ -526,25 +548,6 @@ const AppShell = () => {
                   <span className="tv-label">Mensajes</span>
                 </Button>
               </Badge>
-            )}
-
-            {WHATSAPP_BUTTON_ENABLED && (
-              <Button
-                component="a"
-                href={whatsappHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="tv-bottom-nav__item"
-                fullWidth
-              >
-                <span className="tv-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                    <path d="M20 11.7A8 8 0 0 1 8.1 18.8L4 20l1.2-4A8 8 0 1 1 20 11.7Z" />
-                    <path d="M9.6 9.4c.2-.4.4-.4.6-.4h.5c.2 0 .3 0 .4.3l.9 2c.1.2 0 .3-.1.5l-.4.5a.3.3 0 0 0 0 .4c.5.8 1.2 1.4 2 1.9.1.1.3.1.4 0l.6-.4c.1-.1.3-.1.5 0l1.9.9c.2.1.3.2.3.4v.5c0 .2 0 .4-.4.6-.4.2-1.2.3-2.4-.2-1.1-.4-2.3-1.4-3.2-2.3-.9-.9-1.8-2.1-2.3-3.2-.5-1.2-.4-2-.2-2.4Z" />
-                  </svg>
-                </span>
-                <span className="tv-label">WhatsApp</span>
-              </Button>
             )}
 
             <Button

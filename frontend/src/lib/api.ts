@@ -445,6 +445,15 @@ export const getInboxMessages = async (params?: { limit?: number; before?: strin
   return { messages: (data.messages ?? []).map(mapMessage), nextBefore: data.nextBefore }
 }
 
+export const sendMemberMessage = async (body: string) => {
+  const { data, error } = await request<{ message: MessageDto }>('/messages/admin', {
+    method: 'POST',
+    body: JSON.stringify({ body }),
+  })
+  if (error) throw new Error(error)
+  return mapMessage(data.message)
+}
+
 export const getUnreadInboxCount = async () => {
   const { data, error } = await request<{ count: number }>('/messages/unread-count')
   if (error) throw new Error(error)

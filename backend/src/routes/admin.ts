@@ -207,10 +207,13 @@ router.get(
 
 router.get(
   '/messages/unread-counts',
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
+    const adminUserId = req.user?.id
+    if (!adminUserId) throw badRequest('Usuario no autenticado')
+
     const rows = await MessageModel.aggregate<{ _id: string; count: number }>([
-      { $match: { readAt: null } },
-      { $group: { _id: '$recipientUserId', count: { $sum: 1 } } },
+      { $match: { recipientUserId: adminUserId, readAt: null } },
+      { $group: { _id: '$senderUserId', count: { $sum: 1 } } },
     ])
 
     const counts = rows.reduce<Record<string, number>>((acc, row) => {
@@ -361,12 +364,28 @@ router.get(
     const parsedQuery = messageListQuerySchema.safeParse(req.query)
     if (!parsedQuery.success) throw badRequest('Validation failed', parsedQuery.error.flatten())
     const limit = parsedQuery.data.limit ?? 20
+    const adminUserId = req.user?.id
+    if (!adminUserId) throw badRequest('Usuario no autenticado')
+
+    if (!parsedQuery.data.before) {
+      await MessageModel.updateMany(
+        {
+          senderUserId: userId,
+          recipientUserId: adminUserId,
+          readAt: null,
+        },
+        { $set: { readAt: new Date() } },
+      )
+    }
 
     const filter: {
-      recipientUserId: string
+      $or: Array<{ senderUserId: string; recipientUserId: string }>
       _id?: { $lt: Types.ObjectId }
     } = {
-      recipientUserId: userId,
+      $or: [
+        { senderUserId: adminUserId, recipientUserId: userId },
+        { senderUserId: userId, recipientUserId: adminUserId },
+      ],
     }
     if (parsedQuery.data.before) {
       if (!Types.ObjectId.isValid(parsedQuery.data.before)) throw badRequest('Cursor invalido')

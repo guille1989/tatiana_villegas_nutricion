@@ -130,7 +130,7 @@ const matchesTemplateSearch = (template: MealTemplate, query: string) => {
     return true;
   }
   return template.items.some((item) =>
-    item.nameSnapshot.toLowerCase().includes(lowered)
+    item.nameSnapshot.toLowerCase().includes(lowered),
   );
 };
 
@@ -161,14 +161,14 @@ const PlanDetailPage = () => {
   const [cloneError, setCloneError] = useState<string | null>(null);
   const [cloneSourceId, setCloneSourceId] = useState<string | null>(null);
   const [cloneTargetPlanId, setCloneTargetPlanId] = useState<string | null>(
-    null
+    null,
   );
   const [cloneTargetDate, setCloneTargetDate] = useState<string | null>(null);
   const [cloneTargetMealKey, setCloneTargetMealKey] = useState<
     Meal["key"] | null
   >(null);
   const [cloneTargetMealName, setCloneTargetMealName] = useState<string | null>(
-    null
+    null,
   );
   const [cloneExpandedId, setCloneExpandedId] = useState<string | null>(null);
   const [cloneShowAllId, setCloneShowAllId] = useState<string | null>(null);
@@ -181,18 +181,25 @@ const PlanDetailPage = () => {
   const [repeatError, setRepeatError] = useState<string | null>(null);
   const [repeatSourceDate, setRepeatSourceDate] = useState<string | null>(null);
   const [repeatSourceMeal, setRepeatSourceMeal] = useState<Meal | null>(null);
-  const [repeatSourceMealCount, setRepeatSourceMealCount] = useState<MealCount | null>(
-    null
-  );
+  const [repeatSourceMealCount, setRepeatSourceMealCount] =
+    useState<MealCount | null>(null);
   const [repeatTargetDates, setRepeatTargetDates] = useState<string[]>([]);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>("replace");
   const [repeatConfigOpen, setRepeatConfigOpen] = useState(false);
   const [repeatConfigSaving, setRepeatConfigSaving] = useState(false);
-  const [repeatConfigError, setRepeatConfigError] = useState<string | null>(null);
-  const [repeatConfigSourceDate, setRepeatConfigSourceDate] = useState<string | null>(null);
-  const [repeatConfigSource, setRepeatConfigSource] = useState<RepeatConfigSource | null>(null);
-  const [repeatConfigTargetDates, setRepeatConfigTargetDates] = useState<string[]>([]);
-  const [repeatConfigMode, setRepeatConfigMode] = useState<RepeatMode>("replace");
+  const [repeatConfigError, setRepeatConfigError] = useState<string | null>(
+    null,
+  );
+  const [repeatConfigSourceDate, setRepeatConfigSourceDate] = useState<
+    string | null
+  >(null);
+  const [repeatConfigSource, setRepeatConfigSource] =
+    useState<RepeatConfigSource | null>(null);
+  const [repeatConfigTargetDates, setRepeatConfigTargetDates] = useState<
+    string[]
+  >([]);
+  const [repeatConfigMode, setRepeatConfigMode] =
+    useState<RepeatMode>("replace");
 
   useEffect(() => {
     if (!planId) return;
@@ -211,12 +218,15 @@ const PlanDetailPage = () => {
             if (ov.meals) mealsMap[ov.date] = ov.meals as Meal[];
           });
           setMealsByDate(mealsMap);
-        }
+        },
       )
       .catch((err) => {
         const message =
           err instanceof Error ? err.message : "No se pudo cargar el plan";
-        if (message.toLowerCase().includes("no encontrado") || message.includes("404")) {
+        if (
+          message.toLowerCase().includes("no encontrado") ||
+          message.includes("404")
+        ) {
           navigate("/plans", { replace: true });
           return;
         }
@@ -246,7 +256,7 @@ const PlanDetailPage = () => {
     if (!plan) return [];
     const start = dayjs(plan.startDate);
     return Array.from({ length: plan.days }, (_, idx) =>
-      start.add(idx, "day").format("YYYY-MM-DD")
+      start.add(idx, "day").format("YYYY-MM-DD"),
     );
   }, [plan]);
 
@@ -352,13 +362,13 @@ const PlanDetailPage = () => {
 
   const getMacroOverrideForDate = (
     date: string | null,
-    overrides: PlanMacroOverride[] | undefined
+    overrides: PlanMacroOverride[] | undefined,
   ) => {
     if (!date || !overrides || overrides.length === 0) return null;
     const filtered = overrides.filter((item) => item.effectiveFrom <= date);
     if (filtered.length === 0) return null;
     return filtered.reduce((latest, item) =>
-      item.effectiveFrom > latest.effectiveFrom ? item : latest
+      item.effectiveFrom > latest.effectiveFrom ? item : latest,
     );
   };
 
@@ -368,7 +378,7 @@ const PlanDetailPage = () => {
     dayType: "training" | "rest",
     trainingType: WizardInputs["trainingType"] | null,
     activityDelta = 0,
-    dayOverride?: DayOverride
+    dayOverride?: DayOverride,
   ) => {
     if (!outputs) return outputs;
     const dailyOverride = dayOverride?.overrides?.macroOverride ?? null;
@@ -398,11 +408,14 @@ const PlanDetailPage = () => {
       override?.overrides?.activityLevel !== null
     ) {
       try {
-        const baseOverrides = { ...override.overrides, activityLevel: undefined };
+        const baseOverrides = {
+          ...override.overrides,
+          activityLevel: undefined,
+        };
         const baseOutputs = calculateDayFromBase(baseInputs, baseOverrides);
         const activityOutputs = calculateDayFromBase(
           baseInputs,
-          override.overrides
+          override.overrides,
         );
         activityDelta =
           (activityOutputs.kcalObjectiveDay ?? 0) -
@@ -418,7 +431,7 @@ const PlanDetailPage = () => {
         dayType,
         trainingType,
         activityDelta,
-        override
+        override,
       );
     if (override?.computed)
       return applyMacroOverride(
@@ -427,7 +440,7 @@ const PlanDetailPage = () => {
         dayType,
         trainingType,
         activityDelta,
-        override
+        override,
       );
     if (override) {
       try {
@@ -437,7 +450,7 @@ const PlanDetailPage = () => {
           dayType,
           trainingType,
           activityDelta,
-          override
+          override,
         );
       } catch {
         return applyMacroOverride(
@@ -446,17 +459,17 @@ const PlanDetailPage = () => {
           dayType,
           trainingType,
           0,
-          override
+          override,
         );
-        }
       }
-      return applyMacroOverride(
-        baseOutputs ?? undefined,
-        date,
-        dayType,
-        trainingType
-      );
-    };
+    }
+    return applyMacroOverride(
+      baseOutputs ?? undefined,
+      date,
+      dayType,
+      trainingType,
+    );
+  };
 
   const getTrainingCount = (override?: DayOverride) => {
     const dayType =
@@ -464,7 +477,7 @@ const PlanDetailPage = () => {
     if (dayType !== "training") return 0;
     const sessions =
       override?.overrides.trainings?.filter(
-        (item) => !!item && (item?.type || item?.durationMin)
+        (item) => !!item && (item?.type || item?.durationMin),
       ) ??
       ((override as any)?.overrides?.training
         ? [override?.overrides.training]
@@ -480,7 +493,7 @@ const PlanDetailPage = () => {
   const selectedDayType =
     selectedTrainingCount > 0
       ? "training"
-      : selectedOverride?.overrides.dayType ?? baseInputs?.dayType ?? "rest";
+      : (selectedOverride?.overrides.dayType ?? baseInputs?.dayType ?? "rest");
   const selectedTrainingLabel =
     selectedDayType === "training"
       ? selectedTrainingCount > 1
@@ -512,7 +525,7 @@ const PlanDetailPage = () => {
 
   const mergeMealsWithTemplate = (
     meals: Meal[] | undefined,
-    template: Meal[]
+    template: Meal[],
   ) => {
     const map = new Map((meals ?? []).map((m) => [m.key, m]));
     return template.map((tpl) => {
@@ -530,7 +543,7 @@ const PlanDetailPage = () => {
         fat: acc.fat + meal.totals.fat,
         kcal: acc.kcal + meal.totals.kcal,
       }),
-      { protein: 0, carbs: 0, fat: 0, kcal: 0 }
+      { protein: 0, carbs: 0, fat: 0, kcal: 0 },
     );
 
   const MACRO_GROUP_MAP: Record<NonNullable<MealItem["group"]>, MacroKey> = {
@@ -587,12 +600,13 @@ const PlanDetailPage = () => {
   };
 
   const formatInt = (value: number) => Math.round(value);
-  const formatPortions = (value: number) => (Math.round(value * 10) / 10).toFixed(1);
+  const formatPortions = (value: number) =>
+    (Math.round(value * 10) / 10).toFixed(1);
 
   const buildMealTemplateName = (
     mealName: string,
     dateLabel: string,
-    usedNames: Set<string>
+    usedNames: Set<string>,
   ) => {
     const baseName = `${mealName} - ${dateLabel}`;
     let nextName = baseName;
@@ -615,10 +629,10 @@ const PlanDetailPage = () => {
 
   const getDayStatus = (
     remaining: { protein: number; carbs: number; fat: number },
-    budget: { protein: number; carbs: number; fat: number }
+    budget: { protein: number; carbs: number; fat: number },
   ): DayStatus => {
     const states: DayStatus[] = (["protein", "carbs", "fat"] as const).map(
-      (key) => getMacroState(remaining[key], budget[key], key)
+      (key) => getMacroState(remaining[key], budget[key], key),
     ) as DayStatus[];
     if (states.includes("over")) return "over";
     if (states.every((s) => s === "ok")) return "ok";
@@ -640,24 +654,39 @@ const PlanDetailPage = () => {
     const cfg = override.overrides ?? {};
     const hasTrainings =
       (cfg.trainings ?? []).some(
-        (item) => !!item && (!!item.type || item.durationMin !== undefined || item.met !== undefined)
+        (item) =>
+          !!item &&
+          (!!item.type ||
+            item.durationMin !== undefined ||
+            item.met !== undefined),
       ) ||
       (!!cfg.training &&
         (!!cfg.training.type ||
           cfg.training.durationMin !== undefined ||
           cfg.training.met !== undefined));
-    return cfg.activityLevel !== undefined || cfg.dayType !== undefined || hasTrainings;
+    return (
+      cfg.activityLevel !== undefined ||
+      cfg.dayType !== undefined ||
+      hasTrainings
+    );
   };
 
-  const buildRepeatConfigSource = (sourceDate: string): RepeatConfigSource | null => {
+  const buildRepeatConfigSource = (
+    sourceDate: string,
+  ): RepeatConfigSource | null => {
     if (!baseInputs) return null;
     const sourceOverride = getDayOverride(sourceDate);
-    const dayType = sourceOverride?.overrides?.dayType ?? baseInputs.dayType ?? "rest";
+    const dayType =
+      sourceOverride?.overrides?.dayType ?? baseInputs.dayType ?? "rest";
     const activityLevel =
-      sourceOverride?.overrides?.activityLevel ?? baseInputs.activityLevel ?? undefined;
+      sourceOverride?.overrides?.activityLevel ??
+      baseInputs.activityLevel ??
+      undefined;
     const overrideTrainings =
       sourceOverride?.overrides?.trainings ??
-      (sourceOverride?.overrides?.training ? [sourceOverride?.overrides?.training] : undefined);
+      (sourceOverride?.overrides?.training
+        ? [sourceOverride?.overrides?.training]
+        : undefined);
     const fallbackTraining =
       baseInputs.trainingType && baseInputs.duration
         ? [
@@ -677,7 +706,7 @@ const PlanDetailPage = () => {
                   met: item.met ?? undefined,
                   durationMin: item.durationMin ?? undefined,
                 }
-              : null
+              : null,
           )
         : null;
 
@@ -727,7 +756,7 @@ const PlanDetailPage = () => {
     : { protein: 0, carbs: 0, fat: 0 };
   const mealTargets = distributeMacros(
     dailyMacros,
-    mealCount ? getWeightsByCount(mealCount) : []
+    mealCount ? getWeightsByCount(mealCount) : [],
   );
 
   const cloneSource = mealLibrary.find((item) => item.id === cloneSourceId);
@@ -740,24 +769,25 @@ const PlanDetailPage = () => {
   const cloneMealTypeLabel = cloneMealType ?? cloneTargetMealName ?? "";
   const cloneSortedTemplates = useMemo(() => {
     const filteredByType = mealLibrary.filter((item) =>
-      matchesMealType(item, cloneMealType)
+      matchesMealType(item, cloneMealType),
     );
     const filteredBySearch = cloneSearch.trim()
       ? filteredByType.filter((item) =>
-          matchesTemplateSearch(item, cloneSearch)
+          matchesTemplateSearch(item, cloneSearch),
         )
       : filteredByType;
-    return filteredBySearch
-      .slice()
-      .sort((a, b) => {
-        const dateDiff = dayjs(getTemplateDateKey(b)).diff(
-          dayjs(getTemplateDateKey(a))
-        );
-        if (dateDiff !== 0) return dateDiff;
-        return dayjs(b.createdAt).diff(dayjs(a.createdAt));
-      });
+    return filteredBySearch.slice().sort((a, b) => {
+      const dateDiff = dayjs(getTemplateDateKey(b)).diff(
+        dayjs(getTemplateDateKey(a)),
+      );
+      if (dateDiff !== 0) return dateDiff;
+      return dayjs(b.createdAt).diff(dayjs(a.createdAt));
+    });
   }, [cloneMealType, cloneSearch, mealLibrary]);
-  const cloneVisibleTemplates = cloneSortedTemplates.slice(0, cloneVisibleCount);
+  const cloneVisibleTemplates = cloneSortedTemplates.slice(
+    0,
+    cloneVisibleCount,
+  );
   const cloneHasMore = cloneSortedTemplates.length > cloneVisibleCount;
   const cloneGroupedTemplates = useMemo(() => {
     const groups = new Map<string, MealTemplate[]>();
@@ -773,8 +803,7 @@ const PlanDetailPage = () => {
       items,
     }));
   }, [cloneVisibleTemplates]);
-  const cloneEmpty =
-    !mealLibraryLoading && cloneSortedTemplates.length === 0;
+  const cloneEmpty = !mealLibraryLoading && cloneSortedTemplates.length === 0;
 
   const handleMealsChange = (meals: Meal[]) => {
     if (!selectedDate) return;
@@ -833,9 +862,10 @@ const PlanDetailPage = () => {
     let templates = mealLibrary;
     if (templates.length === 0) {
       try {
-        templates = isAdmin && plan?.userId
-          ? await listAdminUserMealTemplates(plan.userId)
-          : await listMealTemplates();
+        templates =
+          isAdmin && plan?.userId
+            ? await listAdminUserMealTemplates(plan.userId)
+            : await listMealTemplates();
       } catch (err) {
         console.error(err);
         templates = [];
@@ -846,7 +876,7 @@ const PlanDetailPage = () => {
     try {
       const created = await Promise.all(
         candidates.map((meal) =>
-          (isAdmin && plan?.userId
+          isAdmin && plan?.userId
             ? createAdminUserMealTemplate(plan.userId, {
                 name: buildMealTemplateName(meal.name, dateLabel, usedNames),
                 items: meal.items,
@@ -856,8 +886,8 @@ const PlanDetailPage = () => {
                 name: buildMealTemplateName(meal.name, dateLabel, usedNames),
                 items: meal.items,
                 totals: meal.totals,
-              }))
-        )
+              }),
+        ),
       );
       setMealLibrary((prev) => {
         const map = new Map<string, MealTemplate>();
@@ -865,7 +895,7 @@ const PlanDetailPage = () => {
         prev.forEach((item) => map.set(item.id, item));
         created.forEach((item) => map.set(item.id, item));
         return Array.from(map.values()).sort((a, b) =>
-          dayjs(b.createdAt).diff(dayjs(a.createdAt))
+          dayjs(b.createdAt).diff(dayjs(a.createdAt)),
         );
       });
     } catch (err) {
@@ -885,7 +915,7 @@ const PlanDetailPage = () => {
       setMealLibrary(templates);
     } catch (err) {
       setMealLibraryError(
-        err instanceof Error ? err.message : "No se pudo cargar la biblioteca"
+        err instanceof Error ? err.message : "No se pudo cargar la biblioteca",
       );
     } finally {
       setMealLibraryLoading(false);
@@ -945,16 +975,21 @@ const PlanDetailPage = () => {
       dates.filter((date) => {
         const day = dayjs(date).startOf("day");
         return day.isAfter(today, "day") && day.isAfter(sourceDay, "day");
-      })
+      }),
     );
-    const targetDates = repeatTargetDates.filter((date) => validTargetSet.has(date));
+    const targetDates = repeatTargetDates.filter((date) =>
+      validTargetSet.has(date),
+    );
     if (targetDates.length === 0) {
       setRepeatError("Selecciona al menos un dia futuro dentro del plan.");
       return;
     }
-    const fallbackMealCount = repeatSourceMealCount ?? getMealCount(currentMeals);
+    const fallbackMealCount =
+      repeatSourceMealCount ?? getMealCount(currentMeals);
     if (!fallbackMealCount) {
-      setRepeatError("No se pudo determinar el numero de comidas para repetir.");
+      setRepeatError(
+        "No se pudo determinar el numero de comidas para repetir.",
+      );
       return;
     }
 
@@ -963,13 +998,19 @@ const PlanDetailPage = () => {
     try {
       const results = await Promise.allSettled(
         targetDates.map(async (targetDate) => {
-          const targetBaseMeals = targetDate === selectedDate ? currentMeals : getDayMeals(targetDate);
-          const targetMealCount = getMealCount(targetBaseMeals) ?? fallbackMealCount;
+          const targetBaseMeals =
+            targetDate === selectedDate
+              ? currentMeals
+              : getDayMeals(targetDate);
+          const targetMealCount =
+            getMealCount(targetBaseMeals) ?? fallbackMealCount;
           const mergedMeals = mergeMealsWithTemplate(
             targetBaseMeals,
-            getMealsByCount(targetMealCount)
+            getMealsByCount(targetMealCount),
           );
-          const targetMeal = mergedMeals.find((meal) => meal.key === repeatSourceMeal.key);
+          const targetMeal = mergedMeals.find(
+            (meal) => meal.key === repeatSourceMeal.key,
+          );
           if (!targetMeal) {
             return { kind: "skipped" as const, date: targetDate };
           }
@@ -1011,7 +1052,7 @@ const PlanDetailPage = () => {
           });
 
           return { kind: "saved" as const, record };
-        })
+        }),
       );
 
       const savedRecords: DayOverride[] = [];
@@ -1049,12 +1090,13 @@ const PlanDetailPage = () => {
         setRepeatError(
           skippedCount > 0 && failedCount === 0
             ? "No se aplico en ningun dia (ya tenian plato o no eran compatibles)."
-            : "No se pudo aplicar la repeticion."
+            : "No se pudo aplicar la repeticion.",
         );
       }
 
       const summaryParts = [];
-      if (savedRecords.length > 0) summaryParts.push(`Aplicado en ${savedRecords.length} dias`);
+      if (savedRecords.length > 0)
+        summaryParts.push(`Aplicado en ${savedRecords.length} dias`);
       if (skippedCount > 0) summaryParts.push(`${skippedCount} omitidos`);
       if (failedCount > 0) summaryParts.push(`${failedCount} con error`);
       if (summaryParts.length > 0) {
@@ -1107,13 +1149,15 @@ const PlanDetailPage = () => {
       dates.filter((date) => {
         const day = dayjs(date).startOf("day");
         return day.isAfter(today, "day") && day.isAfter(sourceDay, "day");
-      })
+      }),
     );
     const targetDates = repeatConfigTargetDates.filter((date) =>
-      validTargetSet.has(date)
+      validTargetSet.has(date),
     );
     if (targetDates.length === 0) {
-      setRepeatConfigError("Selecciona al menos un dia futuro dentro del plan.");
+      setRepeatConfigError(
+        "Selecciona al menos un dia futuro dentro del plan.",
+      );
       return;
     }
 
@@ -1144,7 +1188,7 @@ const PlanDetailPage = () => {
                           met: item.met ?? undefined,
                           durationMin: item.durationMin ?? undefined,
                         }
-                      : null
+                      : null,
                   )
                 : null,
             // Keep legacy field cleared when applying normalized multi-training config.
@@ -1160,7 +1204,7 @@ const PlanDetailPage = () => {
           });
 
           return { kind: "saved" as const, record };
-        })
+        }),
       );
 
       const savedRecords: DayOverride[] = [];
@@ -1192,12 +1236,13 @@ const PlanDetailPage = () => {
         setRepeatConfigError(
           skippedCount > 0 && failedCount === 0
             ? "No se aplico en ningun dia (ya tenian configuracion)."
-            : "No se pudo aplicar la configuracion."
+            : "No se pudo aplicar la configuracion.",
         );
       }
 
       const summaryParts = [];
-      if (savedRecords.length > 0) summaryParts.push(`Aplicado en ${savedRecords.length} dias`);
+      if (savedRecords.length > 0)
+        summaryParts.push(`Aplicado en ${savedRecords.length} dias`);
       if (skippedCount > 0) summaryParts.push(`${skippedCount} omitidos`);
       if (failedCount > 0) summaryParts.push(`${failedCount} con error`);
       if (summaryParts.length > 0) {
@@ -1270,7 +1315,7 @@ const PlanDetailPage = () => {
     }
     const targetMeals = mergeMealsWithTemplate(
       baseMeals,
-      getMealsByCount(baseMealCount)
+      getMealsByCount(baseMealCount),
     );
     if (!targetMeals.some((meal) => meal.key === cloneTargetMealKey)) {
       setCloneError("Selecciona una comida destino valida.");
@@ -1346,21 +1391,23 @@ const PlanDetailPage = () => {
     };
   };
   const cloneTargetDayData =
-    cloneTargetDate && cloneTargetPlanId === plan?.id ? getDayData(cloneTargetDate) : null;
+    cloneTargetDate && cloneTargetPlanId === plan?.id
+      ? getDayData(cloneTargetDate)
+      : null;
   const cloneTargetBaseMeals =
-    cloneTargetDate && cloneTargetPlanId === plan?.id ? getDayMeals(cloneTargetDate) : [];
+    cloneTargetDate && cloneTargetPlanId === plan?.id
+      ? getDayMeals(cloneTargetDate)
+      : [];
   const cloneTargetMealCount = getMealCount(cloneTargetBaseMeals);
   const cloneTargetMealMacros =
-    cloneTargetMealKey &&
-    cloneTargetDayData?.outputs &&
-    cloneTargetMealCount
+    cloneTargetMealKey && cloneTargetDayData?.outputs && cloneTargetMealCount
       ? distributeMacros(
           {
             protein: cloneTargetDayData.outputs.protein,
             carbs: cloneTargetDayData.outputs.carbsAdjusted,
             fat: cloneTargetDayData.outputs.fatsAdjusted,
           },
-          getWeightsByCount(cloneTargetMealCount)
+          getWeightsByCount(cloneTargetMealCount),
         )[cloneTargetMealKey]
       : null;
   const cloneTargetSummary =
@@ -1375,18 +1422,17 @@ const PlanDetailPage = () => {
           kcal: Math.round(
             cloneTargetMealMacros.protein * 4 +
               cloneTargetMealMacros.carbs * 4 +
-              cloneTargetMealMacros.fat * 9
+              cloneTargetMealMacros.fat * 9,
           ),
         }
       : null;
-  const cloneTargetPortions =
-    cloneTargetSummary
-      ? toMacroPortions({
-          protein: cloneTargetSummary.protein,
-          carbs: cloneTargetSummary.carbs,
-          fat: cloneTargetSummary.fat,
-        })
-      : null;
+  const cloneTargetPortions = cloneTargetSummary
+    ? toMacroPortions({
+        protein: cloneTargetSummary.protein,
+        carbs: cloneTargetSummary.carbs,
+        fat: cloneTargetSummary.fat,
+      })
+    : null;
   const repeatEligibleDates = useMemo(() => {
     if (!repeatSourceDate) return [];
     const today = dayjs().startOf("day");
@@ -1398,19 +1444,18 @@ const PlanDetailPage = () => {
   }, [dates, repeatSourceDate]);
   const repeatEligibleDateSet = useMemo(
     () => new Set(repeatEligibleDates),
-    [repeatEligibleDates]
+    [repeatEligibleDates],
   );
   const repeatSelectedCount = repeatTargetDates.filter((date) =>
-    repeatEligibleDateSet.has(date)
+    repeatEligibleDateSet.has(date),
   ).length;
-  const repeatSourcePortions =
-    repeatSourceMeal
-      ? toMacroPortions({
-          protein: repeatSourceMeal.totals.protein,
-          carbs: repeatSourceMeal.totals.carbs,
-          fat: repeatSourceMeal.totals.fat,
-        })
-      : null;
+  const repeatSourcePortions = repeatSourceMeal
+    ? toMacroPortions({
+        protein: repeatSourceMeal.totals.protein,
+        carbs: repeatSourceMeal.totals.carbs,
+        fat: repeatSourceMeal.totals.fat,
+      })
+    : null;
   const repeatApplyDisabled =
     repeatSaving || !repeatSourceMeal || repeatSelectedCount === 0;
   const repeatConfigEligibleDates = useMemo(() => {
@@ -1424,18 +1469,23 @@ const PlanDetailPage = () => {
   }, [dates, repeatConfigSourceDate]);
   const repeatConfigEligibleDateSet = useMemo(
     () => new Set(repeatConfigEligibleDates),
-    [repeatConfigEligibleDates]
+    [repeatConfigEligibleDates],
   );
   const repeatConfigSelectedCount = repeatConfigTargetDates.filter((date) =>
-    repeatConfigEligibleDateSet.has(date)
+    repeatConfigEligibleDateSet.has(date),
   ).length;
   const repeatConfigApplyDisabled =
-    repeatConfigSaving || !repeatConfigSource || repeatConfigSelectedCount === 0;
+    repeatConfigSaving ||
+    !repeatConfigSource ||
+    repeatConfigSelectedCount === 0;
   const repeatConfigSourceTrainingCount =
     repeatConfigSource?.dayType === "training"
       ? (repeatConfigSource.trainings ?? []).filter(
           (item) =>
-            !!item && (!!item.type || item.durationMin !== undefined || item.met !== undefined)
+            !!item &&
+            (!!item.type ||
+              item.durationMin !== undefined ||
+              item.met !== undefined),
         ).length
       : 0;
   const repeatConfigSourceSummary = repeatConfigSource
@@ -1446,18 +1496,21 @@ const PlanDetailPage = () => {
   const repeatConfigActivityLabel = useMemo(() => {
     if (!repeatConfigSource?.activityLevel) return "Sin cambio";
     const option = activityOptions.find(
-      (item) => item.value === repeatConfigSource.activityLevel
+      (item) => item.value === repeatConfigSource.activityLevel,
     );
     if (!option) return repeatConfigSource.activityLevel;
     return option.label.split(":")[0]?.trim() || option.label;
   }, [repeatConfigSource?.activityLevel]);
   const repeatConfigSourceTrainingDetails = useMemo(() => {
-    if (!repeatConfigSource || repeatConfigSource.dayType !== "training") return [];
+    if (!repeatConfigSource || repeatConfigSource.dayType !== "training")
+      return [];
     return (repeatConfigSource.trainings ?? [])
       .filter(
         (item): item is NonNullable<typeof item> =>
           !!item &&
-          (!!item.type || item.durationMin !== undefined || item.met !== undefined)
+          (!!item.type ||
+            item.durationMin !== undefined ||
+            item.met !== undefined),
       )
       .map((item, idx) => {
         const option = trainingOptions.find((opt) => opt.value === item.type);
@@ -1490,13 +1543,12 @@ const PlanDetailPage = () => {
     const radius = (size - stroke) / 2;
     const circumference = 2 * Math.PI * radius;
 
-    const { proteinKcal, carbsKcal, fatKcal, totalKcal } = getMacroKcalBreakdown(
-      {
+    const { proteinKcal, carbsKcal, fatKcal, totalKcal } =
+      getMacroKcalBreakdown({
         protein,
         carbs,
         fat: fats,
-      }
-    );
+      });
     const total = totalKcal;
 
     const getDash = (val: number) =>
@@ -1604,29 +1656,29 @@ const PlanDetailPage = () => {
     <Container maxWidth="lg" sx={{ py: { xs: 2, md: 5 } }}>
       <Stack spacing={{ xs: 2, md: 3 }}>
         {!isClientMobile && (
-        <Stack
-          direction={{ xs: "column", md: "row" }}
-          justifyContent="space-between"
-          spacing={1}
-          alignItems={{ xs: "flex-start", md: "center" }}
-          sx={{ pt: 1 }}
-        >
-          <Stack spacing={0.5}>
-            <Typography variant="h5" fontWeight={800}>
-              {plan.title ?? `Plan ${plan.days} dias`}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Inicio: {dayjs(plan.startDate).format("DD MMM YYYY")} · Duracion:{" "}
-              {plan.days} dias
-            </Typography>
-            {assessment && assessment.id !== plan.baseAssessmentId && (
-              <Typography variant="caption" color="text.secondary">
-                Este plan se creo con otra evaluacion. Se usa la asociada al
-                plan.
+          <Stack
+            direction={{ xs: "column", md: "row" }}
+            justifyContent="space-between"
+            spacing={1}
+            alignItems={{ xs: "flex-start", md: "center" }}
+            sx={{ pt: 1 }}
+          >
+            <Stack spacing={0.5}>
+              <Typography variant="h5" fontWeight={800}>
+                {plan.title ?? `Plan ${plan.days} dias`}
               </Typography>
-            )}
+              <Typography variant="body2" color="text.secondary">
+                Inicio: {dayjs(plan.startDate).format("DD MMM YYYY")} ·
+                Duracion: {plan.days} dias
+              </Typography>
+              {assessment && assessment.id !== plan.baseAssessmentId && (
+                <Typography variant="caption" color="text.secondary">
+                  Este plan se creo con otra evaluacion. Se usa la asociada al
+                  plan.
+                </Typography>
+              )}
+            </Stack>
           </Stack>
-        </Stack>
         )}
 
         {!baseOutputs && (
@@ -1649,7 +1701,7 @@ const PlanDetailPage = () => {
                   px: 0.5,
                   bgcolor: "background.default",
                   borderBottom: "1px solid",
-                  borderColor: "divider",
+                  borderColor: "divider"
                 }
               : undefined
           }
@@ -1673,7 +1725,9 @@ const PlanDetailPage = () => {
               <Typography
                 variant="subtitle2"
                 fontWeight={700}
-                sx={isClientMobile ? { fontSize: 13, lineHeight: 1.1 } : undefined}
+                sx={
+                  isClientMobile ? { fontSize: 13, lineHeight: 1.1 } : undefined
+                }
               >
                 Semana {weekIndex + 1} de {weeks.length}
               </Typography>
@@ -1691,7 +1745,9 @@ const PlanDetailPage = () => {
               <Typography
                 variant="caption"
                 color="text.secondary"
-                sx={isClientMobile ? { fontSize: 11, opacity: 0.75 } : undefined}
+                sx={
+                  isClientMobile ? { fontSize: 11, opacity: 0.75 } : undefined
+                }
               >
                 {dayjs(visibleDates[0]).format("DD MMM")} -{" "}
                 {dayjs(visibleDates[visibleDates.length - 1]).format("DD MMM")}
@@ -1710,153 +1766,161 @@ const PlanDetailPage = () => {
             }}
           >
             {visibleDates.map((date) => {
-            const day = dayjs(date);
-            const { outputs, dayType, trainingCount } = getDayData(date);
-            const isSelected = selectedDate === date;
-            const isTraining = trainingCount > 0 || dayType === "training";
-            const kcal = outputs?.kcalObjectiveDay;
-            const kcalLabel = kcal !== undefined ? formatInt(kcal) : null;
-            const trainingLabel =
-              trainingCount > 1
-                ? `Entreno ${trainingCount}x`
-                : isTraining
-                ? "Entreno"
-                : "Descanso";
-            const dayMeals = getDayMeals(date);
-            const dayMacroSources = calcMacroSources(dayMeals);
-            const budgetPortions = outputs
-              ? toMacroPortions({
-                  protein: outputs.protein,
-                  carbs: outputs.carbsAdjusted,
-                  fat: outputs.fatsAdjusted,
-                })
-              : { protein: 0, carbs: 0, fat: 0 };
-            const usedPortions = toMacroPortions({
-              protein: dayMacroSources.protein.direct,
-              carbs: dayMacroSources.carbs.total,
-              fat: dayMacroSources.fat.total,
-            });
-            const remainingRawPortions = outputs
-              ? {
-                  protein: budgetPortions.protein - usedPortions.protein,
-                  carbs: budgetPortions.carbs - usedPortions.carbs,
-                  fat: budgetPortions.fat - usedPortions.fat,
-                }
-              : { protein: 0, carbs: 0, fat: 0 };
-            const remainingPortions = outputs
-              ? {
-                  protein:
-                    Math.abs(remainingRawPortions.protein) <=
-                    getTol(budgetPortions.protein, "protein")
-                      ? 0
-                      : remainingRawPortions.protein,
-                  carbs:
-                    Math.abs(remainingRawPortions.carbs) <=
-                    getTol(budgetPortions.carbs, "carbs")
-                      ? 0
-                      : remainingRawPortions.carbs,
-                  fat:
-                    Math.abs(remainingRawPortions.fat) <=
-                    getTol(budgetPortions.fat, "fat")
-                      ? 0
-                      : remainingRawPortions.fat,
-                }
-              : { protein: 0, carbs: 0, fat: 0 };
-            const status = getDayStatus(remainingRawPortions, budgetPortions);
-            const statusColor = statusColorMap[status];
-            const statusLabel =
-              status === "ok"
-                ? "Cumplido"
-                : status === "over"
-                ? "Excedido"
-                : "Pendiente";
-            const circleText =
-              trainingCount > 1 ? `${trainingCount}x` : isTraining ? "✓" : "";
-            return (
-              <ButtonBase
-                key={date}
-                onClick={() => setSelectedDate(date)}
-                sx={{
-                  borderRadius: 3,
-                  px: isClientMobile ? 0.5 : 1,
-                  py: isClientMobile ? 0.25 : 0.5,
-                  scrollSnapAlign: "start",
-                  border: "1px solid",
-                  borderColor: isSelected ? "primary.main" : "transparent",
-                  bgcolor: isSelected ? "primary.main" + "0D" : "transparent",
-                  transition: "all 0.2s ease",
-                  minWidth: isClientMobile ? 56 : 82,
-                  "&:hover": {
-                    borderColor: "primary.light",
-                    bgcolor: "primary.main" + "0A",
-                  },
-                }}
-                aria-label={`Seleccionar ${day.format("dddd")} ${
-                  isTraining ? trainingLabel : "descanso"
-                } ${kcalLabel ?? ""} kcal`}
-              >
-                <Stack spacing={isClientMobile ? 0.25 : 0.5} alignItems="center" width="100%">
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    sx={isClientMobile ? { fontSize: 10.5, lineHeight: 1 } : undefined}
+              const day = dayjs(date);
+              const { outputs, dayType, trainingCount } = getDayData(date);
+              const isSelected = selectedDate === date;
+              const isTraining = trainingCount > 0 || dayType === "training";
+              const kcal = outputs?.kcalObjectiveDay;
+              const kcalLabel = kcal !== undefined ? formatInt(kcal) : null;
+              const trainingLabel =
+                trainingCount > 1
+                  ? `Entreno ${trainingCount}x`
+                  : isTraining
+                    ? "Entreno"
+                    : "Descanso";
+              const dayMeals = getDayMeals(date);
+              const dayMacroSources = calcMacroSources(dayMeals);
+              const budgetPortions = outputs
+                ? toMacroPortions({
+                    protein: outputs.protein,
+                    carbs: outputs.carbsAdjusted,
+                    fat: outputs.fatsAdjusted,
+                  })
+                : { protein: 0, carbs: 0, fat: 0 };
+              const usedPortions = toMacroPortions({
+                protein: dayMacroSources.protein.direct,
+                carbs: dayMacroSources.carbs.total,
+                fat: dayMacroSources.fat.total,
+              });
+              const remainingRawPortions = outputs
+                ? {
+                    protein: budgetPortions.protein - usedPortions.protein,
+                    carbs: budgetPortions.carbs - usedPortions.carbs,
+                    fat: budgetPortions.fat - usedPortions.fat,
+                  }
+                : { protein: 0, carbs: 0, fat: 0 };
+              const remainingPortions = outputs
+                ? {
+                    protein:
+                      Math.abs(remainingRawPortions.protein) <=
+                      getTol(budgetPortions.protein, "protein")
+                        ? 0
+                        : remainingRawPortions.protein,
+                    carbs:
+                      Math.abs(remainingRawPortions.carbs) <=
+                      getTol(budgetPortions.carbs, "carbs")
+                        ? 0
+                        : remainingRawPortions.carbs,
+                    fat:
+                      Math.abs(remainingRawPortions.fat) <=
+                      getTol(budgetPortions.fat, "fat")
+                        ? 0
+                        : remainingRawPortions.fat,
+                  }
+                : { protein: 0, carbs: 0, fat: 0 };
+              const status = getDayStatus(remainingRawPortions, budgetPortions);
+              const statusColor = statusColorMap[status];
+              const statusLabel =
+                status === "ok"
+                  ? "Cumplido"
+                  : status === "over"
+                    ? "Excedido"
+                    : "Pendiente";
+              const circleText =
+                trainingCount > 1 ? `${trainingCount}x` : isTraining ? "✓" : "";
+              return (
+                <ButtonBase
+                  key={date}
+                  onClick={() => setSelectedDate(date)}
+                  sx={{
+                    borderRadius: 3,
+                    px: isClientMobile ? 0.5 : 1,
+                    py: isClientMobile ? 0.25 : 0.5,
+                    scrollSnapAlign: "start",
+                    border: "1px solid",
+                    borderColor: isSelected ? "primary.main" : "transparent",
+                    bgcolor: isSelected ? "primary.main" + "0D" : "transparent",
+                    transition: "all 0.2s ease",
+                    minWidth: isClientMobile ? 56 : 82,
+                    "&:hover": {
+                      borderColor: "primary.light",
+                      bgcolor: "primary.main" + "0A",
+                    },
+                  }}
+                  aria-label={`Seleccionar ${day.format("dddd")} ${
+                    isTraining ? trainingLabel : "descanso"
+                  } ${kcalLabel ?? ""} kcal`}
+                >
+                  <Stack
+                    spacing={isClientMobile ? 0.25 : 0.5}
+                    alignItems="center"
+                    width="100%"
                   >
-                    {day.format("ddd").toUpperCase()}
-                  </Typography>
-                  <Box
-                    sx={{
-                      width: isClientMobile ? 32 : 48,
-                      height: isClientMobile ? 32 : 48,
-                      borderRadius: "50%",
-                      display: "grid",
-                      placeItems: "center",
-                      bgcolor: isTraining ? "transparent" : "grey.300",
-                      color: isTraining ? "primary.main" : "grey.50",
-                      border: `2px solid ${statusColor}`,
-                      fontWeight: 700,
-                      fontSize: isClientMobile ? 11 : 14,
-                      boxShadow: isSelected
-                        ? `0 0 0 3px ${statusColor}33`
-                        : "0 0 0 1px transparent",
-                      transition: "all 0.2s ease",
-                      position: "relative",
-                    }}
-                    title={`${statusLabel}. P ${remainingPortions.protein.toFixed(
-                      0
-                    )}, C ${remainingPortions.carbs.toFixed(
-                      0
-                    )}, G ${remainingPortions.fat.toFixed(0)}`}
-                  >
-                    {circleText}
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={
+                        isClientMobile
+                          ? { fontSize: 10.5, lineHeight: 1 }
+                          : undefined
+                      }
+                    >
+                      {day.format("ddd").toUpperCase()}
+                    </Typography>
                     <Box
                       sx={{
-                        position: "absolute",
-                        top: isClientMobile ? 3 : 4,
-                        right: isClientMobile ? 3 : 4,
-                        width: isClientMobile ? 6 : 8,
-                        height: isClientMobile ? 6 : 8,
+                        width: isClientMobile ? 32 : 48,
+                        height: isClientMobile ? 32 : 48,
                         borderRadius: "50%",
-                        bgcolor: statusColor,
+                        display: "grid",
+                        placeItems: "center",
+                        bgcolor: isTraining ? "transparent" : "grey.300",
+                        color: isTraining ? "primary.main" : "grey.50",
+                        border: `2px solid ${statusColor}`,
+                        fontWeight: 700,
+                        fontSize: isClientMobile ? 11 : 14,
+                        boxShadow: isSelected
+                          ? `0 0 0 3px ${statusColor}33`
+                          : "0 0 0 1px transparent",
+                        transition: "all 0.2s ease",
+                        position: "relative",
                       }}
-                    />
-                  </Box>
-                  {!isClientMobile && (
-                    <Chip
-                      size="small"
-                      label={isTraining ? trainingLabel : "Descanso"}
-                      color={isTraining ? "primary" : "default"}
-                      variant={isTraining ? "outlined" : "filled"}
-                    />
-                  )}
-                  {!isClientMobile && kcalLabel !== null && (
-                    <Typography variant="caption" color="text.secondary">
-                      {kcalLabel} kcal
-                    </Typography>
-                  )}
-                </Stack>
-              </ButtonBase>
-            );
-          })}
+                      title={`${statusLabel}. P ${remainingPortions.protein.toFixed(
+                        0,
+                      )}, C ${remainingPortions.carbs.toFixed(
+                        0,
+                      )}, G ${remainingPortions.fat.toFixed(0)}`}
+                    >
+                      {circleText}
+                      <Box
+                        sx={{
+                          position: "absolute",
+                          top: isClientMobile ? 3 : 4,
+                          right: isClientMobile ? 3 : 4,
+                          width: isClientMobile ? 6 : 8,
+                          height: isClientMobile ? 6 : 8,
+                          borderRadius: "50%",
+                          bgcolor: statusColor,
+                        }}
+                      />
+                    </Box>
+                    {!isClientMobile && (
+                      <Chip
+                        size="small"
+                        label={isTraining ? trainingLabel : "Descanso"}
+                        color={isTraining ? "primary" : "default"}
+                        variant={isTraining ? "outlined" : "filled"}
+                      />
+                    )}
+                    {!isClientMobile && kcalLabel !== null && (
+                      <Typography variant="caption" color="text.secondary">
+                        {kcalLabel} kcal
+                      </Typography>
+                    )}
+                  </Stack>
+                </ButtonBase>
+              );
+            })}
           </Stack>
         </Stack>
 
@@ -1892,12 +1956,17 @@ const PlanDetailPage = () => {
               <Stack
                 direction={{ xs: "column", sm: "row" }}
                 spacing={1}
-                sx={{ alignSelf: { xs: "stretch", sm: "center" }, width: { xs: "100%", sm: "auto" } }}
+                sx={{
+                  alignSelf: { xs: "stretch", sm: "center" },
+                  width: { xs: "100%", sm: "auto" },
+                }}
               >
                 <Chip
                   label={selectedTrainingLabel}
                   color={selectedDayType === "training" ? "primary" : "default"}
-                  variant={selectedDayType === "training" ? "outlined" : "filled"}
+                  variant={
+                    selectedDayType === "training" ? "outlined" : "filled"
+                  }
                   onClick={handleEditSelectedDay}
                   clickable
                   aria-label="Editar dia"
@@ -1971,9 +2040,9 @@ const PlanDetailPage = () => {
                     <Stack spacing={1} width="100%">
                       <Typography variant="body2" color="text.secondary">
                         {`Consumidas: ${currentTotals.kcal.toFixed(
-                          0
+                          0,
                         )} / ${formatInt(
-                          selectedOutputs.kcalObjectiveDay
+                          selectedOutputs.kcalObjectiveDay,
                         )} kcal`}
                       </Typography>
                       <Box
@@ -1997,23 +2066,23 @@ const PlanDetailPage = () => {
                             key === "protein"
                               ? toMacroPortionValue(
                                   selectedOutputs.protein,
-                                  "protein"
+                                  "protein",
                                 )
                               : key === "carbs"
-                              ? toMacroPortionValue(
-                                  selectedOutputs.carbsAdjusted,
-                                  "carbs"
-                                )
-                              : toMacroPortionValue(
-                                  selectedOutputs.fatsAdjusted,
-                                  "fat"
-                                );
+                                ? toMacroPortionValue(
+                                    selectedOutputs.carbsAdjusted,
+                                    "carbs",
+                                  )
+                                : toMacroPortionValue(
+                                    selectedOutputs.fatsAdjusted,
+                                    "fat",
+                                  );
                           const usedPortions =
                             key === "protein"
                               ? toMacroPortionValue(usedGrams, "protein")
                               : key === "carbs"
-                              ? toMacroPortionValue(usedGrams, "carbs")
-                              : toMacroPortionValue(usedGrams, "fat");
+                                ? toMacroPortionValue(usedGrams, "carbs")
+                                : toMacroPortionValue(usedGrams, "fat");
                           const remainingRaw = budget - usedPortions;
                           const tol = getTol(budget, key);
                           const remaining =
@@ -2025,23 +2094,23 @@ const PlanDetailPage = () => {
                           const state = getMacroState(
                             remainingRaw,
                             budget,
-                            key
+                            key,
                           );
                           const label = macroLabels[key];
                           const objective =
                             key === "protein"
                               ? selectedOutputs.protein
                               : key === "carbs"
-                              ? selectedOutputs.carbsAdjusted
-                              : selectedOutputs.fatsAdjusted;
+                                ? selectedOutputs.carbsAdjusted
+                                : selectedOutputs.fatsAdjusted;
                           const isExcess = state === "over";
                           const isPending = state === "pending";
                           const isCompleted = state === "ok";
                           const statusText = isExcess
                             ? `Exceso ${formatInt(Math.abs(remaining))}`
                             : isPending
-                            ? `Restan ${formatInt(remaining)}`
-                            : "Completado";
+                              ? `Restan ${formatInt(remaining)}`
+                              : "Completado";
                           const indirectLimit =
                             key === "protein" ? objective * 0.15 : objective;
                           const indirectRatio =
@@ -2060,17 +2129,17 @@ const PlanDetailPage = () => {
                                 borderColor: isExcess
                                   ? "error.main"
                                   : isCompleted
-                                  ? "#A5D6A7" // light green border when completed
-                                  : isPending
-                                  ? "#FFF59D" // soft yellow border when pending
-                                  : "divider",
+                                    ? "#A5D6A7" // light green border when completed
+                                    : isPending
+                                      ? "#FFF59D" // soft yellow border when pending
+                                      : "divider",
                                 bgcolor: isExcess
                                   ? "error.light"
                                   : isCompleted
-                                  ? "#E8F5E9" // very light green background when completed
-                                  : isPending
-                                  ? "#FFFDE7" // very light yellow background when pending
-                                  : "grey.50",
+                                    ? "#E8F5E9" // very light green background when completed
+                                    : isPending
+                                      ? "#FFFDE7" // very light yellow background when pending
+                                      : "grey.50",
                               }}
                             >
                               <Typography
@@ -2080,9 +2149,9 @@ const PlanDetailPage = () => {
                                 fontSize={13}
                               >
                                 {`${label}: ${formatInt(
-                                  totalGrams
+                                  totalGrams,
                                 )} / ${objective.toFixed(0)} g | ${formatInt(
-                                  budget
+                                  budget,
                                 )} porciones`}
                               </Typography>
                               <Stack
@@ -2120,18 +2189,18 @@ const PlanDetailPage = () => {
                                   bgcolor: isExcess
                                     ? "error.light"
                                     : isCompleted
-                                    ? "#E8F5E9"
-                                    : isPending
-                                    ? "#FFFDE7"
-                                    : undefined,
+                                      ? "#E8F5E9"
+                                      : isPending
+                                        ? "#FFFDE7"
+                                        : undefined,
                                   "& .MuiLinearProgress-bar": {
                                     bgcolor: isExcess
                                       ? "error.main"
                                       : isCompleted
-                                      ? "#66BB6A"
-                                      : isPending
-                                      ? "#FBC02D"
-                                      : undefined,
+                                        ? "#66BB6A"
+                                        : isPending
+                                          ? "#FBC02D"
+                                          : undefined,
                                   },
                                 }}
                               />
@@ -2144,7 +2213,11 @@ const PlanDetailPage = () => {
                                   porciones
                                 </Typography>
                               )}
-                              <Stack spacing={0.5} sx={{ mt: 1 }} display="none">
+                              <Stack
+                                spacing={0.5}
+                                sx={{ mt: 1 }}
+                                display="none"
+                              >
                                 <Stack
                                   direction="row"
                                   alignItems="center"
@@ -2178,8 +2251,8 @@ const PlanDetailPage = () => {
                                     variant="caption"
                                     color="text.secondary"
                                   >
-                                    Directo {formatInt(directGrams)} g | Indirecto{" "}
-                                    {formatInt(indirectGrams)} g
+                                    Directo {formatInt(directGrams)} g |
+                                    Indirecto {formatInt(indirectGrams)} g
                                   </Typography>
                                 </Stack>
                                 <Box
@@ -2195,7 +2268,7 @@ const PlanDetailPage = () => {
                                     sx={{
                                       width: `${indirectRatio * 100}%`,
                                       bgcolor: macroColor,
-                                      opacity: 0.50,
+                                      opacity: 0.5,
                                     }}
                                   />
                                 </Box>
@@ -2204,8 +2277,8 @@ const PlanDetailPage = () => {
                                   color="text.secondary"
                                 >
                                   Incluye {formatInt(indirectGrams)} g de{" "}
-                                  {macroPlural[key]} {macroIndirect[key]} provenientes
-                                  de otros alimentos.
+                                  {macroPlural[key]} {macroIndirect[key]}{" "}
+                                  provenientes de otros alimentos.
                                 </Typography>
                               </Stack>
                             </Box>
@@ -2464,13 +2537,18 @@ const PlanDetailPage = () => {
                     lineHeight: 1.4,
                   }}
                 >
-                  Objetivo: {cloneTargetSummary.kcal} kcal · P{cloneTargetSummary.protein} · C
-                  {cloneTargetSummary.carbs} · G{cloneTargetSummary.fat}
+                  Objetivo: {cloneTargetSummary.kcal} kcal · P
+                  {cloneTargetSummary.protein} · C{cloneTargetSummary.carbs} · G
+                  {cloneTargetSummary.fat}
                 </Typography>
                 {cloneTargetPortions && (
-                  <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.35 }}>
-                    Porciones: P {formatPortions(cloneTargetPortions.protein)} · C{" "}
-                    {formatPortions(cloneTargetPortions.carbs)} · G{" "}
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ lineHeight: 1.35 }}
+                  >
+                    Porciones: P {formatPortions(cloneTargetPortions.protein)} ·
+                    C {formatPortions(cloneTargetPortions.carbs)} · G{" "}
                     {formatPortions(cloneTargetPortions.fat)}
                   </Typography>
                 )}
@@ -2482,18 +2560,35 @@ const PlanDetailPage = () => {
                 Cargando biblioteca...
               </Typography>
             ) : cloneEmpty ? (
-              <Stack spacing={1} sx={{ p: 1.5, borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+              <Stack
+                spacing={1}
+                sx={{
+                  p: 1.5,
+                  borderRadius: 2,
+                  border: "1px solid",
+                  borderColor: "divider",
+                }}
+              >
                 <Typography variant="subtitle2" fontWeight={700}>
-                  Aun no tienes platos guardados para {cloneMealTypeLabel || "este tipo"}
+                  Aun no tienes platos guardados para{" "}
+                  {cloneMealTypeLabel || "este tipo"}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
                   Guarda un plato para reutilizarlo rapidamente.
                 </Typography>
                 <Stack direction="row" spacing={1}>
-                  <Button size="small" variant="outlined" onClick={handleCloseClone}>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={handleCloseClone}
+                  >
                     Volver
                   </Button>
-                  <Button size="small" variant="contained" onClick={handleCloseClone}>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    onClick={handleCloseClone}
+                  >
                     Crear un plato
                   </Button>
                 </Stack>
@@ -2502,7 +2597,11 @@ const PlanDetailPage = () => {
               <Stack spacing={2}>
                 {cloneGroupedTemplates.map((group) => (
                   <Stack key={group.dateKey} spacing={1}>
-                    <Typography variant="caption" color="text.secondary" fontWeight={700}>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      fontWeight={700}
+                    >
                       {dayjs(group.dateKey).format("ddd, DD MMM YYYY")}
                     </Typography>
                     <Stack spacing={1}>
@@ -2510,36 +2609,45 @@ const PlanDetailPage = () => {
                         const isSelected = cloneSourceId === item.id;
                         const isExpanded = cloneExpandedId === item.id;
                         const showAll = cloneShowAllId === item.id;
-                        const visibleItems = showAll ? item.items : item.items.slice(0, 4);
+                        const visibleItems = showAll
+                          ? item.items
+                          : item.items.slice(0, 4);
                         const hasMoreItems = item.items.length > 4;
                         const displayName = getTemplateDisplayName(item);
-                        const mealNameLabel = getTemplateMealName(item.name) || displayName;
+                        const mealNameLabel =
+                          getTemplateMealName(item.name) || displayName;
                         const ingredientNames = item.items
-                          .map((mealItem) => mealItem.nameSnapshot?.trim() ?? "")
+                          .map(
+                            (mealItem) => mealItem.nameSnapshot?.trim() ?? "",
+                          )
                           .filter((name) => name.length > 0);
                         const previewIngredients = ingredientNames.slice(0, 4);
                         const hiddenIngredientsCount = Math.max(
                           ingredientNames.length - previewIngredients.length,
-                          0
+                          0,
                         );
                         const ingredientPreviewLabel = previewIngredients.length
                           ? `${previewIngredients.join(" · ")}${
-                              hiddenIngredientsCount ? ` · +${hiddenIngredientsCount}` : ""
+                              hiddenIngredientsCount
+                                ? ` · +${hiddenIngredientsCount}`
+                                : ""
                             }`
                           : "Sin ingredientes";
                         // Prefer persisted template totals. If a legacy template misses totals,
                         // sum ingredient macros inline to avoid changing models or API payloads.
                         const fallbackTotals = item.items.reduce(
                           (acc, mealItem) => ({
-                            protein: acc.protein + (mealItem.macros?.protein ?? 0),
+                            protein:
+                              acc.protein + (mealItem.macros?.protein ?? 0),
                             carbs: acc.carbs + (mealItem.macros?.carbs ?? 0),
                             fat: acc.fat + (mealItem.macros?.fat ?? 0),
                             kcal: acc.kcal + (mealItem.kcal ?? 0),
                           }),
-                          { protein: 0, carbs: 0, fat: 0, kcal: 0 }
+                          { protein: 0, carbs: 0, fat: 0, kcal: 0 },
                         );
                         const templateTotals = {
-                          protein: item.totals?.protein ?? fallbackTotals.protein,
+                          protein:
+                            item.totals?.protein ?? fallbackTotals.protein,
                           carbs: item.totals?.carbs ?? fallbackTotals.carbs,
                           fat: item.totals?.fat ?? fallbackTotals.fat,
                           kcal: item.totals?.kcal ?? fallbackTotals.kcal,
@@ -2557,22 +2665,32 @@ const PlanDetailPage = () => {
                               p: 1.5,
                               borderRadius: 2,
                               border: "1px solid",
-                              borderColor: isSelected ? "primary.main" : "divider",
-                              bgcolor: isSelected ? "primary.main" + "0D" : "transparent",
+                              borderColor: isSelected
+                                ? "primary.main"
+                                : "divider",
+                              bgcolor: isSelected
+                                ? "primary.main" + "0D"
+                                : "transparent",
                             }}
                           >
                             <Stack spacing={1.25}>
                               <Stack
                                 direction={{ xs: "column", sm: "row" }}
                                 spacing={1}
-                                alignItems={{ xs: "flex-start", sm: "flex-start" }}
+                                alignItems={{
+                                  xs: "flex-start",
+                                  sm: "flex-start",
+                                }}
                                 justifyContent="space-between"
                               >
                                 <Box sx={{ minWidth: 0, flex: 1 }}>
                                   <Typography
                                     variant="body2"
                                     fontWeight={700}
-                                    sx={{ lineHeight: 1.35, wordBreak: "break-word" }}
+                                    sx={{
+                                      lineHeight: 1.35,
+                                      wordBreak: "break-word",
+                                    }}
                                   >
                                     {templateLabel}
                                   </Typography>
@@ -2592,7 +2710,10 @@ const PlanDetailPage = () => {
                                 alignItems={{ xs: "stretch", sm: "center" }}
                                 justifyContent="space-between"
                               >
-                                <Stack spacing={0.5} sx={{ minWidth: 0, flex: 1 }}>
+                                <Stack
+                                  spacing={0.5}
+                                  sx={{ minWidth: 0, flex: 1 }}
+                                >
                                   <Stack
                                     direction="row"
                                     spacing={0.75}
@@ -2626,16 +2747,23 @@ const PlanDetailPage = () => {
                                   <Typography
                                     variant="caption"
                                     color="text.secondary"
-                                    sx={{ lineHeight: 1.35, wordBreak: "break-word" }}
+                                    sx={{
+                                      lineHeight: 1.35,
+                                      wordBreak: "break-word",
+                                    }}
                                   >
-                                    Porciones: P {formatPortions(templatePortions.protein)} · C{" "}
-                                    {formatPortions(templatePortions.carbs)} · G{" "}
-                                    {formatPortions(templatePortions.fat)}
+                                    Porciones: P{" "}
+                                    {formatPortions(templatePortions.protein)} ·
+                                    C {formatPortions(templatePortions.carbs)} ·
+                                    G {formatPortions(templatePortions.fat)}
                                   </Typography>
                                   <Typography
                                     variant="caption"
                                     color="text.secondary"
-                                    sx={{ lineHeight: 1.35, wordBreak: "break-word" }}
+                                    sx={{
+                                      lineHeight: 1.35,
+                                      wordBreak: "break-word",
+                                    }}
                                   >
                                     Ingredientes: {ingredientPreviewLabel}
                                   </Typography>
@@ -2644,29 +2772,40 @@ const PlanDetailPage = () => {
                                   direction="row"
                                   spacing={1}
                                   alignItems="center"
-                                  justifyContent={{ xs: "space-between", sm: "flex-end" }}
+                                  justifyContent={{
+                                    xs: "space-between",
+                                    sm: "flex-end",
+                                  }}
                                   sx={{ width: { xs: "100%", sm: "auto" } }}
                                 >
                                   <Button
                                     size="small"
                                     variant="text"
                                     onClick={() => {
-                                      setCloneExpandedId(isExpanded ? null : item.id);
+                                      setCloneExpandedId(
+                                        isExpanded ? null : item.id,
+                                      );
                                       if (isExpanded) {
                                         setCloneShowAllId(null);
                                       }
                                     }}
                                     sx={{ minHeight: 44, px: 1 }}
                                   >
-                                    {isExpanded ? "Ocultar ingredientes" : "Ver ingredientes"}
+                                    {isExpanded
+                                      ? "Ocultar ingredientes"
+                                      : "Ver ingredientes"}
                                   </Button>
                                   <Button
                                     size="small"
-                                    variant={isSelected ? "contained" : "outlined"}
+                                    variant={
+                                      isSelected ? "contained" : "outlined"
+                                    }
                                     onClick={() => setCloneSourceId(item.id)}
                                     sx={{ minHeight: 44, minWidth: 108 }}
                                   >
-                                    {isSelected ? "Seleccionado" : "Seleccionar"}
+                                    {isSelected
+                                      ? "Seleccionado"
+                                      : "Seleccionar"}
                                   </Button>
                                 </Stack>
                               </Stack>
@@ -2730,7 +2869,10 @@ const PlanDetailPage = () => {
                                       ))}
                                     </Box>
                                   ) : (
-                                    <Typography variant="caption" color="text.secondary">
+                                    <Typography
+                                      variant="caption"
+                                      color="text.secondary"
+                                    >
                                       Sin alimentos.
                                     </Typography>
                                   )}
@@ -2739,9 +2881,14 @@ const PlanDetailPage = () => {
                                       size="small"
                                       variant="text"
                                       onClick={() =>
-                                        setCloneShowAllId(showAll ? null : item.id)
+                                        setCloneShowAllId(
+                                          showAll ? null : item.id,
+                                        )
                                       }
-                                      sx={{ alignSelf: "flex-start", minHeight: 40 }}
+                                      sx={{
+                                        alignSelf: "flex-start",
+                                        minHeight: 40,
+                                      }}
                                     >
                                       {showAll ? "Ver menos" : "Ver todos"}
                                     </Button>
@@ -2823,7 +2970,8 @@ const PlanDetailPage = () => {
               >
                 <Stack spacing={0.5}>
                   <Typography variant="subtitle2" fontWeight={700}>
-                    {repeatSourceMeal.name} · {repeatSourceMeal.items.length} insumos
+                    {repeatSourceMeal.name} · {repeatSourceMeal.items.length}{" "}
+                    insumos
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
                     {Math.round(repeatSourceMeal.totals.kcal)} kcal · P{" "}
@@ -2833,7 +2981,8 @@ const PlanDetailPage = () => {
                   </Typography>
                   {repeatSourcePortions && (
                     <Typography variant="caption" color="text.secondary">
-                      Porciones: P {formatPortions(repeatSourcePortions.protein)} · C{" "}
+                      Porciones: P{" "}
+                      {formatPortions(repeatSourcePortions.protein)} · C{" "}
                       {formatPortions(repeatSourcePortions.carbs)} · G{" "}
                       {formatPortions(repeatSourcePortions.fat)}
                     </Typography>
@@ -2858,8 +3007,12 @@ const PlanDetailPage = () => {
               }
               disabled={repeatSaving}
             >
-              <MenuItem value="replace">Reemplazar la comida en los dias seleccionados</MenuItem>
-              <MenuItem value="only_if_empty">Solo aplicar si esa comida esta vacia</MenuItem>
+              <MenuItem value="replace">
+                Reemplazar la comida en los dias seleccionados
+              </MenuItem>
+              <MenuItem value="only_if_empty">
+                Solo aplicar si esa comida esta vacia
+              </MenuItem>
             </TextField>
 
             <Stack
@@ -2919,7 +3072,7 @@ const PlanDetailPage = () => {
                           setRepeatTargetDates((prev) =>
                             prev.includes(date)
                               ? prev.filter((item) => item !== date)
-                              : [...prev, date]
+                              : [...prev, date],
                           );
                         }}
                         sx={{
@@ -2929,7 +3082,10 @@ const PlanDetailPage = () => {
                           px: 1,
                           py: 0.5,
                           minHeight: 48,
-                          borderBottom: idx < repeatEligibleDates.length - 1 ? "1px solid" : "none",
+                          borderBottom:
+                            idx < repeatEligibleDates.length - 1
+                              ? "1px solid"
+                              : "none",
                           borderColor: "divider",
                         }}
                       >
@@ -2975,7 +3131,9 @@ const PlanDetailPage = () => {
             onClick={handleConfirmRepeatMeal}
             disabled={repeatApplyDisabled}
           >
-            {repeatSaving ? "Aplicando..." : `Aplicar a ${repeatSelectedCount} dias`}
+            {repeatSaving
+              ? "Aplicando..."
+              : `Aplicar a ${repeatSelectedCount} dias`}
           </Button>
         </DialogActions>
       </Dialog>
@@ -2986,7 +3144,9 @@ const PlanDetailPage = () => {
         fullWidth
         maxWidth="sm"
       >
-        <DialogTitle sx={{ pb: 1 }}>Repetir configuracion en otros dias</DialogTitle>
+        <DialogTitle sx={{ pb: 1 }}>
+          Repetir configuracion en otros dias
+        </DialogTitle>
         <DialogContent>
           <Stack spacing={1.5} sx={{ pt: 0.5 }}>
             {repeatConfigSource && (
@@ -3006,7 +3166,10 @@ const PlanDetailPage = () => {
                     Actividad: {repeatConfigActivityLabel}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    Tipo de dia: {repeatConfigSource.dayType === "training" ? "Entreno" : "Descanso"}
+                    Tipo de dia:{" "}
+                    {repeatConfigSource.dayType === "training"
+                      ? "Entreno"
+                      : "Descanso"}
                   </Typography>
                   {repeatConfigSource.dayType === "training" && (
                     <Stack spacing={0.25}>
@@ -3046,14 +3209,18 @@ const PlanDetailPage = () => {
               size="small"
               label="Modo de aplicacion"
               value={repeatConfigMode}
-              onChange={(e) => setRepeatConfigMode(e.target.value as RepeatMode)}
+              onChange={(e) =>
+                setRepeatConfigMode(e.target.value as RepeatMode)
+              }
               disabled={repeatConfigSaving}
             >
               <MenuItem value="replace">
-                Reemplazar la configuracion de actividad y entreno en los dias seleccionados
+                Reemplazar la configuracion de actividad y entreno en los dias
+                seleccionados
               </MenuItem>
               <MenuItem value="only_if_empty">
-                Solo aplicar si ese dia no tiene configuracion de actividad/entreno
+                Solo aplicar si ese dia no tiene configuracion de
+                actividad/entreno
               </MenuItem>
             </TextField>
 
@@ -3070,15 +3237,21 @@ const PlanDetailPage = () => {
                 <Button
                   size="small"
                   variant="text"
-                  disabled={repeatConfigSaving || repeatConfigEligibleDates.length === 0}
-                  onClick={() => setRepeatConfigTargetDates(repeatConfigEligibleDates)}
+                  disabled={
+                    repeatConfigSaving || repeatConfigEligibleDates.length === 0
+                  }
+                  onClick={() =>
+                    setRepeatConfigTargetDates(repeatConfigEligibleDates)
+                  }
                 >
                   Seleccionar todos
                 </Button>
                 <Button
                   size="small"
                   variant="text"
-                  disabled={repeatConfigSaving || repeatConfigTargetDates.length === 0}
+                  disabled={
+                    repeatConfigSaving || repeatConfigTargetDates.length === 0
+                  }
                   onClick={() => setRepeatConfigTargetDates([])}
                 >
                   Limpiar
@@ -3114,7 +3287,7 @@ const PlanDetailPage = () => {
                           setRepeatConfigTargetDates((prev) =>
                             prev.includes(date)
                               ? prev.filter((item) => item !== date)
-                              : [...prev, date]
+                              : [...prev, date],
                           );
                         }}
                         sx={{
@@ -3125,7 +3298,9 @@ const PlanDetailPage = () => {
                           py: 0.5,
                           minHeight: 48,
                           borderBottom:
-                            idx < repeatConfigEligibleDates.length - 1 ? "1px solid" : "none",
+                            idx < repeatConfigEligibleDates.length - 1
+                              ? "1px solid"
+                              : "none",
                           borderColor: "divider",
                         }}
                       >
@@ -3163,7 +3338,10 @@ const PlanDetailPage = () => {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseRepeatConfig} disabled={repeatConfigSaving}>
+          <Button
+            onClick={handleCloseRepeatConfig}
+            disabled={repeatConfigSaving}
+          >
             Cancelar
           </Button>
           <Button
@@ -3202,4 +3380,3 @@ const PlanDetailPage = () => {
 };
 
 export default PlanDetailPage;
-

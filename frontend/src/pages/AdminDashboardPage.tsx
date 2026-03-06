@@ -1415,6 +1415,11 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
         setMessageItems((prev) => [...prev, ...result.messages])
       } else {
         setMessageItems(result.messages)
+        if (MESSAGES_ENABLED) {
+          void getAdminUnreadMessageCounts()
+            .then((counts) => setUnreadMessageCounts(counts))
+            .catch(() => undefined)
+        }
       }
       setMessageNextBefore(result.nextBefore ?? null)
     } catch (err) {
@@ -1432,11 +1437,6 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     setMessageItems([])
     setMessageNextBefore(null)
     setMessageError(null)
-    if (MESSAGES_ENABLED) {
-      void getAdminUnreadMessageCounts()
-        .then((counts) => setUnreadMessageCounts(counts))
-        .catch(() => undefined)
-    }
     void loadMessageThread(target.userId)
   }
 
@@ -1462,10 +1462,6 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     try {
       const message = await sendAdminMessage(messageTarget.userId, body)
       setMessageItems((prev) => [message, ...prev])
-      setUnreadMessageCounts((prev) => ({
-        ...prev,
-        [messageTarget.userId]: (prev[messageTarget.userId] ?? 0) + 1,
-      }))
       setMessageText('')
     } catch (err) {
       setMessageError(err instanceof Error ? err.message : 'No se pudo enviar el mensaje')
@@ -2388,26 +2384,37 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
               </Typography>
             ) : (
               <Stack spacing={1} sx={{ maxHeight: 320, overflowY: 'auto', pr: 0.5 }}>
-                {messageItems.map((item) => (
-                  <Paper key={item.id} variant="outlined" sx={{ p: 1.25 }}>
-                    <Stack spacing={0.5}>
-                      <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Typography variant="caption" color="text.secondary">
-                          {dayjs(item.createdAt).format('DD/MM/YYYY HH:mm')}
+                {messageItems.map((item) => {
+                  const isClientMessage = item.senderUserId === messageTarget?.userId
+                  return (
+                    <Paper key={item.id} variant="outlined" sx={{ p: 1.25 }}>
+                      <Stack spacing={0.5}>
+                        <Stack direction="row" justifyContent="space-between" alignItems="center">
+                          <Typography variant="caption" color="text.secondary">
+                            {dayjs(item.createdAt).format('DD/MM/YYYY HH:mm')}
+                          </Typography>
+                          <Stack direction="row" spacing={0.75}>
+                            <Chip
+                              size="small"
+                              label={isClientMessage ? 'Cliente' : 'Admin'}
+                              color={isClientMessage ? 'default' : 'primary'}
+                              variant={isClientMessage ? 'outlined' : 'filled'}
+                            />
+                            <Chip
+                              size="small"
+                              label={item.readAt ? 'Leido' : 'No leido'}
+                              color={item.readAt ? 'default' : 'warning'}
+                              variant={item.readAt ? 'outlined' : 'filled'}
+                            />
+                          </Stack>
+                        </Stack>
+                        <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
+                          {item.body}
                         </Typography>
-                        <Chip
-                          size="small"
-                          label={item.readAt ? 'Leido' : 'No leido'}
-                          color={item.readAt ? 'default' : 'warning'}
-                          variant={item.readAt ? 'outlined' : 'filled'}
-                        />
                       </Stack>
-                      <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
-                        {item.body}
-                      </Typography>
-                    </Stack>
-                  </Paper>
-                ))}
+                    </Paper>
+                  )
+                })}
               </Stack>
             )}
 

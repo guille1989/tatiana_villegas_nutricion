@@ -41,7 +41,7 @@ const PlanPendingPage = ({ onRefresh, loading = false }: PlanPendingPageProps) =
             </Button>
           )}
           <Typography variant="caption" color="text.secondary">
-            Si necesitas ayuda, escribe por WhatsApp desde el boton flotante.
+            Si necesitas ayuda, usa la seccion de Mensajes para escribirle al admin.
           </Typography>
         </Stack>
       </CardContent>
