@@ -2,9 +2,21 @@ import type { metMap } from './calc/metMap'
 
 export type Sex = 'male' | 'female'
 export type Profile = 'general' | 'athlete'
-export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'high'
+export type ActivityLevel =
+  | 'sedentary'
+  | 'light'
+  | 'moderate'
+  | 'high'
+  | 'hyperactive'
+  | 'sedentary_training_3'
+  | 'sedentary_training_4'
+  | 'sedentary_training_5'
+  | 'sedentary_training_6'
+  | 'light_training_3'
+  | 'light_training_4'
+  | 'light_training_5'
 export type Goal = 'fat_loss' | 'muscle_gain' | 'recomp'
-export type DayType = 'training' | 'rest'
+export type DayType = 'rest' | 'training_type_1' | 'training_type_2' | 'training'
 export type TrainingType = keyof typeof metMap
 
 export type TrainingInput = {
@@ -49,6 +61,16 @@ export type DayMealInput = {
   }
 }
 
+export type MealPortionTargetInput = {
+  key: DayMealInput['key']
+  name: string
+  portions: {
+    protein: number
+    carbs: number
+    fat: number
+  }
+}
+
 export type WizardInputs = {
   name: string
   sex: Sex
@@ -73,5 +95,5 @@ export type DayOverrideInputs = {
   trainings?: TrainingOverrideInput[] | null
   training?: TrainingOverrideInput | null
   meals?: DayMealInput[]
+  mealPortionTargets?: MealPortionTargetInput[] | null
 }
-

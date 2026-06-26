@@ -17,15 +17,34 @@ export const activityOptions = [
   { value: 'high', label: '𝐀𝐥𝐭𝐨: Trabajo físico o muy activo' },
 ] as const
 
+export const excelActivityOptions = [
+  { value: 'sedentary_training_3', label: 'Sedentario + 3 dias de entrenamiento (1.30)' },
+  { value: 'sedentary_training_4', label: 'Sedentario + 4 dias de entrenamiento (1.40)' },
+  { value: 'sedentary_training_5', label: 'Sedentario + 5 dias de entrenamiento (1.50)' },
+  { value: 'sedentary_training_6', label: 'Sedentario + 6 dias de entrenamiento (1.60)' },
+  { value: 'light_training_3', label: 'Ligeramente activo + 3 dias de entrenamiento (1.50)' },
+  { value: 'light_training_4', label: 'Ligeramente activo + 4 dias de entrenamiento (1.60)' },
+  { value: 'light_training_5', label: 'Ligeramente activo + 5 dias de entrenamiento (1.70)' },
+  { value: 'sedentary', label: 'Sedentario (1.20)' },
+  { value: 'light', label: 'Ligero (1.38)' },
+  { value: 'moderate', label: 'Moderado (1.55)' },
+  { value: 'high', label: 'Muy activo (1.73)' },
+  { value: 'hyperactive', label: 'Hiperactivo (1.90)' },
+] as const
+
 export const goalOptions = [
   { value: 'fat_loss', label: 'Perdida grasa' },
   { value: 'muscle_gain', label: 'Ganancia muscular' }
 ] as const
 
 export const dayTypeOptions = [
-  { value: 'training', label: 'Entreno' },
   { value: 'rest', label: 'Descanso' },
+  { value: 'training_type_1', label: 'Entreno tipo 1' },
+  { value: 'training_type_2', label: 'Entreno tipo 2' },
+  { value: 'training', label: 'Entreno legacy' },
 ] as const
+
+export const visibleDayTypeOptions = dayTypeOptions.filter((option) => option.value !== 'training')
 
 export const trainingOptions = [
   { value: 'strength_light', label: 'Fuerza ligera', met: 3.5 },
@@ -88,7 +107,7 @@ type OptionValue<T extends ReadonlyArray<{ value: string }>> = T[number]['value'
 
 export type Sex = OptionValue<typeof sexOptions>
 export type Profile = OptionValue<typeof profileOptions>
-export type ActivityLevel = OptionValue<typeof activityOptions>
+export type ActivityLevel = OptionValue<typeof excelActivityOptions>
 export type Goal = OptionValue<typeof goalOptions>
 export type DayType = OptionValue<typeof dayTypeOptions>
 export type TrainingType = OptionValue<typeof trainingOptions>
@@ -117,7 +136,7 @@ export const wizardSchema = z
     bodyFat: optionalNumber('% grasa corporal', 0, 60),
     profile: z.enum(profileOptions.map((p) => p.value) as [Profile, ...Profile[]], 'Selecciona un perfil'),
     activityLevel: z.enum(
-      activityOptions.map((a) => a.value) as [ActivityLevel, ...ActivityLevel[]],
+      excelActivityOptions.map((a) => a.value) as [ActivityLevel, ...ActivityLevel[]],
       'Selecciona el nivel de actividad',
     ),
     goal: z.enum(goalOptions.map((g) => g.value) as [Goal, ...Goal[]], 'Selecciona un objetivo'),
@@ -156,7 +175,7 @@ export const DEFAULT_VALUES: WizardFormData = {
   height: 170,
   bodyFat: undefined,
   profile: 'general',
-  activityLevel: 'moderate',
+  activityLevel: 'sedentary_training_5',
   goal: 'fat_loss',
   dayType: 'rest',
   trainingType: undefined,

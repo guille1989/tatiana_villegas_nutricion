@@ -65,7 +65,7 @@ import {
   getWeightsByCount,
   type MealCount,
 } from "../lib/meals";
-import { activityOptions, trainingOptions } from "../lib/schema";
+import { excelActivityOptions, trainingOptions } from "../lib/schema";
 import type {
   Assessment,
   CalculationOutputs,
@@ -95,7 +95,7 @@ type RepeatMode = "replace" | "only_if_empty";
 
 type RepeatConfigSource = {
   activityLevel: DayOverrideInputs["activityLevel"];
-  dayType: "training" | "rest";
+  dayType: WizardInputs["dayType"];
   trainings: DayOverrideInputs["trainings"];
 };
 
@@ -411,7 +411,7 @@ const PlanDetailPage = () => {
   const applyMacroOverride = (
     outputs: CalculationOutputs | undefined,
     date: string | null,
-    dayType: "training" | "rest",
+    dayType: WizardInputs["dayType"],
     trainingType: WizardInputs["trainingType"] | null,
     activityDelta = 0,
     dayOverride?: DayOverride,
@@ -510,7 +510,9 @@ const PlanDetailPage = () => {
   const getTrainingCount = (override?: DayOverride) => {
     const dayType =
       override?.overrides.dayType ?? baseInputs?.dayType ?? "rest";
-    if (dayType !== "training") return 0;
+    if (dayType === "rest") return 0;
+    if (dayType === "training_type_1") return 1;
+    if (dayType === "training_type_2") return 2;
     const sessions =
       override?.overrides.trainings?.filter(
         (item) => !!item && (item?.type || item?.durationMin),
@@ -528,13 +530,15 @@ const PlanDetailPage = () => {
   const selectedTrainingCount = getTrainingCount(selectedOverride);
   const selectedDayType =
     selectedTrainingCount > 0
-      ? "training"
+      ? selectedTrainingCount > 1
+        ? "training_type_2"
+        : "training_type_1"
       : (selectedOverride?.overrides.dayType ?? baseInputs?.dayType ?? "rest");
   const selectedTrainingLabel =
-    selectedDayType === "training"
+    selectedDayType !== "rest"
       ? selectedTrainingCount > 1
-        ? `Entreno ${selectedTrainingCount}x`
-        : "Entreno"
+        ? "Entreno tipo 2"
+        : "Entreno tipo 1"
       : "Descanso";
 
   const canGoPrevWeek = weekIndex > 0;
@@ -1515,7 +1519,11 @@ const PlanDetailPage = () => {
     !repeatConfigSource ||
     repeatConfigSelectedCount === 0;
   const repeatConfigSourceTrainingCount =
-    repeatConfigSource?.dayType === "training"
+    repeatConfigSource?.dayType === "training_type_1"
+      ? 1
+      : repeatConfigSource?.dayType === "training_type_2"
+        ? 2
+        : repeatConfigSource?.dayType === "training"
       ? (repeatConfigSource.trainings ?? []).filter(
           (item) =>
             !!item &&
@@ -1525,13 +1533,15 @@ const PlanDetailPage = () => {
         ).length
       : 0;
   const repeatConfigSourceSummary = repeatConfigSource
-    ? repeatConfigSource.dayType === "training"
-      ? `Entreno${repeatConfigSourceTrainingCount > 1 ? ` ${repeatConfigSourceTrainingCount}x` : ""}`
+    ? repeatConfigSource.dayType !== "rest"
+      ? repeatConfigSource.dayType === "training_type_2"
+        ? "Entreno tipo 2"
+        : "Entreno tipo 1"
       : "Descanso"
     : null;
   const repeatConfigActivityLabel = useMemo(() => {
     if (!repeatConfigSource?.activityLevel) return "Sin cambio";
-    const option = activityOptions.find(
+    const option = excelActivityOptions.find(
       (item) => item.value === repeatConfigSource.activityLevel,
     );
     if (!option) return repeatConfigSource.activityLevel;
@@ -1874,12 +1884,16 @@ const PlanDetailPage = () => {
               const day = dayjs(date);
               const { outputs, dayType, trainingCount } = getDayData(date);
               const isSelected = selectedDate === date;
-              const isTraining = trainingCount > 0 || dayType === "training";
+              const isTraining = dayType !== "rest";
               const kcal = outputs?.kcalObjectiveDay;
               const kcalLabel = kcal !== undefined ? formatInt(kcal) : null;
               const trainingLabel =
-                trainingCount > 1
-                  ? `Entreno ${trainingCount}x`
+                dayType === "training_type_2"
+                  ? "Tipo 2"
+                  : dayType === "training_type_1"
+                    ? "Tipo 1"
+                    : trainingCount > 1
+                      ? `Entreno ${trainingCount}x`
                   : isTraining
                     ? "Entreno"
                     : "Descanso";
@@ -2133,9 +2147,9 @@ const PlanDetailPage = () => {
               >
                 <Chip
                   label={selectedTrainingLabel}
-                  color={selectedDayType === "training" ? "primary" : "default"}
+                  color={selectedDayType !== "rest" ? "primary" : "default"}
                   variant={
-                    selectedDayType === "training" ? "outlined" : "filled"
+                    selectedDayType !== "rest" ? "outlined" : "filled"
                   }
                   onClick={handleEditSelectedDay}
                   clickable
@@ -3337,9 +3351,11 @@ const PlanDetailPage = () => {
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
                     Tipo de dia:{" "}
-                    {repeatConfigSource.dayType === "training"
-                      ? "Entreno"
-                      : "Descanso"}
+                    {repeatConfigSource.dayType === "training_type_2"
+                      ? "Entreno tipo 2"
+                      : repeatConfigSource.dayType === "training_type_1" || repeatConfigSource.dayType === "training"
+                        ? "Entreno tipo 1"
+                        : "Descanso"}
                   </Typography>
                   {repeatConfigSource.dayType === "training" && (
                     <Stack spacing={0.25}>

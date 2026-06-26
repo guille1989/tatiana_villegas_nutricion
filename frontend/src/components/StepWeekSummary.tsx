@@ -71,9 +71,17 @@ const StepWeekSummary = ({
     [values],
   )
 
-  const result = useMemo(() => calculateInitials(baseInputs), [baseInputs])
   const trainingCount = week.filter((d) => d.status === 'training').length
   const selectedDay = week[selectedIndex]
+  const getDayType = (day: WeekDayState): WizardInputs['dayType'] => {
+    if (day.status === 'rest') return 'rest'
+    return day.sessions === 2 ? 'training_type_2' : 'training_type_1'
+  }
+  const getDayOutputs = (day: WeekDayState) =>
+    calculateInitials({
+      ...baseInputs,
+      dayType: getDayType(day),
+    })
 
   const cycleDay = (index: number) => {
     setSelectedIndex(index)
@@ -187,6 +195,7 @@ const StepWeekSummary = ({
           >
             {week.map((day) => {
               const isTraining = day.status === 'training'
+              const dayOutputs = getDayOutputs(day)
               return (
                 <Card
                   key={day.key}
@@ -211,7 +220,7 @@ const StepWeekSummary = ({
                     </Stack>
                     <Stack direction="row" alignItems="baseline" spacing={0.5} sx={{ mt: 1 }}>
                       <Typography variant="h4" fontWeight={800}>
-                        {formatInt(result.kcalObjectiveDay)}
+                        {formatInt(dayOutputs.kcalObjectiveDay)}
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
                         kcal
@@ -219,9 +228,9 @@ const StepWeekSummary = ({
                     </Stack>
                     <Divider sx={{ my: 1.5 }} />
                     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                      <Chip label={`Proteina ${formatInt(result.protein)} g`} size="small" variant="outlined" />
-                      <Chip label={`Carbs ${formatInt(result.carbsAdjusted)} g`} size="small" variant="outlined" />
-                      <Chip label={`Grasas ${formatInt(result.fatsAdjusted)} g`} size="small" variant="outlined" />
+                      <Chip label={`Proteina ${formatInt(dayOutputs.protein)} g`} size="small" variant="outlined" />
+                      <Chip label={`Carbs ${formatInt(dayOutputs.carbsAdjusted)} g`} size="small" variant="outlined" />
+                      <Chip label={`Grasas ${formatInt(dayOutputs.fatsAdjusted)} g`} size="small" variant="outlined" />
                     </Stack>
                   </CardContent>
                 </Card>
@@ -230,6 +239,9 @@ const StepWeekSummary = ({
           </Box>
         ) : (
           <Stack spacing={2} sx={{ mt: 2 }}>
+            {(() => {
+              const selectedOutputs = getDayOutputs(selectedDay)
+              return (
             <Card
               variant="outlined"
               sx={{
@@ -254,7 +266,7 @@ const StepWeekSummary = ({
                 </Stack>
                 <Stack direction="row" alignItems="baseline" spacing={0.5} sx={{ mt: 1 }}>
                   <Typography variant="h4" fontWeight={800}>
-                    {formatInt(result.kcalObjectiveDay)}
+                    {formatInt(selectedOutputs.kcalObjectiveDay)}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     kcal
@@ -262,12 +274,14 @@ const StepWeekSummary = ({
                 </Stack>
                 <Divider sx={{ my: 1.5 }} />
                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                  <Chip label={`Proteina ${formatInt(result.protein)} g`} size="small" variant="outlined" />
-                  <Chip label={`Carbs ${formatInt(result.carbsAdjusted)} g`} size="small" variant="outlined" />
-                  <Chip label={`Grasas ${formatInt(result.fatsAdjusted)} g`} size="small" variant="outlined" />
+                  <Chip label={`Proteina ${formatInt(selectedOutputs.protein)} g`} size="small" variant="outlined" />
+                  <Chip label={`Carbs ${formatInt(selectedOutputs.carbsAdjusted)} g`} size="small" variant="outlined" />
+                  <Chip label={`Grasas ${formatInt(selectedOutputs.fatsAdjusted)} g`} size="small" variant="outlined" />
                 </Stack>
               </CardContent>
             </Card>
+              )
+            })()}
           </Stack>
         )}
 

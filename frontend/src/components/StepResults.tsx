@@ -2,7 +2,7 @@ import { Box, Button, Chip, Card, CardContent, CardHeader, Divider, Stack, Typog
 import { useMemo } from 'react'
 import { useFormContext, useWatch } from 'react-hook-form'
 import { calculateInitials, getMacroKcalBreakdown } from '../lib/calc'
-import { DEFAULT_VALUES, type WizardFormData } from '../lib/schema'
+import { DEFAULT_VALUES, visibleDayTypeOptions, type WizardFormData } from '../lib/schema'
 
 type Props = {
   onReset: () => void
@@ -20,6 +20,7 @@ type ResultCardProps = {
 }
 
 const formatInt = (value: number) => Math.round(value)
+const formatFactor = (value: number) => value.toFixed(2)
 
 const ResultCard = ({ title, value, subtitle, accent }: ResultCardProps) => (
   <Card elevation={0} sx={{ borderColor: accent ? `${accent}33` : 'divider', borderWidth: 1, borderStyle: 'solid' }}>
@@ -44,6 +45,7 @@ const StepResults = ({ onReset, onSaveAssessment, onGoPlans, hasSavedAssessment,
   const values = useWatch({ control, defaultValue: DEFAULT_VALUES }) as WizardFormData
 
   const result = useMemo(() => calculateInitials(values), [values])
+  const dayTypeLabel = visibleDayTypeOptions.find((option) => option.value === values.dayType)?.label ?? 'Descanso'
   const macroKcal = useMemo(
     () =>
       getMacroKcalBreakdown({
@@ -61,8 +63,8 @@ const StepResults = ({ onReset, onSaveAssessment, onGoPlans, hasSavedAssessment,
         subheader="Calculos segun tus datos y objetivo. Ajustes diarios auto-calculados."
         action={
           <Chip
-            label={values.dayType === 'training' ? 'Dia de entreno' : 'Dia de descanso'}
-            color={values.dayType === 'training' ? 'primary' : 'default'}
+            label={dayTypeLabel}
+            color={values.dayType === 'rest' ? 'default' : 'primary'}
             variant="outlined"
           />
         }
@@ -76,23 +78,23 @@ const StepResults = ({ onReset, onSaveAssessment, onGoPlans, hasSavedAssessment,
           }}
         >
           <ResultCard title="RMR" value={`${formatInt(result.rmr)} kcal`} subtitle="Metabolismo en reposo" />
-          <ResultCard title="PAL" value={`${formatInt(result.pal)}`} subtitle="Factor actividad" />
+          <ResultCard title="PAL" value={formatFactor(result.pal)} subtitle="Factor actividad" />
           <ResultCard title="TDEE" value={`${formatInt(result.tdee)} kcal`} subtitle="Gasto diario estimado" />
           <ResultCard title="Kcal objetivo base" value={`${formatInt(result.kcalObjectiveBase)} kcal`} />
-          <ResultCard title="EEE (si entrenas)" value={`${formatInt(result.eee)} kcal`} subtitle="Gasto de ejercicio" />
-          <ResultCard title="Kcal objetivo del dia" value={`${formatInt(result.kcalObjectiveDay)} kcal`} subtitle="Incluye ejercicio" accent="#2563eb" />
+          <ResultCard title="Ajuste entreno" value={`${formatInt(result.eee)} kcal`} subtitle="Extra del preset" />
+          <ResultCard title="Kcal objetivo del dia" value={`${formatInt(result.kcalObjectiveDay)} kcal`} subtitle="Segun tipo de dia" accent="#2563eb" />
           <ResultCard title="Proteina" value={`${formatInt(result.protein)} g`} subtitle={`~${Math.round(macroKcal.proteinKcal)} kcal`} />
           <ResultCard title="Grasas" value={`${formatInt(result.fats)} g`} subtitle={`~${Math.round(macroKcal.fatKcal)} kcal`} />
           <ResultCard title="Carbohidratos" value={`${formatInt(result.carbs)} g`} subtitle={`~${Math.round(macroKcal.carbsKcal)} kcal`} />
           <ResultCard
             title="Carbs ajustados"
             value={`${formatInt(result.carbsAdjusted)} g`}
-            subtitle={values.dayType === 'training' ? 'Factor 1.2 por entreno' : 'Factor 0.85 por descanso'}
+            subtitle="Objetivo del preset"
           />
           <ResultCard
             title="Grasas ajustadas"
             value={`${formatInt(result.fatsAdjusted)} g`}
-            subtitle={values.dayType === 'training' ? 'Factor 0.85 por entreno' : 'Factor 1.2 por descanso'}
+            subtitle="Residual kcal"
           />
           {result.ffm !== undefined && <ResultCard title="FFM" value={`${formatInt(result.ffm)} kg`} subtitle="Masa libre de grasa" />}
           {result.ea !== undefined && (

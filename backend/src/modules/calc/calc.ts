@@ -1,11 +1,10 @@
-import { metMap } from './metMap'
 import type { WizardInputs } from '../domainTypes'
 
 const roundInt = (v: number) => Math.round(v)
 const round1 = (v: number) => Math.round(v * 10) / 10
 
 const eeeFactorMap: Record<WizardInputs['goal'], number> = {
-  fat_loss: 0.7,
+  fat_loss: 1,
   muscle_gain: 1,
   recomp: 1,
 }
@@ -107,7 +106,10 @@ export const adjustCarbFat = ({
 }) => {
   const carbFactor = dayType === 'training' ? getCarbFactor(dayType, trainingType) : 0
   const fatFactor = dayType === 'training' ? 1 - carbFactor : 0
-  // Mirror spreadsheet behavior from "Calculos iniciales" (AH/AI): macro redistribution uses full EEE.
+  if (dayType !== 'training') {
+    return { carbsAdjusted: round1(Math.max(carbs, 0)), fatsAdjusted: round1(Math.max(fats, 0)) }
+  }
+  // Legacy support for existing plans that still store dayType="training".
   void goal
   const rec = 1
   const grasaMin = 0.6 * weight
@@ -201,73 +203,72 @@ export type CalculationOutputs = {
 }
 
 export type FormulaMeta = {
-  rmrMethod: 'cunningham' | 'mifflin'
-  version: 'v1'
+  rmrMethod: 'excel_average' | 'cunningham' | 'mifflin'
+  version: 'v2_excel'
+}
+
+const activityFactorMap: Record<WizardInputs['activityLevel'], number> = {
+  sedentary: 1.2,
+  light: 1.38,
+  moderate: 1.55,
+  high: 1.73,
+  hyperactive: 1.9,
+  sedentary_training_3: 1.3,
+  sedentary_training_4: 1.4,
+  sedentary_training_5: 1.5,
+  sedentary_training_6: 1.6,
+  light_training_3: 1.5,
+  light_training_4: 1.6,
+  light_training_5: 1.7,
+}
+
+type NormalizedDayType = 'rest' | 'training_type_1' | 'training_type_2' | 'training'
+
+const normalizeDayType = (dayType: WizardInputs['dayType']): NormalizedDayType =>
+  dayType === 'training' ? 'training_type_1' : dayType
+
+const goalFactorMap: Record<WizardInputs['goal'], number> = {
+  fat_loss: 0.75,
+  muscle_gain: 1.2,
+  recomp: 1,
+}
+
+const macroPresetMap: Record<Exclude<NormalizedDayType, 'training'>, { carbsGkg: number; proteinGkg: number; extraKcal: number }> = {
+  rest: { carbsGkg: 2, proteinGkg: 1.8, extraKcal: 0 },
+  training_type_1: { carbsGkg: 5, proteinGkg: 1.5, extraKcal: 300 },
+  training_type_2: { carbsGkg: 2, proteinGkg: 1.6, extraKcal: 0 },
+}
+
+const calcRmrAverage = (inputs: WizardInputs) => {
+  const harris =
+    inputs.sex === 'male'
+      ? 66.47 + 13.75 * inputs.weight + 5 * inputs.height - 6.76 * inputs.age
+      : 655.1 + 9.56 * inputs.weight + 1.85 * inputs.height - 4.68 * inputs.age
+  const owen = inputs.sex === 'male' ? 879 + 10.2 * inputs.weight : 795 + 7.18 * inputs.weight
+  const mifflin =
+    inputs.sex === 'male'
+      ? 5 + 10 * inputs.weight + 6.25 * inputs.height - 5 * inputs.age
+      : -161 + 10 * inputs.weight + 6.25 * inputs.height - 5 * inputs.age
+  return (harris + owen + mifflin) / 3
 }
 
 export const calculateInitials = (inputs: WizardInputs): { outputs: CalculationOutputs; formulas: FormulaMeta } => {
   const ffm = inputs.bodyFat !== undefined ? inputs.weight * (1 - inputs.bodyFat / 100) : undefined
 
-  let rmrMethod: FormulaMeta['rmrMethod'] = 'mifflin'
-  let rmr =
-    inputs.sex === 'male'
-      ? 10 * inputs.weight + 6.25 * inputs.height - 5 * inputs.age + 5
-      : 10 * inputs.weight + 6.25 * inputs.height - 5 * inputs.age - 161
-
-  if (inputs.profile === 'athlete' && ffm !== undefined) {
-    rmrMethod = 'cunningham'
-    rmr = 500 + 22 * ffm
-  }
-
-  const palMap = {
-    sedentary: 1.2,
-    light: 1.375,
-    moderate: 1.55,
-    high: 1.725,
-  } as const
-  const pal = palMap[inputs.activityLevel]
+  const rmrMethod: FormulaMeta['rmrMethod'] = 'excel_average'
+  const rmr = calcRmrAverage(inputs)
+  const pal = activityFactorMap[inputs.activityLevel] ?? activityFactorMap.moderate
   const tdee = rmr * pal
-
-  const goalFactor = { fat_loss: -0.25, muscle_gain: 0.1, recomp: 0 }[inputs.goal]
-  const goalFactFactor = { fat_loss: 0.7, muscle_gain: 1, recomp: 0 }[inputs.goal]
-  const kcalObjectiveBase = tdee * (1 + goalFactor)
-
-  const proteinFactor = { fat_loss: 2.2, muscle_gain: 2.5, recomp: 1.6 }[inputs.goal]
-  const protein = inputs.weight * proteinFactor
-  const fats = inputs.weight * goalFactFactor
-  const carbs = Math.max(0, (kcalObjectiveBase - (protein * 4 + fats * 9)) / 4)
-
-  const training =
-    inputs.training ??
-    (inputs.trainingType
-      ? {
-          type: inputs.trainingType,
-          met: inputs.trainingMet ?? metMap[inputs.trainingType],
-          durationMin: inputs.duration,
-        }
-      : undefined)
-
-  const trainingMet = training?.met
-
-  const eee =
-    inputs.dayType === 'training' && training?.type && training?.durationMin && trainingMet
-      ? ((inputs.weight * trainingMet * 3.5) / 200) * training.durationMin
-      : 0
-
-  const eeeAdjusted = eee * getEeeFactor(inputs.goal)
-  const kcalObjectiveDay = kcalObjectiveBase + eeeAdjusted
-
-  const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
-    fats,
-    carbs,
-    dayType: inputs.dayType,
-    trainingType: training?.type ?? inputs.trainingType ?? null,
-    eee,
-    goal: inputs.goal,
-    weight: inputs.weight,
-  })
-
-  const ea = ffm ? (kcalObjectiveDay - eeeAdjusted) / ffm : undefined
+  const get = tdee * 1.1
+  const kcalObjectiveBase = get * (goalFactorMap[inputs.goal] ?? 1)
+  const normalizedDayType = normalizeDayType(inputs.dayType)
+  const preset = macroPresetMap[normalizedDayType === 'training' ? 'training_type_1' : normalizedDayType]
+  const kcalObjectiveDay = kcalObjectiveBase + preset.extraKcal
+  const carbs = inputs.weight * preset.carbsGkg
+  const protein = inputs.weight * preset.proteinGkg
+  const fats = Math.max(0, (kcalObjectiveDay - (protein * 4 + carbs * 4)) / 9)
+  const eee = preset.extraKcal
+  const ea = ffm ? kcalObjectiveDay / ffm : undefined
 
   return {
     outputs: {
@@ -280,11 +281,11 @@ export const calculateInitials = (inputs: WizardInputs): { outputs: CalculationO
       carbs: round1(carbs),
       eee: roundInt(eee),
       kcalObjectiveDay: roundInt(kcalObjectiveDay),
-      carbsAdjusted: round1(carbsAdjusted),
-      fatsAdjusted: round1(fatsAdjusted),
+      carbsAdjusted: round1(carbs),
+      fatsAdjusted: round1(fats),
       ffm: ffm ? round1(ffm) : undefined,
       ea: ea ? round1(ea) : undefined,
     },
-    formulas: { rmrMethod, version: 'v1' },
+    formulas: { rmrMethod, version: 'v2_excel' },
   }
 }

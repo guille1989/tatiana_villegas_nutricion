@@ -188,7 +188,7 @@ const applyMacroOverride = (
   outputs: ReturnType<typeof calculateDayFromBase>['outputs'],
   planOverride: { macros: MacroOverrideValue } | null,
   dayOverride: MacroOverrideValue | null,
-  dayType: 'training' | 'rest',
+  dayType: WizardInputs['dayType'],
   trainingType: WizardInputs['trainingType'] | null,
   goal: WizardInputs['goal'],
   weight: number,

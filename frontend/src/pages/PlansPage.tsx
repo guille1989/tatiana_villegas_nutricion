@@ -46,7 +46,7 @@ type SyncPoint = {
   consumedMacros: MacroSummary | null
 }
 
-type DayType = 'training' | 'rest'
+type DayType = 'rest' | 'training_type_1' | 'training_type_2' | 'training'
 const DAY_LABELS = ['D', 'L', 'M', 'X', 'J', 'V', 'S'] as const
 
 const buildSevenDaySyncWindow = (syncSeries: SyncPoint[]): SyncPoint[] => {

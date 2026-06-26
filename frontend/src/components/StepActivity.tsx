@@ -17,7 +17,7 @@ import {
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import { useState } from 'react'
 import { Controller, useFormContext } from 'react-hook-form'
-import { activityOptions, goalOptions, type WizardFormData } from '../lib/schema'
+import { excelActivityOptions, goalOptions, visibleDayTypeOptions, type WizardFormData } from '../lib/schema'
 
 const StepActivity = () => {
   const {
@@ -55,7 +55,7 @@ const StepActivity = () => {
                 error={!!errors.activityLevel}
                 helperText={errors.activityLevel?.message}
               >
-                {activityOptions.map((option) => (
+                {excelActivityOptions.map((option) => (
                   <MenuItem key={option.value} value={option.value}>
                     {option.label}
                   </MenuItem>
@@ -77,6 +77,27 @@ const StepActivity = () => {
                 helperText={errors.goal?.message}
               >
                 {goalOptions.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
+          />
+          <Controller
+            name="dayType"
+            control={control}
+            render={({ field }) => (
+              <TextField
+                {...field}
+                select
+                label="Tipo de dia"
+                fullWidth
+                required
+                error={!!errors.dayType}
+                helperText={errors.dayType?.message}
+              >
+                {visibleDayTypeOptions.map((option) => (
                   <MenuItem key={option.value} value={option.value}>
                     {option.label}
                   </MenuItem>

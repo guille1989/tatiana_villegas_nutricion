@@ -23,7 +23,7 @@ export type Assessment = {
   createdAt: string
   inputs: WizardInputs
   outputs: CalculationOutputs
-  formulas?: { rmrMethod: 'cunningham' | 'mifflin'; version: 'v1' }
+  formulas?: { rmrMethod: 'excel_average' | 'cunningham' | 'mifflin'; version: 'v2_excel' | 'v1' }
 }
 
 export type Plan = {
@@ -67,6 +67,14 @@ export type Food = {
   default_portion_g?: number | null
 }
 
+export type MealKey = 'breakfast' | 'lunch' | 'snack' | 'dinner' | 'snack2'
+
+export type MealPortionTarget = {
+  key: MealKey
+  name: string
+  portions: { protein: number; carbs: number; fat: number }
+}
+
 export type IngredientStatus = 'active' | 'inactive'
 
 export type Ingredient = Food & {
@@ -89,6 +97,7 @@ export type DayOverrideInputs = {
   training?: TrainingSession
   note?: string | null
   meals?: Meal[]
+  mealPortionTargets?: MealPortionTarget[] | null
 }
 
 export type DayOverride = {
@@ -115,7 +124,7 @@ export type MealItem = {
 }
 
 export type Meal = {
-  key: 'breakfast' | 'lunch' | 'snack' | 'dinner' | 'snack2'
+  key: MealKey
   name: string
   items: MealItem[]
   totals: { protein: number; carbs: number; fat: number; kcal: number }

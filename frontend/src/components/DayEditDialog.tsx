@@ -32,8 +32,8 @@ import {
 import { z } from "zod";
 import { deleteOverride, upsertOverride } from "../lib/api";
 import {
-  activityOptions,
-  dayTypeOptions,
+  excelActivityOptions,
+  visibleDayTypeOptions,
   trainingOptions,
   type ActivityLevel,
   type DayType,
@@ -60,7 +60,7 @@ const trainingSchema = z.object({
   durationMin: z.number().min(10, "Minimo 10 min").max(300, "Maximo 300 min"),
 });
 
-const activityValues = activityOptions.map((opt) => opt.value) as [
+const activityValues = excelActivityOptions.map((opt) => opt.value) as [
   ActivityLevel,
   ...ActivityLevel[]
 ];
@@ -68,7 +68,7 @@ const activityValues = activityOptions.map((opt) => opt.value) as [
 const formSchema = z
   .object({
     activityLevel: z.union([z.literal(""), z.enum(activityValues)]).optional(),
-    dayType: z.enum(["training", "rest"]),
+    dayType: z.enum(["rest", "training_type_1", "training_type_2", "training"]),
     trainings: z.array(trainingSchema.partial()).optional(),
     note: z.string().max(240, "Max 240 caracteres").optional().nullable(),
   })
@@ -472,7 +472,7 @@ const DayEditDialog = ({
                 helperText="Deja 'Sin cambio' para usar el plan base"
               >
                 <MenuItem value="">Sin cambio</MenuItem>
-                {activityOptions.map((option) => (
+                {excelActivityOptions.map((option) => (
                   <MenuItem key={option.value} value={option.value}>
                     {option.label}
                   </MenuItem>
@@ -488,7 +488,7 @@ const DayEditDialog = ({
               control={control}
               render={({ field }) => (
                 <RadioGroup row {...field}>
-                  {dayTypeOptions.map((option) => (
+                  {visibleDayTypeOptions.map((option) => (
                     <FormControlLabel
                       key={option.value}
                       value={option.value}

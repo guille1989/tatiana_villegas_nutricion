@@ -76,8 +76,8 @@ import {
 import AdminIngredientsSection from '../components/AdminIngredientsSection'
 import WeeklyIntakeCard from '../components/WeeklyIntakeCard'
 import {
-  activityOptions,
   dayTypeOptions,
+  excelActivityOptions,
   goalOptions,
   profileOptions,
   sexOptions,
@@ -85,7 +85,7 @@ import {
 } from '../lib/schema'
 import { getMacroState, type MacroState } from '../lib/macroStatus'
 import type { WeeklyDataPoint } from '../lib/weeklyTracking'
-import type { Assessment, CalculationOutputs, DayOverride, Meal, Plan, WizardInputs } from '../types'
+import type { Assessment, CalculationOutputs, DayOverride, Meal, MealKey, MealPortionTarget, Plan, WizardInputs } from '../types'
 
 type AdherenceState = MacroState | 'none'
 
@@ -105,7 +105,9 @@ type TrendPoint = {
 
 type MacroSummary = { protein: number; carbs: number; fat: number }
 type MacroTotals = MacroSummary & { kcal: number }
-type DayType = 'training' | 'rest'
+type DayType = 'rest' | 'training_type_1' | 'training_type_2' | 'training'
+type PortionMacroKey = keyof MacroSummary
+type PortionMealCount = 3 | 4 | 5
 
 type SyncPoint = {
   date: string
@@ -179,6 +181,41 @@ const INVITE_STATUS_COLORS: Record<string, 'success' | 'warning' | 'error' | 'de
 }
 const DAY_LABELS = ['D', 'L', 'M', 'X', 'J', 'V', 'S'] as const
 const MESSAGES_ENABLED = `${import.meta.env.VITE_MESSAGES_ENABLED ?? ''}`.toLowerCase() === 'true'
+const PORTION_MACROS: Array<{
+  key: PortionMacroKey
+  label: string
+  shortLabel: string
+  color: string
+}> = [
+  { key: 'protein', label: 'Proteina', shortLabel: 'P', color: '#2E7D66' },
+  { key: 'carbs', label: 'Carbohidratos', shortLabel: 'HC', color: '#F4A261' },
+  { key: 'fat', label: 'Grasas', shortLabel: 'G', color: '#D95F5F' },
+]
+const PORTION_MEAL_TEMPLATES: Record<PortionMealCount, Array<{ key: MealKey; name: string }>> = {
+  3: [
+    { key: 'breakfast', name: 'Desayuno' },
+    { key: 'lunch', name: 'Comida' },
+    { key: 'dinner', name: 'Cena' },
+  ],
+  4: [
+    { key: 'breakfast', name: 'Desayuno' },
+    { key: 'snack', name: 'Merienda' },
+    { key: 'lunch', name: 'Comida' },
+    { key: 'dinner', name: 'Cena' },
+  ],
+  5: [
+    { key: 'breakfast', name: 'Desayuno' },
+    { key: 'snack', name: 'Merienda 1' },
+    { key: 'lunch', name: 'Comida' },
+    { key: 'snack2', name: 'Merienda 2' },
+    { key: 'dinner', name: 'Cena' },
+  ],
+}
+const PORTION_DEFAULT_WEIGHTS: Record<PortionMealCount, number[]> = {
+  3: [0.3, 0.4, 0.3],
+  4: [0.28, 0.14, 0.34, 0.24],
+  5: [0.24, 0.12, 0.3, 0.1, 0.24],
+}
 
 const optionLabel = (
   value: string | null | undefined,
@@ -190,6 +227,11 @@ const optionLabel = (
 }
 
 const formatNumber = (value: number) => Math.round(value).toString()
+const roundPortion = (value: number) => Math.round(value * 2) / 2
+const formatPortion = (value: number) => {
+  const rounded = roundPortion(value)
+  return Number.isInteger(rounded) ? `${rounded}` : rounded.toFixed(1)
+}
 
 const formatValue = (value: string | number | null | undefined) => {
   if (value === null || value === undefined || value === '') return '--'
@@ -200,6 +242,69 @@ const formatValue = (value: string | number | null | undefined) => {
 const formatWithUnit = (value: number | null | undefined, unit: string) => {
   if (value === null || value === undefined) return '--'
   return `${formatNumber(value)} ${unit}`
+}
+
+const emptyPortionSummary = (): MacroSummary => ({ protein: 0, carbs: 0, fat: 0 })
+
+const sumMealPortionTargets = (targets: MealPortionTarget[]) =>
+  targets.reduce<MacroSummary>(
+    (acc, item) => ({
+      protein: acc.protein + item.portions.protein,
+      carbs: acc.carbs + item.portions.carbs,
+      fat: acc.fat + item.portions.fat,
+    }),
+    emptyPortionSummary(),
+  )
+
+const normalizeMealPortionTargets = (
+  existing: MealPortionTarget[] | null | undefined,
+  mealCount: PortionMealCount,
+  budget: MacroSummary,
+) => {
+  const template = PORTION_MEAL_TEMPLATES[mealCount]
+  if (existing?.length) {
+    const existingMap = new Map(existing.map((item) => [item.key, item]))
+    return template.map((meal) => {
+      const current = existingMap.get(meal.key)
+      return {
+        key: meal.key,
+        name: current?.name ?? meal.name,
+        portions: {
+          protein: roundPortion(current?.portions.protein ?? 0),
+          carbs: roundPortion(current?.portions.carbs ?? 0),
+          fat: roundPortion(current?.portions.fat ?? 0),
+        },
+      }
+    })
+  }
+
+  const weights = PORTION_DEFAULT_WEIGHTS[mealCount]
+  const initial = template.map((meal, index) => ({
+    key: meal.key,
+    name: meal.name,
+    portions: {
+      protein: roundPortion(budget.protein * weights[index]),
+      carbs: roundPortion(budget.carbs * weights[index]),
+      fat: roundPortion(budget.fat * weights[index]),
+    },
+  }))
+  const totals = sumMealPortionTargets(initial)
+  const residual = {
+    protein: roundPortion(budget.protein - totals.protein),
+    carbs: roundPortion(budget.carbs - totals.carbs),
+    fat: roundPortion(budget.fat - totals.fat),
+  }
+  const mainIndex = initial.findIndex((item) => item.key === 'lunch')
+  const targetIndex = mainIndex >= 0 ? mainIndex : 0
+  initial[targetIndex] = {
+    ...initial[targetIndex],
+    portions: {
+      protein: roundPortion(initial[targetIndex].portions.protein + residual.protein),
+      carbs: roundPortion(initial[targetIndex].portions.carbs + residual.carbs),
+      fat: roundPortion(initial[targetIndex].portions.fat + residual.fat),
+    },
+  }
+  return initial
 }
 
 const totalsFromMeals = (meals: Meal[]): MacroTotals =>
@@ -571,6 +676,11 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     carbsAdjusted: '',
     fatsAdjusted: '',
   })
+  const [portionDate, setPortionDate] = useState<string | null>(null)
+  const [portionMealCount, setPortionMealCount] = useState<PortionMealCount>(5)
+  const [portionTargets, setPortionTargets] = useState<MealPortionTarget[]>([])
+  const [portionSaving, setPortionSaving] = useState(false)
+  const [portionError, setPortionError] = useState<string | null>(null)
   const [selectedClientPlan, setSelectedClientPlan] = useState<SelectedClientPlanState | null>(null)
   const [selectedClientPlanLoading, setSelectedClientPlanLoading] = useState(false)
   const [selectedClientPlanError, setSelectedClientPlanError] = useState<string | null>(null)
@@ -804,12 +914,50 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     () => new Map((selectedRecord?.overrides ?? []).map((item) => [item.date, item])),
     [selectedRecord?.overrides],
   )
+  const portionDateOptions = useMemo(
+    () => syncSeries.map((item) => ({ date: item.date, label: dayjs(item.date).format('DD MMM YYYY') })),
+    [syncSeries],
+  )
+  const activePortionDate = portionDate ?? portionDateOptions[0]?.date ?? null
+  const activePortionSyncPoint = syncSeries.find((item) => item.date === activePortionDate) ?? null
+  const activePortionOverride = activePortionDate ? selectedOverridesByDate.get(activePortionDate) ?? null : null
+  const activePortionBudget = activePortionSyncPoint?.targetMacros
+    ? toPortions(activePortionSyncPoint.targetMacros)
+    : emptyPortionSummary()
+  const activePortionTargets = useMemo(
+    () => normalizeMealPortionTargets(portionTargets, portionMealCount, activePortionBudget),
+    [activePortionBudget, portionMealCount, portionTargets],
+  )
+  const activePortionTotals = useMemo(
+    () => sumMealPortionTargets(activePortionTargets),
+    [activePortionTargets],
+  )
+  const activePortionDiff = {
+    protein: roundPortion(activePortionBudget.protein - activePortionTotals.protein),
+    carbs: roundPortion(activePortionBudget.carbs - activePortionTotals.carbs),
+    fat: roundPortion(activePortionBudget.fat - activePortionTotals.fat),
+  }
   const hasSelectedDayMacroOverride = (day: WeeklyDataPoint) =>
     !!selectedOverridesByDate.get(day.date)?.overrides?.macroOverride
 
   useEffect(() => {
     setTrackingWindowPage(0)
+    setPortionDate(null)
+    setPortionTargets([])
+    setPortionError(null)
   }, [selectedRecord?.plan?.id])
+
+  useEffect(() => {
+    if (!activePortionDate) return
+    const existingTargets = activePortionOverride?.overrides?.mealPortionTargets ?? null
+    const nextMealCount =
+      existingTargets?.length === 3 || existingTargets?.length === 4 || existingTargets?.length === 5
+        ? (existingTargets.length as PortionMealCount)
+        : portionMealCount
+    setPortionMealCount(nextMealCount)
+    setPortionTargets(normalizeMealPortionTargets(existingTargets, nextMealCount, activePortionBudget))
+    setPortionError(null)
+  }, [activePortionDate, activePortionOverride?.updatedAt])
 
   useEffect(() => {
     if (trackingWindowPage > totalTrackingPages - 1) {
@@ -909,7 +1057,7 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
       },
       {
         label: 'Nivel actividad',
-        value: optionLabel(inputs.activityLevel, activityOptions),
+        value: optionLabel(inputs.activityLevel, excelActivityOptions),
         icon: <DirectionsWalkRoundedIcon fontSize="small" color="action" />,
       },
       {
@@ -1018,6 +1166,70 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
         ),
       }
     })
+  }
+
+  const handlePortionDateChange = (date: string) => {
+    setPortionDate(date)
+  }
+
+  const handlePortionMealCountChange = (count: PortionMealCount) => {
+    setPortionMealCount(count)
+    setPortionTargets(normalizeMealPortionTargets(null, count, activePortionBudget))
+  }
+
+  const handlePortionChange = (mealKey: MealKey, macroKey: PortionMacroKey, delta: number) => {
+    setPortionTargets((prev) =>
+      normalizeMealPortionTargets(prev, portionMealCount, activePortionBudget).map((item) =>
+        item.key === mealKey
+          ? {
+              ...item,
+              portions: {
+                ...item.portions,
+                [macroKey]: Math.max(0, roundPortion(item.portions[macroKey] + delta)),
+              },
+            }
+          : item,
+      ),
+    )
+  }
+
+  const handleResetPortionTargets = () => {
+    setPortionTargets(normalizeMealPortionTargets(null, portionMealCount, activePortionBudget))
+    setPortionError(null)
+  }
+
+  const handleSavePortionTargets = async () => {
+    if (!selectedRecord?.plan || !assessment || !activePortionDate) {
+      setPortionError('No hay datos suficientes para guardar el reparto.')
+      return
+    }
+
+    const normalizedTargets = normalizeMealPortionTargets(activePortionTargets, portionMealCount, activePortionBudget)
+    setPortionSaving(true)
+    setPortionError(null)
+    try {
+      const existingOverride = activePortionOverride
+      const overrides = {
+        ...(existingOverride?.overrides ?? {
+          dayType: assessment.inputs.dayType ?? 'rest',
+          activityLevel: assessment.inputs.activityLevel,
+        }),
+        mealPortionTargets: normalizedTargets,
+      }
+      const updatedOverride = await upsertOverride({
+        planId: selectedRecord.plan.id,
+        date: activePortionDate,
+        overrides,
+        meals: existingOverride?.meals,
+        note: existingOverride?.note,
+      })
+      applyDayOverrideUpdate(selectedRecord.userId, updatedOverride)
+      setPortionTargets(normalizedTargets)
+    } catch (err) {
+      setPortionError(err instanceof Error ? err.message : 'No se pudo guardar el reparto.')
+    } finally {
+      setPortionSaving(false)
+    }
   }
 
   const handleOpenActionsMenu = (event: MouseEvent<HTMLElement>) => {
@@ -1257,7 +1469,7 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
       { label: 'Talla', value: formatWithUnit(inputs.height, 'cm') },
       { label: '% Grasa', value: formatWithUnit(inputs.bodyFat ?? null, '%') },
       { label: 'Perfil', value: optionLabel(inputs.profile, profileOptions) },
-      { label: 'Actividad', value: optionLabel(inputs.activityLevel, activityOptions) },
+      { label: 'Actividad', value: optionLabel(inputs.activityLevel, excelActivityOptions) },
       { label: 'Objetivo', value: optionLabel(inputs.goal, goalOptions) },
       { label: 'Tipo de dia', value: optionLabel(inputs.dayType, dayTypeOptions) },
       { label: 'Tipo entreno', value: optionLabel(inputs.trainingType ?? null, trainingOptions) },
@@ -2197,6 +2409,185 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
                             )}
                           </Stack>
                         </Paper>
+
+                        <Accordion
+                          disableGutters
+                          elevation={0}
+                          sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider' }}
+                        >
+                          <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
+                            <Stack spacing={0.25}>
+                              <Typography variant="subtitle2" fontWeight={700}>
+                                Reparto de porciones por comida
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Ajusta porciones de proteina, hidratos y grasas para cada comida del dia.
+                              </Typography>
+                            </Stack>
+                          </AccordionSummary>
+                          <AccordionDetails>
+                            {!activePortionDate || !activePortionSyncPoint?.targetMacros ? (
+                              <Typography variant="body2" color="text.secondary">
+                                No hay dias del plan disponibles para repartir porciones.
+                              </Typography>
+                            ) : (
+                              <Stack spacing={2}>
+                                <Stack
+                                  direction={{ xs: 'column', sm: 'row' }}
+                                  spacing={1.5}
+                                  alignItems={{ xs: 'stretch', sm: 'center' }}
+                                >
+                                  <FormControl size="small" sx={{ minWidth: 190 }}>
+                                    <InputLabel id="portion-date-label">Dia</InputLabel>
+                                    <Select
+                                      labelId="portion-date-label"
+                                      label="Dia"
+                                      value={activePortionDate}
+                                      onChange={(event) => handlePortionDateChange(event.target.value)}
+                                    >
+                                      {portionDateOptions.map((item) => (
+                                        <MenuItem key={item.date} value={item.date}>
+                                          {item.label}
+                                        </MenuItem>
+                                      ))}
+                                    </Select>
+                                  </FormControl>
+                                  <FormControl size="small" sx={{ minWidth: 150 }}>
+                                    <InputLabel id="portion-meals-label">Comidas</InputLabel>
+                                    <Select
+                                      labelId="portion-meals-label"
+                                      label="Comidas"
+                                      value={portionMealCount}
+                                      onChange={(event) =>
+                                        handlePortionMealCountChange(Number(event.target.value) as PortionMealCount)
+                                      }
+                                    >
+                                      {[3, 4, 5].map((count) => (
+                                        <MenuItem key={count} value={count}>
+                                          {count} comidas
+                                        </MenuItem>
+                                      ))}
+                                    </Select>
+                                  </FormControl>
+                                  <Box sx={{ flex: 1 }} />
+                                  <Button size="small" variant="outlined" onClick={handleResetPortionTargets}>
+                                    Recalcular
+                                  </Button>
+                                  <Button
+                                    size="small"
+                                    variant="contained"
+                                    onClick={handleSavePortionTargets}
+                                    disabled={portionSaving}
+                                  >
+                                    {portionSaving ? 'Guardando...' : 'Guardar reparto'}
+                                  </Button>
+                                </Stack>
+
+                                <Box
+                                  sx={{
+                                    display: 'grid',
+                                    gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' },
+                                    gap: 1,
+                                  }}
+                                >
+                                  {PORTION_MACROS.map((macro) => (
+                                    <Paper key={macro.key} variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>
+                                      <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                        <Typography variant="caption" color="text.secondary">
+                                          {macro.label}
+                                        </Typography>
+                                        <Chip
+                                          size="small"
+                                          label={`${formatPortion(activePortionTotals[macro.key])}/${formatPortion(
+                                            activePortionBudget[macro.key],
+                                          )}`}
+                                          sx={{ bgcolor: `${macro.color}1A`, color: macro.color, fontWeight: 800 }}
+                                        />
+                                      </Stack>
+                                      <Typography
+                                        variant="caption"
+                                        color={activePortionDiff[macro.key] === 0 ? 'text.secondary' : 'warning.main'}
+                                      >
+                                        Diferencia: {formatPortion(activePortionDiff[macro.key])}
+                                      </Typography>
+                                    </Paper>
+                                  ))}
+                                </Box>
+
+                                <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+                                  <Table size="small">
+                                    <TableHead>
+                                      <TableRow>
+                                        <TableCell>Comida</TableCell>
+                                        {PORTION_MACROS.map((macro) => (
+                                          <TableCell key={macro.key} align="center">
+                                            {macro.shortLabel}
+                                          </TableCell>
+                                        ))}
+                                      </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                      {activePortionTargets.map((meal) => (
+                                        <TableRow key={meal.key}>
+                                          <TableCell>
+                                            <Typography variant="body2" fontWeight={700}>
+                                              {meal.name}
+                                            </Typography>
+                                          </TableCell>
+                                          {PORTION_MACROS.map((macro) => (
+                                            <TableCell key={macro.key} align="center">
+                                              <Stack direction="row" spacing={0.75} alignItems="center" justifyContent="center">
+                                                <Button
+                                                  size="small"
+                                                  variant="outlined"
+                                                  onClick={() => handlePortionChange(meal.key, macro.key, -0.5)}
+                                                  sx={{ minWidth: 30, px: 0 }}
+                                                >
+                                                  -
+                                                </Button>
+                                                <Typography
+                                                  variant="body2"
+                                                  fontWeight={800}
+                                                  sx={{ minWidth: 32, color: macro.color }}
+                                                >
+                                                  {formatPortion(meal.portions[macro.key])}
+                                                </Typography>
+                                                <Button
+                                                  size="small"
+                                                  variant="outlined"
+                                                  onClick={() => handlePortionChange(meal.key, macro.key, 0.5)}
+                                                  sx={{ minWidth: 30, px: 0 }}
+                                                >
+                                                  +
+                                                </Button>
+                                              </Stack>
+                                            </TableCell>
+                                          ))}
+                                        </TableRow>
+                                      ))}
+                                      <TableRow>
+                                        <TableCell>
+                                          <Typography variant="body2" fontWeight={900}>
+                                            Total
+                                          </Typography>
+                                        </TableCell>
+                                        {PORTION_MACROS.map((macro) => (
+                                          <TableCell key={macro.key} align="center">
+                                            <Typography variant="body2" fontWeight={900} sx={{ color: macro.color }}>
+                                              {formatPortion(activePortionTotals[macro.key])}
+                                            </Typography>
+                                          </TableCell>
+                                        ))}
+                                      </TableRow>
+                                    </TableBody>
+                                  </Table>
+                                </TableContainer>
+
+                                {portionError && <Alert severity="warning">{portionError}</Alert>}
+                              </Stack>
+                            )}
+                          </AccordionDetails>
+                        </Accordion>
 
                         <Accordion
                           disableGutters

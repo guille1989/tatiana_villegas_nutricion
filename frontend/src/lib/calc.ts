@@ -55,7 +55,7 @@ export const applyMacroOverrideToOutputs = <T extends CalculationOutputs>({
 }: {
   outputs: T
   overrideMacros: MacroOverrideValue
-  dayType: 'training' | 'rest'
+  dayType: WizardInputs['dayType']
   trainingType?: WizardInputs['trainingType'] | null
   goal: WizardInputs['goal']
   weight: number

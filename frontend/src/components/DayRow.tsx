@@ -9,13 +9,14 @@ import {
   Typography,
 } from '@mui/material'
 import dayjs from 'dayjs'
-import type { CalculationOutputs } from '../types'
+import type { CalculationOutputs, WizardInputs } from '../types'
+import { visibleDayTypeOptions } from '../lib/schema'
 import DayCard from './DayCard'
 
 type Props = {
   date: string
   outputs: CalculationOutputs
-  dayType: 'training' | 'rest'
+  dayType: WizardInputs['dayType']
   hasOverride?: boolean
   note?: string
   isExpanded: boolean
@@ -37,7 +38,8 @@ const DayRow = ({
 }: Props) => {
   const weekday = dayjs(date).format('ddd').toUpperCase()
   const friendlyDate = dayjs(date).format('DD MMM YYYY')
-  const isTraining = dayType === 'training'
+  const isTraining = dayType !== 'rest'
+  const dayTypeLabel = visibleDayTypeOptions.find((option) => option.value === dayType)?.label ?? (isTraining ? 'Entreno' : 'Descanso')
 
   return (
     <>
@@ -52,7 +54,7 @@ const DayRow = ({
                 <Typography variant="body2" color="text.secondary">
                   {friendlyDate}
                 </Typography>
-                <Chip size="small" label={isTraining ? 'Entreno' : 'Descanso'} color={isTraining ? 'primary' : 'default'} />
+                <Chip size="small" label={dayTypeLabel} color={isTraining ? 'primary' : 'default'} />
                 {hasOverride && <Chip size="small" label="Override" color="secondary" variant="outlined" />}
               </Stack>
             }

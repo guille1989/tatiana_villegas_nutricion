@@ -15,7 +15,7 @@ const assessmentSchema = new Schema(
     inputs: { type: Schema.Types.Mixed, required: true },
     outputs: { type: Schema.Types.Mixed, required: true },
     formulas: {
-      rmrMethod: { type: String, enum: ['cunningham', 'mifflin'], required: true },
+      rmrMethod: { type: String, enum: ['excel_average', 'cunningham', 'mifflin'], required: true },
       version: { type: String, required: true },
     },
   },

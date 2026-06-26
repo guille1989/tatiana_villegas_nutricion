@@ -1,11 +1,12 @@
 import { Box, Button, Card, CardContent, CardHeader, Chip, Stack, Typography } from '@mui/material'
 import dayjs from 'dayjs'
-import type { CalculationOutputs } from '../types'
+import type { CalculationOutputs, WizardInputs } from '../types'
+import { visibleDayTypeOptions } from '../lib/schema'
 
 type Props = {
   date: string
   outputs: CalculationOutputs
-  dayType: 'training' | 'rest'
+  dayType: WizardInputs['dayType']
   hasOverride?: boolean
   note?: string
   onEdit: () => void
@@ -15,7 +16,8 @@ const formatInt = (value: number) => Math.round(value)
 
 const DayCard = ({ date, outputs, dayType, hasOverride, note, onEdit }: Props) => {
   const formatted = dayjs(date).format('dddd, DD MMM YYYY')
-  const isTraining = dayType === 'training'
+  const isTraining = dayType !== 'rest'
+  const dayTypeLabel = visibleDayTypeOptions.find((option) => option.value === dayType)?.label ?? (isTraining ? 'Entreno' : 'Descanso')
 
   return (
     <Card elevation={0} sx={{ height: '100%' }}>
@@ -27,7 +29,7 @@ const DayCard = ({ date, outputs, dayType, hasOverride, note, onEdit }: Props) =
             {hasOverride && <Chip size="small" label="Override" color="secondary" variant="outlined" />}
             <Chip
               size="small"
-              label={isTraining ? 'Entreno' : 'Descanso'}
+              label={dayTypeLabel}
               color={isTraining ? 'primary' : 'default'}
             />
           </Stack>
