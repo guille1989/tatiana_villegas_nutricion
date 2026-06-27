@@ -36,6 +36,16 @@ export type Plan = {
   title?: string
   status?: 'draft' | 'active' | 'archived'
   macroOverrides?: PlanMacroOverride[]
+  macroDistributions?: PlanMacroDistribution[]
+}
+
+export type PlanMacroDistribution = {
+  id: string
+  name: string
+  dayType: WizardFormData['dayType']
+  carbsPerKg: number
+  proteinPerKg: number
+  isDefault: boolean
 }
 
 export type PlanMacroOverride = {
@@ -75,6 +85,20 @@ export type MealPortionTarget = {
   portions: { protein: number; carbs: number; fat: number }
 }
 
+export type MealDistributionColumnKey =
+  | 'breakfast'
+  | 'snack'
+  | 'lunch'
+  | 'snack2'
+  | 'dinner'
+  | 'extras'
+
+export type MealCategoryDistribution = {
+  category: string
+  name: string
+  portions: Record<MealDistributionColumnKey, number>
+}
+
 export type IngredientStatus = 'active' | 'inactive'
 
 export type Ingredient = Food & {
@@ -87,6 +111,7 @@ export type Ingredient = Food & {
 export type DayOverrideInputs = {
   activityLevel?: WizardFormData['activityLevel'] | null
   dayType?: WizardFormData['dayType'] | null
+  macroDistributionId?: string | null
   macroOverride?: {
     protein: number
     carbsAdjusted: number
@@ -98,6 +123,7 @@ export type DayOverrideInputs = {
   note?: string | null
   meals?: Meal[]
   mealPortionTargets?: MealPortionTarget[] | null
+  mealCategoryDistribution?: MealCategoryDistribution[] | null
 }
 
 export type DayOverride = {

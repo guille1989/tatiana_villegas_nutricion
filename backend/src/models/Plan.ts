@@ -12,6 +12,15 @@ export type PlanMacroOverride = {
   }
 }
 
+export type PlanMacroDistribution = {
+  id: string
+  name: string
+  dayType: 'rest' | 'training_type_1' | 'training_type_2' | 'training'
+  carbsPerKg: number
+  proteinPerKg: number
+  isDefault: boolean
+}
+
 export type PlanDoc = {
   userId: string
   baseAssessmentId: Types.ObjectId
@@ -20,6 +29,7 @@ export type PlanDoc = {
   status: PlanStatus
   title?: string
   macroOverrides?: PlanMacroOverride[]
+  macroDistributions?: PlanMacroDistribution[]
 } & Document
 
 const macroOverrideSchema = new Schema(
@@ -35,6 +45,22 @@ const macroOverrideSchema = new Schema(
   { _id: false },
 )
 
+const macroDistributionSchema = new Schema(
+  {
+    id: { type: String, required: true },
+    name: { type: String, required: true },
+    dayType: {
+      type: String,
+      enum: ['rest', 'training_type_1', 'training_type_2', 'training'],
+      required: true,
+    },
+    carbsPerKg: { type: Number, required: true, min: 0 },
+    proteinPerKg: { type: Number, required: true, min: 0 },
+    isDefault: { type: Boolean, required: true, default: false },
+  },
+  { _id: false },
+)
+
 const planSchema = new Schema(
   {
     userId: { type: String, required: true, index: true },
@@ -44,6 +70,7 @@ const planSchema = new Schema(
     status: { type: String, enum: ['draft', 'active', 'archived'], default: 'draft' },
     title: { type: String },
     macroOverrides: { type: [macroOverrideSchema], default: [] },
+    macroDistributions: { type: [macroDistributionSchema], default: [] },
   },
   { timestamps: true },
 )

@@ -5,7 +5,12 @@ import { MACRO_PORTION_GRAMS } from './calc'
 
 const localFoods: Food[] = (foodsLocal as Food[]).map((f) => ({
   ...f,
-  subgrup: (f as any).subgrup ?? (f as any).subgrupo ?? (f as any).sub_group ?? null,
+  subgrup:
+    (f as any).subgrup ??
+    (f as any).subgrupo ??
+    (f as any).subgroup ??
+    (f as any).sub_group ??
+    null,
   default_portion_g: (f as any).default_portion_g ?? null,
 }))
 

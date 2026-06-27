@@ -20,6 +20,7 @@ import {
   calculateDayFromBase,
   getMacroKcalBreakdown,
 } from "../lib/calc";
+import { getDistributionMacroOverride } from "../lib/macroDistributions";
 import type {
   Assessment,
   CalculationOutputs,
@@ -84,8 +85,15 @@ const applyPlanMacroOverride = (
 ) => {
   if (!outputs) return outputs;
   const dailyOverride = getDayMacroOverride(dayOverride);
+  const distributionOverride = getDistributionMacroOverride(
+    plan,
+    dayOverride,
+    dayType,
+    weight,
+  );
   const planOverride = getPlanMacroOverrideForDate(plan, date);
-  const overrideMacros = dailyOverride ?? planOverride?.macros ?? null;
+  const overrideMacros =
+    dailyOverride ?? distributionOverride ?? planOverride?.macros ?? null;
   if (!overrideMacros) return outputs;
   if (!goal) return outputs;
   return applyMacroOverrideToOutputs({

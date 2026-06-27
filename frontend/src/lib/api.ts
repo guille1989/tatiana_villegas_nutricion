@@ -5,6 +5,7 @@ import type {
   DayOverride,
   DayOverrideInputs,
   Plan,
+  PlanMacroDistribution,
   PlanMacroOverride,
   Food,
   Ingredient,
@@ -35,6 +36,7 @@ type PlanDto = {
   title?: string
   status?: Plan['status']
   macroOverrides?: PlanMacroOverride[]
+  macroDistributions?: PlanMacroDistribution[]
 }
 
 type OverrideDto = {
@@ -221,6 +223,7 @@ const mapPlan = (raw: PlanDto): Plan => ({
   title: raw.title,
   status: raw.status,
   macroOverrides: raw.macroOverrides,
+  macroDistributions: raw.macroDistributions,
 })
 
 const mapOverride = (raw: OverrideDto): DayOverride => ({
@@ -258,6 +261,7 @@ const mapIngredient = (item: IngredientDto): Ingredient => ({
   subgrup:
     (item as any).subgrup ??
     (item as any).subgrupo ??
+    (item as any).subgroup ??
     (item as any).sub_group ??
     (item as any).subGroup ??
     (item as any).subgroupo ??
@@ -601,6 +605,57 @@ export const upsertPlanMacroOverride = async (payload: {
   return mapPlan(data.plan)
 }
 
+export type MacroDistributionPayload = {
+  name: string
+  dayType: PlanMacroDistribution['dayType']
+  carbsPerKg: number
+  proteinPerKg: number
+  isDefault: boolean
+}
+
+export const createMacroDistribution = async (
+  planId: string,
+  payload: MacroDistributionPayload,
+) => {
+  const { data, error } = await request<{ plan: PlanDto }>(
+    `/plans/${planId}/macro-distributions`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+  )
+  if (error) throw new Error(error)
+  return mapPlan(data.plan)
+}
+
+export const updateMacroDistribution = async (
+  planId: string,
+  distributionId: string,
+  payload: MacroDistributionPayload,
+) => {
+  const { data, error } = await request<{ plan: PlanDto }>(
+    `/plans/${planId}/macro-distributions/${distributionId}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    },
+  )
+  if (error) throw new Error(error)
+  return mapPlan(data.plan)
+}
+
+export const deleteMacroDistribution = async (
+  planId: string,
+  distributionId: string,
+) => {
+  const { data, error } = await request<{ plan: PlanDto }>(
+    `/plans/${planId}/macro-distributions/${distributionId}`,
+    { method: 'DELETE' },
+  )
+  if (error) throw new Error(error)
+  return mapPlan(data.plan)
+}
+
 export const updatePlanStatus = async (payload: { planId: string; status: 'active' | 'archived' }) => {
   const { planId, ...body } = payload
   const { data, error } = await request<{ plan: PlanDto }>(`/plans/${planId}/status`, {
@@ -710,7 +765,11 @@ export const searchFoodsApi = async (
     id: f._id ?? f.id,
     name: f.name,
     group: f.group,
-    subgrup: (f as any).subgrup ?? (f as any).subgrupo ?? (f as any).sub_group,
+    subgrup:
+      (f as any).subgrup ??
+      (f as any).subgrupo ??
+      (f as any).subgroup ??
+      (f as any).sub_group,
     prot_100g: f.prot_100g,
     cho_100g: f.cho_100g,
     fat_100g: f.fat_100g,

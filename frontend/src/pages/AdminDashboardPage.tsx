@@ -47,11 +47,13 @@ import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
 import PersonOutlineRoundedIcon from '@mui/icons-material/PersonOutlineRounded'
 import PercentRoundedIcon from '@mui/icons-material/PercentRounded'
 import dayjs, { type Dayjs } from 'dayjs'
-import { useEffect, useMemo, useState, type MouseEvent } from 'react'
+import { useEffect, useMemo, useState, type MouseEvent, type SyntheticEvent } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   createAdminPasswordReset,
+  createMacroDistribution,
   createInvite,
+  deleteMacroDistribution,
   getAdminUnreadMessageCounts,
   getAdminUserMessages,
   getAdminOverview,
@@ -62,14 +64,15 @@ import {
   type AppMessage,
   type AdminOverviewItem,
   type Invite,
-  upsertPlanMacroOverride,
+  updateMacroDistribution,
   updateUserStatus,
   updatePlanStatus,
 } from '../lib/api'
 import {
   applyMacroOverrideToOutputs,
-  calcKcalFromMacros,
+  calculateMacroTargets,
   calculateDayFromBase,
+  getDayTargetCalories,
   getMacroKcalBreakdown,
   toMacroPortions,
 } from '../lib/calc'
@@ -84,8 +87,31 @@ import {
   trainingOptions,
 } from '../lib/schema'
 import { getMacroState, type MacroState } from '../lib/macroStatus'
+import {
+  getDistributionMacroOverride,
+  getMacroDistributionForDay,
+} from '../lib/macroDistributions'
+import {
+  buildAutomaticCategoryDistribution,
+  calculateCategoryDistributionMacros,
+  FOOD_CATEGORY_EXCHANGES,
+  isCategoryDistributionBalanced,
+  MACRO_DISTRIBUTION_TOLERANCE,
+  MEAL_DISTRIBUTION_COLUMNS,
+  normalizeCategoryDistribution,
+  roundExchange,
+} from '../lib/mealCategoryDistribution'
 import type { WeeklyDataPoint } from '../lib/weeklyTracking'
-import type { Assessment, CalculationOutputs, DayOverride, Meal, MealKey, MealPortionTarget, Plan, WizardInputs } from '../types'
+import type {
+  Assessment,
+  CalculationOutputs,
+  DayOverride,
+  MealCategoryDistribution,
+  MealDistributionColumnKey,
+  Meal,
+  Plan,
+  WizardInputs,
+} from '../types'
 
 type AdherenceState = MacroState | 'none'
 
@@ -107,7 +133,15 @@ type MacroSummary = { protein: number; carbs: number; fat: number }
 type MacroTotals = MacroSummary & { kcal: number }
 type DayType = 'rest' | 'training_type_1' | 'training_type_2' | 'training'
 type PortionMacroKey = keyof MacroSummary
-type PortionMealCount = 3 | 4 | 5
+type MacroDistributionRow = {
+  id: string
+  name: string
+  dayType: WizardInputs['dayType']
+  carbsPerKg: string
+  proteinPerKg: string
+  isDefault: boolean
+  isNew: boolean
+}
 
 type SyncPoint = {
   date: string
@@ -191,32 +225,6 @@ const PORTION_MACROS: Array<{
   { key: 'carbs', label: 'Carbohidratos', shortLabel: 'HC', color: '#F4A261' },
   { key: 'fat', label: 'Grasas', shortLabel: 'G', color: '#D95F5F' },
 ]
-const PORTION_MEAL_TEMPLATES: Record<PortionMealCount, Array<{ key: MealKey; name: string }>> = {
-  3: [
-    { key: 'breakfast', name: 'Desayuno' },
-    { key: 'lunch', name: 'Comida' },
-    { key: 'dinner', name: 'Cena' },
-  ],
-  4: [
-    { key: 'breakfast', name: 'Desayuno' },
-    { key: 'snack', name: 'Merienda' },
-    { key: 'lunch', name: 'Comida' },
-    { key: 'dinner', name: 'Cena' },
-  ],
-  5: [
-    { key: 'breakfast', name: 'Desayuno' },
-    { key: 'snack', name: 'Merienda 1' },
-    { key: 'lunch', name: 'Comida' },
-    { key: 'snack2', name: 'Merienda 2' },
-    { key: 'dinner', name: 'Cena' },
-  ],
-}
-const PORTION_DEFAULT_WEIGHTS: Record<PortionMealCount, number[]> = {
-  3: [0.3, 0.4, 0.3],
-  4: [0.28, 0.14, 0.34, 0.24],
-  5: [0.24, 0.12, 0.3, 0.1, 0.24],
-}
-
 const optionLabel = (
   value: string | null | undefined,
   options: ReadonlyArray<{ value: string; label: string }>,
@@ -227,6 +235,16 @@ const optionLabel = (
 }
 
 const formatNumber = (value: number) => Math.round(value).toString()
+const roundMacroGrams = (value: number) => Math.round(value * 10) / 10
+const formatMacroGrams = (value: number) => roundMacroGrams(value).toFixed(1)
+const formatPerKg = (value: number) => value.toFixed(2)
+const getMacroTargetsError = (targets: { isValid: boolean; fat: { calories: number } } | null) => {
+  if (!targets || targets.isValid) return null
+  if (targets.fat.calories < 0) {
+    return `HC y proteina superan el objetivo en ${Math.ceil(Math.abs(targets.fat.calories))} kcal. Reduce uno de los valores en g/kg.`
+  }
+  return 'Introduce valores validos y no negativos para HC y proteina.'
+}
 const roundPortion = (value: number) => Math.round(value * 2) / 2
 const formatPortion = (value: number) => {
   const rounded = roundPortion(value)
@@ -245,67 +263,6 @@ const formatWithUnit = (value: number | null | undefined, unit: string) => {
 }
 
 const emptyPortionSummary = (): MacroSummary => ({ protein: 0, carbs: 0, fat: 0 })
-
-const sumMealPortionTargets = (targets: MealPortionTarget[]) =>
-  targets.reduce<MacroSummary>(
-    (acc, item) => ({
-      protein: acc.protein + item.portions.protein,
-      carbs: acc.carbs + item.portions.carbs,
-      fat: acc.fat + item.portions.fat,
-    }),
-    emptyPortionSummary(),
-  )
-
-const normalizeMealPortionTargets = (
-  existing: MealPortionTarget[] | null | undefined,
-  mealCount: PortionMealCount,
-  budget: MacroSummary,
-) => {
-  const template = PORTION_MEAL_TEMPLATES[mealCount]
-  if (existing?.length) {
-    const existingMap = new Map(existing.map((item) => [item.key, item]))
-    return template.map((meal) => {
-      const current = existingMap.get(meal.key)
-      return {
-        key: meal.key,
-        name: current?.name ?? meal.name,
-        portions: {
-          protein: roundPortion(current?.portions.protein ?? 0),
-          carbs: roundPortion(current?.portions.carbs ?? 0),
-          fat: roundPortion(current?.portions.fat ?? 0),
-        },
-      }
-    })
-  }
-
-  const weights = PORTION_DEFAULT_WEIGHTS[mealCount]
-  const initial = template.map((meal, index) => ({
-    key: meal.key,
-    name: meal.name,
-    portions: {
-      protein: roundPortion(budget.protein * weights[index]),
-      carbs: roundPortion(budget.carbs * weights[index]),
-      fat: roundPortion(budget.fat * weights[index]),
-    },
-  }))
-  const totals = sumMealPortionTargets(initial)
-  const residual = {
-    protein: roundPortion(budget.protein - totals.protein),
-    carbs: roundPortion(budget.carbs - totals.carbs),
-    fat: roundPortion(budget.fat - totals.fat),
-  }
-  const mainIndex = initial.findIndex((item) => item.key === 'lunch')
-  const targetIndex = mainIndex >= 0 ? mainIndex : 0
-  initial[targetIndex] = {
-    ...initial[targetIndex],
-    portions: {
-      protein: roundPortion(initial[targetIndex].portions.protein + residual.protein),
-      carbs: roundPortion(initial[targetIndex].portions.carbs + residual.carbs),
-      fat: roundPortion(initial[targetIndex].portions.fat + residual.fat),
-    },
-  }
-  return initial
-}
 
 const totalsFromMeals = (meals: Meal[]): MacroTotals =>
   meals.reduce(
@@ -394,8 +351,9 @@ const applyPlanMacroOverride = (
 ) => {
   if (!outputs) return outputs
   const dailyOverride = getDayMacroOverride(dayOverride)
+  const distributionMacros = getDistributionMacroOverride(plan, dayOverride, dayType, weight)
   const planOverride = getPlanMacroOverrideForDate(plan, date)
-  const overrideMacros = dailyOverride ?? planOverride?.macros ?? null
+  const overrideMacros = dailyOverride ?? distributionMacros ?? planOverride?.macros ?? null
   if (!overrideMacros) return outputs
   if (!goal) return outputs
   return applyMacroOverrideToOutputs({
@@ -498,8 +456,11 @@ const buildSyncSeries = (
         activityDelta = 0
       }
     }
+    const recalculatedOutputs = baseInputs
+      ? calculateDayFromBase(baseInputs, override?.overrides ?? { dayType })
+      : override?.computed ?? outputs ?? null
     const targetBase = applyPlanMacroOverride(
-      override?.computed ?? outputs ?? null,
+      recalculatedOutputs,
       plan,
       date,
       dayType,
@@ -631,9 +592,6 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
   const [statusFilter, setStatusFilter] = useState('all')
   const [goalFilter, setGoalFilter] = useState('all')
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
-  const [macroDialogOpen, setMacroDialogOpen] = useState(false)
-  const [macroSaving, setMacroSaving] = useState(false)
-  const [macroError, setMacroError] = useState<string | null>(null)
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
   const [resetLoading, setResetLoading] = useState(false)
   const [resetError, setResetError] = useState<string | null>(null)
@@ -662,23 +620,20 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
   const [messageError, setMessageError] = useState<string | null>(null)
   const [unreadMessageCounts, setUnreadMessageCounts] = useState<Record<string, number>>({})
   const [trackingWindowPage, setTrackingWindowPage] = useState(0)
-  const [macroForm, setMacroForm] = useState({
-    protein: '',
-    carbsAdjusted: '',
-    fatsAdjusted: '',
-  })
+  const [macroDistributionRows, setMacroDistributionRows] = useState<MacroDistributionRow[]>([])
+  const [macroDistributionSavingId, setMacroDistributionSavingId] = useState<string | null>(null)
+  const [macroDistributionError, setMacroDistributionError] = useState<string | null>(null)
   const [dayMacroDialogOpen, setDayMacroDialogOpen] = useState(false)
   const [dayMacroSaving, setDayMacroSaving] = useState(false)
   const [dayMacroError, setDayMacroError] = useState<string | null>(null)
   const [dayMacroDate, setDayMacroDate] = useState<string | null>(null)
   const [dayMacroForm, setDayMacroForm] = useState({
-    protein: '',
-    carbsAdjusted: '',
-    fatsAdjusted: '',
+    proteinPerKg: '',
+    carbsPerKg: '',
   })
   const [portionDate, setPortionDate] = useState<string | null>(null)
-  const [portionMealCount, setPortionMealCount] = useState<PortionMealCount>(5)
-  const [portionTargets, setPortionTargets] = useState<MealPortionTarget[]>([])
+  const [portionDistributionId, setPortionDistributionId] = useState('')
+  const [categoryDistribution, setCategoryDistribution] = useState<MealCategoryDistribution[]>([])
   const [portionSaving, setPortionSaving] = useState(false)
   const [portionError, setPortionError] = useState<string | null>(null)
   const [selectedClientPlan, setSelectedClientPlan] = useState<SelectedClientPlanState | null>(null)
@@ -921,41 +876,101 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
   const activePortionDate = portionDate ?? portionDateOptions[0]?.date ?? null
   const activePortionSyncPoint = syncSeries.find((item) => item.date === activePortionDate) ?? null
   const activePortionOverride = activePortionDate ? selectedOverridesByDate.get(activePortionDate) ?? null : null
-  const activePortionBudget = activePortionSyncPoint?.targetMacros
-    ? toPortions(activePortionSyncPoint.targetMacros)
-    : emptyPortionSummary()
-  const activePortionTargets = useMemo(
-    () => normalizeMealPortionTargets(portionTargets, portionMealCount, activePortionBudget),
-    [activePortionBudget, portionMealCount, portionTargets],
+  const activePortionDayType = getDayType(
+    activePortionOverride,
+    selectedRecord?.latestAssessment?.inputs.dayType,
   )
-  const activePortionTotals = useMemo(
-    () => sumMealPortionTargets(activePortionTargets),
-    [activePortionTargets],
+  const activePortionDistribution =
+    selectedRecord?.plan?.macroDistributions?.find((item) => item.id === portionDistributionId) ??
+    getMacroDistributionForDay(
+      selectedRecord?.plan,
+      activePortionOverride,
+      activePortionDayType,
+    )
+  const activePortionDistributionTargets =
+    activePortionDistribution && selectedRecord?.latestAssessment
+      ? (() => {
+          const { inputs } = selectedRecord.latestAssessment
+          const dayOutputs = calculateDayFromBase(inputs, activePortionOverride?.overrides ?? {
+            dayType: activePortionDayType,
+          })
+          return calculateMacroTargets({
+            weightKg: inputs.weight,
+            targetCalories: getDayTargetCalories(dayOutputs.kcalObjectiveBase, activePortionDayType),
+            carbsPerKg: activePortionDistribution.carbsPerKg,
+            proteinPerKg: activePortionDistribution.proteinPerKg,
+          })
+        })()
+      : null
+  const activePortionTargetMacros = activePortionDistributionTargets?.isValid
+    ? {
+        protein: activePortionDistributionTargets.protein.grams,
+        carbs: activePortionDistributionTargets.carbs.grams,
+        fat: activePortionDistributionTargets.fat.grams,
+      }
+    : activePortionSyncPoint?.targetMacros
+      ? activePortionSyncPoint.targetMacros
+      : emptyPortionSummary()
+  const activeCategoryMacros = useMemo(
+    () => calculateCategoryDistributionMacros(categoryDistribution),
+    [categoryDistribution],
   )
   const activePortionDiff = {
-    protein: roundPortion(activePortionBudget.protein - activePortionTotals.protein),
-    carbs: roundPortion(activePortionBudget.carbs - activePortionTotals.carbs),
-    fat: roundPortion(activePortionBudget.fat - activePortionTotals.fat),
+    protein: roundMacroGrams(activePortionTargetMacros.protein - activeCategoryMacros.total.protein),
+    carbs: roundMacroGrams(activePortionTargetMacros.carbs - activeCategoryMacros.total.carbs),
+    fat: roundMacroGrams(activePortionTargetMacros.fat - activeCategoryMacros.total.fat),
   }
+  const isActiveCategoryDistributionBalanced = isCategoryDistributionBalanced(
+    activeCategoryMacros.total,
+    activePortionTargetMacros,
+  )
   const hasSelectedDayMacroOverride = (day: WeeklyDataPoint) =>
     !!selectedOverridesByDate.get(day.date)?.overrides?.macroOverride
 
   useEffect(() => {
     setTrackingWindowPage(0)
     setPortionDate(null)
-    setPortionTargets([])
+    setPortionDistributionId('')
+    setCategoryDistribution([])
     setPortionError(null)
   }, [selectedRecord?.plan?.id])
 
   useEffect(() => {
     if (!activePortionDate) return
-    const existingTargets = activePortionOverride?.overrides?.mealPortionTargets ?? null
-    const nextMealCount =
-      existingTargets?.length === 3 || existingTargets?.length === 4 || existingTargets?.length === 5
-        ? (existingTargets.length as PortionMealCount)
-        : portionMealCount
-    setPortionMealCount(nextMealCount)
-    setPortionTargets(normalizeMealPortionTargets(existingTargets, nextMealCount, activePortionBudget))
+    const existingDistribution =
+      activePortionOverride?.overrides?.mealCategoryDistribution ?? null
+    const assignedDistribution = getMacroDistributionForDay(
+      selectedRecord?.plan,
+      activePortionOverride,
+      activePortionDayType,
+    )
+    setPortionDistributionId(assignedDistribution?.id ?? '')
+    if (existingDistribution?.length) {
+      setCategoryDistribution(normalizeCategoryDistribution(existingDistribution))
+    } else {
+      let targetMacros = activePortionSyncPoint?.targetMacros ?? emptyPortionSummary()
+      const assessmentInputs = selectedRecord?.latestAssessment?.inputs
+      if (assignedDistribution && assessmentInputs) {
+        const dayOutputs = calculateDayFromBase(
+          assessmentInputs,
+          activePortionOverride?.overrides ?? { dayType: activePortionDayType },
+        )
+        const targets = calculateMacroTargets({
+          weightKg: assessmentInputs.weight,
+          targetCalories: getDayTargetCalories(dayOutputs.kcalObjectiveBase, activePortionDayType),
+          carbsPerKg: assignedDistribution.carbsPerKg,
+          proteinPerKg: assignedDistribution.proteinPerKg,
+        })
+        if (targets.isValid) {
+          targetMacros = {
+            protein: targets.protein.grams,
+            carbs: targets.carbs.grams,
+            fat: targets.fat.grams,
+          }
+        }
+      }
+      setCategoryDistribution(buildAutomaticCategoryDistribution(targetMacros))
+    }
     setPortionError(null)
   }, [activePortionDate, activePortionOverride?.updatedAt])
 
@@ -971,7 +986,8 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
   const actionsMenuOpen = Boolean(actionsMenuAnchor)
   const effectiveOutputs = useMemo<CalculationOutputs | null>(() => {
     if (!assessment) return null
-    const { outputs, inputs } = assessment
+    const { inputs } = assessment
+    const outputs = calculateDayFromBase(inputs, {})
     const macroOverride = getPlanMacroOverrideForDate(
       selectedRecord?.plan ?? null,
       dayjs().format('YYYY-MM-DD'),
@@ -986,40 +1002,35 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
       weight: inputs.weight,
     })
   }, [assessment, selectedRecord?.plan])
-  const macroDistribution = useMemo(() => {
-    if (!effectiveOutputs) return []
+  const effectiveMacroOverview = useMemo(() => {
+    if (!effectiveOutputs || !assessment || assessment.inputs.weight <= 0) return null
+    const weightKg = assessment.inputs.weight
     const macros = {
       protein: effectiveOutputs.protein,
       carbs: effectiveOutputs.carbsAdjusted,
       fat: effectiveOutputs.fatsAdjusted,
     }
-    const breakdown = getMacroKcalBreakdown(macros)
-    if (breakdown.totalKcal <= 0) return []
-    const toPercent = (kcal: number) => Math.round((kcal / breakdown.totalKcal) * 100)
-    return [
-      {
-        id: 'protein',
-        label: 'Proteina',
+    const kcal = getMacroKcalBreakdown(macros)
+    return {
+      targetCalories: effectiveOutputs.kcalObjectiveDay,
+      protein: {
+        perKg: macros.protein / weightKg,
         grams: macros.protein,
-        percent: toPercent(breakdown.proteinKcal),
-        color: theme.palette.success.main,
+        calories: kcal.proteinKcal,
       },
-      {
-        id: 'carbs',
-        label: 'Carbohidratos',
+      carbs: {
+        perKg: macros.carbs / weightKg,
         grams: macros.carbs,
-        percent: toPercent(breakdown.carbsKcal),
-        color: theme.palette.info.main,
+        calories: kcal.carbsKcal,
       },
-      {
-        id: 'fat',
-        label: 'Grasas',
+      fat: {
+        perKg: macros.fat / weightKg,
         grams: macros.fat,
-        percent: toPercent(breakdown.fatKcal),
-        color: theme.palette.warning.main,
+        calories: kcal.fatKcal,
       },
-    ]
-  }, [effectiveOutputs, theme])
+      totalCalories: kcal.totalKcal,
+    }
+  }, [assessment, effectiveOutputs])
   const profilePhysicalRows = useMemo(() => {
     if (!assessment) return []
     const { inputs } = assessment
@@ -1073,26 +1084,6 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     ]
   }, [assessment])
 
-  const getMacroDefaults = () => {
-    const outputs = selectedRecord?.latestAssessment?.outputs
-    const plan = selectedRecord?.plan
-    if (!outputs && !plan?.macroOverrides?.length) return null
-    const todayLabel = dayjs().format('YYYY-MM-DD')
-    const override = getPlanMacroOverrideForDate(plan, todayLabel)
-    if (override)
-      return {
-        protein: override.macros.protein,
-        carbsAdjusted: override.macros.carbsAdjusted,
-        fatsAdjusted: override.macros.fatsAdjusted,
-      }
-    if (!outputs) return null
-    return {
-      protein: outputs.protein,
-      carbsAdjusted: outputs.carbsAdjusted,
-      fatsAdjusted: outputs.fatsAdjusted,
-    }
-  }
-
   const parseMacroValue = (value: string) => {
     const trimmed = value.trim()
     if (!trimmed) return null
@@ -1100,20 +1091,34 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     return Number.isFinite(numberValue) ? numberValue : null
   }
 
-  const macroPreviewKcal = (() => {
-    const protein = parseMacroValue(macroForm.protein)
-    const carbsAdjusted = parseMacroValue(macroForm.carbsAdjusted)
-    const fatsAdjusted = parseMacroValue(macroForm.fatsAdjusted)
-    if (protein === null || carbsAdjusted === null || fatsAdjusted === null) return null
-    return calcKcalFromMacros({ protein, carbsAdjusted, fatsAdjusted })
+  const dayMacroContext = (() => {
+    if (!assessment || !dayMacroDate) return null
+    const existingOverride = selectedOverridesByDate.get(dayMacroDate)
+    const dayType = getDayType(existingOverride, assessment.inputs.dayType)
+    const dayOutputs = calculateDayFromBase(assessment.inputs, existingOverride?.overrides ?? { dayType })
+    return {
+      dayType,
+      targetCalories: getDayTargetCalories(dayOutputs.kcalObjectiveBase, dayType),
+    }
   })()
-
-  const dayMacroPreviewKcal = (() => {
-    const protein = parseMacroValue(dayMacroForm.protein)
-    const carbsAdjusted = parseMacroValue(dayMacroForm.carbsAdjusted)
-    const fatsAdjusted = parseMacroValue(dayMacroForm.fatsAdjusted)
-    if (protein === null || carbsAdjusted === null || fatsAdjusted === null) return null
-    return calcKcalFromMacros({ protein, carbsAdjusted, fatsAdjusted })
+  const dayMacroPreviewTargets = (() => {
+    const proteinPerKg = parseMacroValue(dayMacroForm.proteinPerKg)
+    const carbsPerKg = parseMacroValue(dayMacroForm.carbsPerKg)
+    const weightKg = assessment?.inputs.weight
+    if (
+      proteinPerKg === null ||
+      carbsPerKg === null ||
+      !weightKg ||
+      !dayMacroContext
+    ) {
+      return null
+    }
+    return calculateMacroTargets({
+      weightKg,
+      targetCalories: dayMacroContext.targetCalories,
+      carbsPerKg,
+      proteinPerKg,
+    })
   })()
 
   const applySelectedPlanUpdate = (nextPlan: Plan) => {
@@ -1172,20 +1177,49 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     setPortionDate(date)
   }
 
-  const handlePortionMealCountChange = (count: PortionMealCount) => {
-    setPortionMealCount(count)
-    setPortionTargets(normalizeMealPortionTargets(null, count, activePortionBudget))
+  const handlePortionDistributionChange = (distributionId: string) => {
+    setPortionDistributionId(distributionId)
+    const distribution = selectedRecord?.plan?.macroDistributions?.find(
+      (item) => item.id === distributionId,
+    )
+    const inputs = selectedRecord?.latestAssessment?.inputs
+    if (distribution && inputs) {
+      const dayOutputs = calculateDayFromBase(
+        inputs,
+        activePortionOverride?.overrides ?? { dayType: activePortionDayType },
+      )
+      const targets = calculateMacroTargets({
+        weightKg: inputs.weight,
+        targetCalories: getDayTargetCalories(dayOutputs.kcalObjectiveBase, activePortionDayType),
+        carbsPerKg: distribution.carbsPerKg,
+        proteinPerKg: distribution.proteinPerKg,
+      })
+      if (targets.isValid) {
+        setCategoryDistribution(
+          buildAutomaticCategoryDistribution({
+            protein: targets.protein.grams,
+            carbs: targets.carbs.grams,
+            fat: targets.fat.grams,
+          }),
+        )
+      }
+    }
+    setPortionError(null)
   }
 
-  const handlePortionChange = (mealKey: MealKey, macroKey: PortionMacroKey, delta: number) => {
-    setPortionTargets((prev) =>
-      normalizeMealPortionTargets(prev, portionMealCount, activePortionBudget).map((item) =>
-        item.key === mealKey
+  const handleCategoryPortionChange = (
+    category: string,
+    meal: MealDistributionColumnKey,
+    delta: number,
+  ) => {
+    setCategoryDistribution((prev) =>
+      normalizeCategoryDistribution(prev).map((item) =>
+        item.category === category
           ? {
               ...item,
               portions: {
                 ...item.portions,
-                [macroKey]: Math.max(0, roundPortion(item.portions[macroKey] + delta)),
+                [meal]: Math.max(0, roundExchange(item.portions[meal] + delta)),
               },
             }
           : item,
@@ -1194,7 +1228,7 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
   }
 
   const handleResetPortionTargets = () => {
-    setPortionTargets(normalizeMealPortionTargets(null, portionMealCount, activePortionBudget))
+    setCategoryDistribution(buildAutomaticCategoryDistribution(activePortionTargetMacros))
     setPortionError(null)
   }
 
@@ -1204,7 +1238,14 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
       return
     }
 
-    const normalizedTargets = normalizeMealPortionTargets(activePortionTargets, portionMealCount, activePortionBudget)
+    if (!isActiveCategoryDistributionBalanced) {
+      setPortionError(
+        'El reparto no cuadra con los macros objetivo. Ajusta las porciones hasta que los tres indicadores estén dentro de tolerancia.',
+      )
+      return
+    }
+
+    const normalizedDistribution = normalizeCategoryDistribution(categoryDistribution)
     setPortionSaving(true)
     setPortionError(null)
     try {
@@ -1214,7 +1255,10 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
           dayType: assessment.inputs.dayType ?? 'rest',
           activityLevel: assessment.inputs.activityLevel,
         }),
-        mealPortionTargets: normalizedTargets,
+        macroDistributionId: portionDistributionId || activePortionDistribution?.id || null,
+        macroOverride: null,
+        mealPortionTargets: null,
+        mealCategoryDistribution: normalizedDistribution,
       }
       const updatedOverride = await upsertOverride({
         planId: selectedRecord.plan.id,
@@ -1224,7 +1268,7 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
         note: existingOverride?.note,
       })
       applyDayOverrideUpdate(selectedRecord.userId, updatedOverride)
-      setPortionTargets(normalizedTargets)
+      setCategoryDistribution(normalizedDistribution)
     } catch (err) {
       setPortionError(err instanceof Error ? err.message : 'No se pudo guardar el reparto.')
     } finally {
@@ -1240,61 +1284,157 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     setActionsMenuAnchor(null)
   }
 
-  const handleOpenMacroDialog = () => {
-    setMacroError(null)
-    const defaults = getMacroDefaults()
-    if (!selectedRecord?.plan || !defaults) {
-      setMacroError('No hay datos suficientes para editar macros.')
-      setMacroDialogOpen(true)
-      return
-    }
-    setMacroForm({
-      protein: Math.round(defaults.protein).toString(),
-      carbsAdjusted: Math.round(defaults.carbsAdjusted).toString(),
-      fatsAdjusted: Math.round(defaults.fatsAdjusted).toString(),
-    })
-    setMacroDialogOpen(true)
-  }
+  const rowsFromPlan = (plan: Plan): MacroDistributionRow[] =>
+    (plan.macroDistributions ?? []).map((item) => ({
+      id: item.id,
+      name: item.name,
+      dayType: item.dayType,
+      carbsPerKg: formatPerKg(item.carbsPerKg),
+      proteinPerKg: formatPerKg(item.proteinPerKg),
+      isDefault: item.isDefault,
+      isNew: false,
+    }))
 
-  const handleCloseMacroDialog = () => {
-    if (macroSaving) return
-    setMacroDialogOpen(false)
-    setMacroError(null)
-  }
-
-  const handleSaveMacroOverride = async () => {
+  const loadMacroDistributionRows = () => {
     if (!selectedRecord?.plan) return
-    const protein = parseMacroValue(macroForm.protein)
-    const carbsAdjusted = parseMacroValue(macroForm.carbsAdjusted)
-    const fatsAdjusted = parseMacroValue(macroForm.fatsAdjusted)
-    if (protein === null || carbsAdjusted === null || fatsAdjusted === null) {
-      setMacroError('Completa los campos con numeros validos.')
+    setMacroDistributionRows(rowsFromPlan(selectedRecord.plan))
+    setMacroDistributionError(null)
+  }
+
+  const getMacroDistributionRowPreview = (row: MacroDistributionRow) => {
+    if (!assessment) return null
+    const carbsPerKg = parseMacroValue(row.carbsPerKg)
+    const proteinPerKg = parseMacroValue(row.proteinPerKg)
+    if (carbsPerKg === null || proteinPerKg === null) return null
+    const dayOutputs = calculateDayFromBase(assessment.inputs, { dayType: row.dayType })
+    return calculateMacroTargets({
+      weightKg: assessment.inputs.weight,
+      targetCalories: getDayTargetCalories(dayOutputs.kcalObjectiveBase, row.dayType),
+      carbsPerKg,
+      proteinPerKg,
+    })
+  }
+
+  const handleAddMacroDistribution = () => {
+    if (!assessment) return
+    const dayType = assessment.inputs.dayType ?? 'rest'
+    const existingForType = macroDistributionRows.some((item) => item.dayType === dayType)
+    setMacroDistributionRows((prev) => [
+      ...prev,
+      {
+        id: `new-${Date.now()}`,
+        name: `Distribucion ${prev.length + 1}`,
+        dayType,
+        carbsPerKg: formatPerKg(effectiveMacroOverview?.carbs.perKg ?? 0),
+        proteinPerKg: formatPerKg(effectiveMacroOverview?.protein.perKg ?? 0),
+        isDefault: !existingForType,
+        isNew: true,
+      },
+    ])
+    setMacroDistributionError(null)
+  }
+
+  const handleMacroDistributionRowChange = (
+    id: string,
+    changes: Partial<MacroDistributionRow>,
+  ) => {
+    setMacroDistributionRows((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) {
+          if (
+            changes.isDefault &&
+            changes.dayType !== undefined &&
+            item.dayType === changes.dayType
+          ) {
+            return { ...item, isDefault: false }
+          }
+          return item
+        }
+        return { ...item, ...changes }
+      }),
+    )
+  }
+
+  const handleMacroDistributionStep = (
+    id: string,
+    key: 'carbsPerKg' | 'proteinPerKg',
+    delta: number,
+  ) => {
+    setMacroDistributionRows((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item
+        const current = parseMacroValue(item[key]) ?? 0
+        const next = Math.max(0, Math.round((current + delta) * 100) / 100)
+        return { ...item, [key]: formatPerKg(next) }
+      }),
+    )
+  }
+
+  const handleSaveMacroDistribution = async (row: MacroDistributionRow) => {
+    if (!selectedRecord?.plan) return
+    const preview = getMacroDistributionRowPreview(row)
+    const carbsPerKg = parseMacroValue(row.carbsPerKg)
+    const proteinPerKg = parseMacroValue(row.proteinPerKg)
+    if (!row.name.trim() || carbsPerKg === null || proteinPerKg === null || !preview?.isValid) {
+      setMacroDistributionError(
+        getMacroTargetsError(preview) ?? 'Completa el nombre y los valores de la distribucion.',
+      )
       return
     }
 
-    setMacroSaving(true)
-    setMacroError(null)
+    setMacroDistributionSavingId(row.id)
+    setMacroDistributionError(null)
     try {
-      const plan = await upsertPlanMacroOverride({
-        planId: selectedRecord.plan.id,
-        effectiveFrom: dayjs().format('YYYY-MM-DD'),
-        macros: {
-          protein: Math.round(protein),
-          carbsAdjusted: Math.round(carbsAdjusted),
-          fatsAdjusted: Math.round(fatsAdjusted),
-        },
-      })
+      const payload = {
+        name: row.name.trim(),
+        dayType: row.dayType,
+        carbsPerKg,
+        proteinPerKg,
+        isDefault: row.isDefault,
+      }
+      const plan = row.isNew
+        ? await createMacroDistribution(selectedRecord.plan.id, payload)
+        : await updateMacroDistribution(selectedRecord.plan.id, row.id, payload)
       applySelectedPlanUpdate(plan)
-      setMacroDialogOpen(false)
+      setMacroDistributionRows(rowsFromPlan(plan))
     } catch (err) {
-      setMacroError(err instanceof Error ? err.message : 'No se pudo guardar')
+      setMacroDistributionError(
+        err instanceof Error ? err.message : 'No se pudo guardar la distribucion.',
+      )
     } finally {
-      setMacroSaving(false)
+      setMacroDistributionSavingId(null)
     }
+  }
+
+  const handleDeleteMacroDistribution = async (row: MacroDistributionRow) => {
+    if (!selectedRecord?.plan) return
+    if (row.isNew) {
+      setMacroDistributionRows((prev) => prev.filter((item) => item.id !== row.id))
+      return
+    }
+    setMacroDistributionSavingId(row.id)
+    setMacroDistributionError(null)
+    try {
+      const plan = await deleteMacroDistribution(selectedRecord.plan.id, row.id)
+      applySelectedPlanUpdate(plan)
+      setMacroDistributionRows(rowsFromPlan(plan))
+      if (portionDistributionId === row.id) setPortionDistributionId('')
+    } catch (err) {
+      setMacroDistributionError(
+        err instanceof Error ? err.message : 'No se pudo eliminar la distribucion.',
+      )
+    } finally {
+      setMacroDistributionSavingId(null)
+    }
+  }
+
+  const handleMacroAccordionChange = (_event: SyntheticEvent, expanded: boolean) => {
+    if (expanded) loadMacroDistributionRows()
   }
 
   const handleOpenDayMacroDialog = (day: WeeklyDataPoint) => {
-    if (!selectedRecord?.plan) return
+    const weightKg = assessment?.inputs.weight
+    if (!selectedRecord?.plan || !weightKg) return
     const existingDayOverride = selectedOverridesByDate.get(day.date)
     const defaults = existingDayOverride?.overrides?.macroOverride ?? {
       protein: day.proteinTargetG,
@@ -1304,9 +1444,8 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     setDayMacroDate(day.date)
     setDayMacroError(null)
     setDayMacroForm({
-      protein: Math.round(defaults.protein).toString(),
-      carbsAdjusted: Math.round(defaults.carbsAdjusted).toString(),
-      fatsAdjusted: Math.round(defaults.fatsAdjusted).toString(),
+      proteinPerKg: formatPerKg(defaults.protein / weightKg),
+      carbsPerKg: formatPerKg(defaults.carbsAdjusted / weightKg),
     })
     setDayMacroDialogOpen(true)
   }
@@ -1320,11 +1459,13 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
 
   const handleSaveDayMacroOverride = async () => {
     if (!selectedRecord?.plan || !dayMacroDate) return
-    const protein = parseMacroValue(dayMacroForm.protein)
-    const carbsAdjusted = parseMacroValue(dayMacroForm.carbsAdjusted)
-    const fatsAdjusted = parseMacroValue(dayMacroForm.fatsAdjusted)
-    if (protein === null || carbsAdjusted === null || fatsAdjusted === null) {
+    if (!dayMacroPreviewTargets) {
       setDayMacroError('Completa los campos con numeros validos.')
+      return
+    }
+    const validationError = getMacroTargetsError(dayMacroPreviewTargets)
+    if (validationError) {
+      setDayMacroError(validationError)
       return
     }
 
@@ -1344,9 +1485,9 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
             activityLevel: baseActivityLevel,
           }),
           macroOverride: {
-            protein: Math.round(protein),
-            carbsAdjusted: Math.round(carbsAdjusted),
-            fatsAdjusted: Math.round(fatsAdjusted),
+            protein: roundMacroGrams(dayMacroPreviewTargets.protein.grams),
+            carbsAdjusted: roundMacroGrams(dayMacroPreviewTargets.carbs.grams),
+            fatsAdjusted: roundMacroGrams(dayMacroPreviewTargets.fat.grams),
           },
         },
         meals: existingDayOverride?.meals,
@@ -2191,15 +2332,6 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
                       <MenuItem
                         onClick={() => {
                           handleCloseActionsMenu()
-                          handleOpenMacroDialog()
-                        }}
-                        disabled={!selectedRecord.plan}
-                      >
-                        Editar macros
-                      </MenuItem>
-                      <MenuItem
-                        onClick={() => {
-                          handleCloseActionsMenu()
                           handleOpenResetDialog()
                         }}
                       >
@@ -2299,296 +2431,6 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
                           </Stack>
                         </Paper>
 
-                        <Paper
-                          variant="outlined"
-                          sx={{
-                            p: { xs: 2, sm: 2.75 },
-                            borderRadius: 3,
-                            bgcolor: '#F4F8FF',
-                            borderColor: theme.palette.primary.light,
-                          }}
-                        >
-                          <Stack spacing={2}>
-                            <Stack direction="row" spacing={1} alignItems="center">
-                              <LocalFireDepartmentRoundedIcon color="primary" />
-                              <Typography variant="subtitle1" fontWeight={800}>
-                                Calculo energetico
-                              </Typography>
-                            </Stack>
-                            <Stack spacing={0.25}>
-                              <Typography variant="caption" color="text.secondary">
-                                Kcal objetivo
-                              </Typography>
-                              <Typography variant="h3" fontWeight={900} color="primary.main" lineHeight={1}>
-                                {effectiveOutputs ? `${formatNumber(effectiveOutputs.kcalObjectiveDay)} kcal` : '--'}
-                              </Typography>
-                            </Stack>
-                            <Box
-                              sx={{
-                                display: 'grid',
-                                gridTemplateColumns: {
-                                  xs: 'repeat(2, minmax(0, 1fr))',
-                                  sm: 'repeat(4, minmax(0, 1fr))',
-                                },
-                                gap: 1.25,
-                              }}
-                            >
-                              {[
-                                { label: 'RMR', value: formatWithUnit(effectiveOutputs?.rmr ?? null, 'kcal') },
-                                { label: 'PAL', value: formatValue(effectiveOutputs?.pal ?? null) },
-                                { label: 'TDEE', value: formatWithUnit(effectiveOutputs?.tdee ?? null, 'kcal') },
-                                { label: 'EEE', value: formatWithUnit(effectiveOutputs?.eee ?? null, 'kcal') },
-                              ].map((metric) => (
-                                <Box
-                                  key={metric.label}
-                                  sx={{
-                                    borderRadius: 2,
-                                    p: 1.25,
-                                    bgcolor: 'common.white',
-                                  }}
-                                >
-                                  <Typography variant="caption" color="text.secondary">
-                                    {metric.label}
-                                  </Typography>
-                                  <Typography variant="body1" fontWeight={800}>
-                                    {metric.value}
-                                  </Typography>
-                                </Box>
-                              ))}
-                            </Box>
-                          </Stack>
-                        </Paper>
-
-                        <Paper
-                          variant="outlined"
-                          sx={{
-                            p: { xs: 2, sm: 2.5 },
-                            borderRadius: 3,
-                            bgcolor: '#FAF7FF',
-                          }}
-                        >
-                          <Stack spacing={2}>
-                            <Typography variant="subtitle1" fontWeight={800}>
-                              Distribucion de macronutrientes
-                            </Typography>
-                            {macroDistribution.length === 0 ? (
-                              <Typography variant="body2" color="text.secondary">
-                                Sin datos de macros para mostrar.
-                              </Typography>
-                            ) : (
-                              <Stack spacing={1.5}>
-                                {macroDistribution.map((macro) => (
-                                  <Stack key={macro.id} spacing={0.6}>
-                                    <Stack direction="row" justifyContent="space-between" spacing={1}>
-                                      <Typography variant="body2" fontWeight={700}>
-                                        {macro.label}
-                                      </Typography>
-                                      <Typography variant="body2" fontWeight={700} color="text.secondary">
-                                        {formatNumber(macro.grams)} g | {macro.percent}%
-                                      </Typography>
-                                    </Stack>
-                                    <Box
-                                      sx={{
-                                        height: 10,
-                                        borderRadius: 999,
-                                        bgcolor: theme.palette.grey[200],
-                                        overflow: 'hidden',
-                                      }}
-                                    >
-                                      <Box
-                                        sx={{
-                                          width: `${Math.min(Math.max(macro.percent, 0), 100)}%`,
-                                          height: '100%',
-                                          bgcolor: macro.color,
-                                        }}
-                                      />
-                                    </Box>
-                                  </Stack>
-                                ))}
-                              </Stack>
-                            )}
-                          </Stack>
-                        </Paper>
-
-                        <Accordion
-                          disableGutters
-                          elevation={0}
-                          sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider' }}
-                        >
-                          <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
-                            <Stack spacing={0.25}>
-                              <Typography variant="subtitle2" fontWeight={700}>
-                                Reparto de porciones por comida
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                Ajusta porciones de proteina, hidratos y grasas para cada comida del dia.
-                              </Typography>
-                            </Stack>
-                          </AccordionSummary>
-                          <AccordionDetails>
-                            {!activePortionDate || !activePortionSyncPoint?.targetMacros ? (
-                              <Typography variant="body2" color="text.secondary">
-                                No hay dias del plan disponibles para repartir porciones.
-                              </Typography>
-                            ) : (
-                              <Stack spacing={2}>
-                                <Stack
-                                  direction={{ xs: 'column', sm: 'row' }}
-                                  spacing={1.5}
-                                  alignItems={{ xs: 'stretch', sm: 'center' }}
-                                >
-                                  <FormControl size="small" sx={{ minWidth: 190 }}>
-                                    <InputLabel id="portion-date-label">Dia</InputLabel>
-                                    <Select
-                                      labelId="portion-date-label"
-                                      label="Dia"
-                                      value={activePortionDate}
-                                      onChange={(event) => handlePortionDateChange(event.target.value)}
-                                    >
-                                      {portionDateOptions.map((item) => (
-                                        <MenuItem key={item.date} value={item.date}>
-                                          {item.label}
-                                        </MenuItem>
-                                      ))}
-                                    </Select>
-                                  </FormControl>
-                                  <FormControl size="small" sx={{ minWidth: 150 }}>
-                                    <InputLabel id="portion-meals-label">Comidas</InputLabel>
-                                    <Select
-                                      labelId="portion-meals-label"
-                                      label="Comidas"
-                                      value={portionMealCount}
-                                      onChange={(event) =>
-                                        handlePortionMealCountChange(Number(event.target.value) as PortionMealCount)
-                                      }
-                                    >
-                                      {[3, 4, 5].map((count) => (
-                                        <MenuItem key={count} value={count}>
-                                          {count} comidas
-                                        </MenuItem>
-                                      ))}
-                                    </Select>
-                                  </FormControl>
-                                  <Box sx={{ flex: 1 }} />
-                                  <Button size="small" variant="outlined" onClick={handleResetPortionTargets}>
-                                    Recalcular
-                                  </Button>
-                                  <Button
-                                    size="small"
-                                    variant="contained"
-                                    onClick={handleSavePortionTargets}
-                                    disabled={portionSaving}
-                                  >
-                                    {portionSaving ? 'Guardando...' : 'Guardar reparto'}
-                                  </Button>
-                                </Stack>
-
-                                <Box
-                                  sx={{
-                                    display: 'grid',
-                                    gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' },
-                                    gap: 1,
-                                  }}
-                                >
-                                  {PORTION_MACROS.map((macro) => (
-                                    <Paper key={macro.key} variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>
-                                      <Stack direction="row" justifyContent="space-between" alignItems="center">
-                                        <Typography variant="caption" color="text.secondary">
-                                          {macro.label}
-                                        </Typography>
-                                        <Chip
-                                          size="small"
-                                          label={`${formatPortion(activePortionTotals[macro.key])}/${formatPortion(
-                                            activePortionBudget[macro.key],
-                                          )}`}
-                                          sx={{ bgcolor: `${macro.color}1A`, color: macro.color, fontWeight: 800 }}
-                                        />
-                                      </Stack>
-                                      <Typography
-                                        variant="caption"
-                                        color={activePortionDiff[macro.key] === 0 ? 'text.secondary' : 'warning.main'}
-                                      >
-                                        Diferencia: {formatPortion(activePortionDiff[macro.key])}
-                                      </Typography>
-                                    </Paper>
-                                  ))}
-                                </Box>
-
-                                <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
-                                  <Table size="small">
-                                    <TableHead>
-                                      <TableRow>
-                                        <TableCell>Comida</TableCell>
-                                        {PORTION_MACROS.map((macro) => (
-                                          <TableCell key={macro.key} align="center">
-                                            {macro.shortLabel}
-                                          </TableCell>
-                                        ))}
-                                      </TableRow>
-                                    </TableHead>
-                                    <TableBody>
-                                      {activePortionTargets.map((meal) => (
-                                        <TableRow key={meal.key}>
-                                          <TableCell>
-                                            <Typography variant="body2" fontWeight={700}>
-                                              {meal.name}
-                                            </Typography>
-                                          </TableCell>
-                                          {PORTION_MACROS.map((macro) => (
-                                            <TableCell key={macro.key} align="center">
-                                              <Stack direction="row" spacing={0.75} alignItems="center" justifyContent="center">
-                                                <Button
-                                                  size="small"
-                                                  variant="outlined"
-                                                  onClick={() => handlePortionChange(meal.key, macro.key, -0.5)}
-                                                  sx={{ minWidth: 30, px: 0 }}
-                                                >
-                                                  -
-                                                </Button>
-                                                <Typography
-                                                  variant="body2"
-                                                  fontWeight={800}
-                                                  sx={{ minWidth: 32, color: macro.color }}
-                                                >
-                                                  {formatPortion(meal.portions[macro.key])}
-                                                </Typography>
-                                                <Button
-                                                  size="small"
-                                                  variant="outlined"
-                                                  onClick={() => handlePortionChange(meal.key, macro.key, 0.5)}
-                                                  sx={{ minWidth: 30, px: 0 }}
-                                                >
-                                                  +
-                                                </Button>
-                                              </Stack>
-                                            </TableCell>
-                                          ))}
-                                        </TableRow>
-                                      ))}
-                                      <TableRow>
-                                        <TableCell>
-                                          <Typography variant="body2" fontWeight={900}>
-                                            Total
-                                          </Typography>
-                                        </TableCell>
-                                        {PORTION_MACROS.map((macro) => (
-                                          <TableCell key={macro.key} align="center">
-                                            <Typography variant="body2" fontWeight={900} sx={{ color: macro.color }}>
-                                              {formatPortion(activePortionTotals[macro.key])}
-                                            </Typography>
-                                          </TableCell>
-                                        ))}
-                                      </TableRow>
-                                    </TableBody>
-                                  </Table>
-                                </TableContainer>
-
-                                {portionError && <Alert severity="warning">{portionError}</Alert>}
-                              </Stack>
-                            )}
-                          </AccordionDetails>
-                        </Accordion>
-
                         <Accordion
                           disableGutters
                           elevation={0}
@@ -2658,6 +2500,519 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
                                 </Box>
                               </Box>
                             </Stack>
+                          </AccordionDetails>
+                        </Accordion>
+
+                        <Paper
+                          variant="outlined"
+                          sx={{
+                            p: { xs: 2, sm: 2.75 },
+                            borderRadius: 3,
+                            bgcolor: '#F4F8FF',
+                            borderColor: theme.palette.primary.light,
+                          }}
+                        >
+                          <Stack spacing={2}>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <LocalFireDepartmentRoundedIcon color="primary" />
+                              <Typography variant="subtitle1" fontWeight={800}>
+                                Calculo energetico
+                              </Typography>
+                            </Stack>
+                            <Stack spacing={0.25}>
+                              <Typography variant="caption" color="text.secondary">
+                                Kcal objetivo
+                              </Typography>
+                              <Typography variant="h3" fontWeight={900} color="primary.main" lineHeight={1}>
+                                {effectiveOutputs ? `${formatNumber(effectiveOutputs.kcalObjectiveDay)} kcal` : '--'}
+                              </Typography>
+                            </Stack>
+                            <Box
+                              sx={{
+                                display: 'grid',
+                                gridTemplateColumns: {
+                                  xs: 'repeat(2, minmax(0, 1fr))',
+                                  sm: 'repeat(4, minmax(0, 1fr))',
+                                },
+                                gap: 1.25,
+                              }}
+                            >
+                              {[
+                                { label: 'RMR', value: formatWithUnit(effectiveOutputs?.rmr ?? null, 'kcal') },
+                                { label: 'PAL', value: formatValue(effectiveOutputs?.pal ?? null) },
+                                { label: 'TDEE', value: formatWithUnit(effectiveOutputs?.tdee ?? null, 'kcal') },
+                                { label: 'EEE', value: formatWithUnit(effectiveOutputs?.eee ?? null, 'kcal') },
+                              ].map((metric) => (
+                                <Box
+                                  key={metric.label}
+                                  sx={{
+                                    borderRadius: 2,
+                                    p: 1.25,
+                                    bgcolor: 'common.white',
+                                  }}
+                                >
+                                  <Typography variant="caption" color="text.secondary">
+                                    {metric.label}
+                                  </Typography>
+                                  <Typography variant="body1" fontWeight={800}>
+                                    {metric.value}
+                                  </Typography>
+                                </Box>
+                              ))}
+                            </Box>
+                          </Stack>
+                        </Paper>
+
+                        <Accordion
+                          disableGutters
+                          elevation={0}
+                          onChange={handleMacroAccordionChange}
+                          sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider' }}
+                        >
+                          <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
+                            <Typography variant="subtitle2" fontWeight={700}>
+                              Calculo de macros objetivo
+                            </Typography>
+                          </AccordionSummary>
+                          <AccordionDetails>
+                            {!assessment || !selectedRecord.plan ? (
+                              <Typography variant="body2" color="text.secondary">
+                                No hay datos suficientes para calcular los objetivos.
+                              </Typography>
+                            ) : (
+                              <Stack spacing={2}>
+                                <Stack
+                                  direction={{ xs: 'column', sm: 'row' }}
+                                  spacing={1}
+                                  justifyContent="space-between"
+                                  alignItems={{ xs: 'stretch', sm: 'center' }}
+                                >
+                                  <Stack spacing={0.25}>
+                                    <Typography variant="body2" fontWeight={800}>
+                                      Distribuciones del plan
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      Cada fila puede asignarse a uno o varios dias desde el reparto de porciones.
+                                    </Typography>
+                                  </Stack>
+                                  <Button size="small" variant="contained" onClick={handleAddMacroDistribution}>
+                                    + Nueva distribucion
+                                  </Button>
+                                </Stack>
+                                {macroDistributionRows.length === 0 ? (
+                                  <Typography variant="body2" color="text.secondary">
+                                    Todavia no hay distribuciones. Crea la primera para poder asignarla al plan.
+                                  </Typography>
+                                ) : (
+                                  <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+                                    <Table size="small">
+                                      <TableHead>
+                                        <TableRow>
+                                          <TableCell>Nombre</TableCell>
+                                          <TableCell>Tipo de dia</TableCell>
+                                          <TableCell align="center">HC</TableCell>
+                                          <TableCell align="center">Proteina</TableCell>
+                                          <TableCell align="center">Grasas</TableCell>
+                                          <TableCell align="center">Total kcal</TableCell>
+                                          <TableCell align="center">Default</TableCell>
+                                          <TableCell align="right">Acciones</TableCell>
+                                        </TableRow>
+                                      </TableHead>
+                                      <TableBody>
+                                        {macroDistributionRows.map((row) => {
+                                          const preview = getMacroDistributionRowPreview(row)
+                                          const actualCalories = preview
+                                            ? preview.carbs.calories +
+                                              preview.protein.calories +
+                                              Math.max(0, preview.fat.calories)
+                                            : 0
+                                          return (
+                                            <TableRow key={row.id}>
+                                              <TableCell sx={{ minWidth: 170 }}>
+                                                <TextField
+                                                  size="small"
+                                                  value={row.name}
+                                                  onChange={(event) =>
+                                                    handleMacroDistributionRowChange(row.id, {
+                                                      name: event.target.value,
+                                                    })
+                                                  }
+                                                  fullWidth
+                                                />
+                                              </TableCell>
+                                              <TableCell sx={{ minWidth: 170 }}>
+                                                <FormControl size="small" fullWidth>
+                                                  <Select
+                                                    value={row.dayType}
+                                                    onChange={(event) =>
+                                                      handleMacroDistributionRowChange(row.id, {
+                                                        dayType: event.target.value as WizardInputs['dayType'],
+                                                        isDefault: false,
+                                                      })
+                                                    }
+                                                  >
+                                                    {dayTypeOptions.map((option) => (
+                                                      <MenuItem key={option.value} value={option.value}>
+                                                        {option.label}
+                                                      </MenuItem>
+                                                    ))}
+                                                  </Select>
+                                                </FormControl>
+                                              </TableCell>
+                                              {(
+                                                [
+                                                  ['carbsPerKg', 'carbs'],
+                                                  ['proteinPerKg', 'protein'],
+                                                ] as const
+                                              ).map(([field, macro]) => (
+                                                <TableCell key={field} align="center" sx={{ minWidth: 145 }}>
+                                                  <Stack spacing={0.4} alignItems="center">
+                                                    <Stack direction="row" spacing={0.5} alignItems="center">
+                                                      <Button
+                                                        size="small"
+                                                        variant="outlined"
+                                                        onClick={() =>
+                                                          handleMacroDistributionStep(row.id, field, -0.1)
+                                                        }
+                                                        disabled={(parseMacroValue(row[field]) ?? 0) <= 0}
+                                                        sx={{ minWidth: 28, px: 0 }}
+                                                      >
+                                                        -
+                                                      </Button>
+                                                      <Typography
+                                                        variant="body2"
+                                                        fontWeight={800}
+                                                        sx={{ minWidth: 64 }}
+                                                      >
+                                                        {row[field]} g/kg
+                                                      </Typography>
+                                                      <Button
+                                                        size="small"
+                                                        variant="outlined"
+                                                        onClick={() =>
+                                                          handleMacroDistributionStep(row.id, field, 0.1)
+                                                        }
+                                                        sx={{ minWidth: 28, px: 0 }}
+                                                      >
+                                                        +
+                                                      </Button>
+                                                    </Stack>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                      {preview
+                                                        ? `${formatMacroGrams(preview[macro].grams)} g`
+                                                        : '--'}
+                                                    </Typography>
+                                                  </Stack>
+                                                </TableCell>
+                                              ))}
+                                              <TableCell align="center" sx={{ minWidth: 105 }}>
+                                                <Typography variant="body2" fontWeight={800}>
+                                                  {preview && Number.isFinite(preview.fat.perKg)
+                                                    ? `${formatPerKg(preview.fat.perKg)} g/kg`
+                                                    : '--'}
+                                                </Typography>
+                                                <Typography variant="caption" color="text.secondary">
+                                                  {preview ? `${formatMacroGrams(preview.fat.grams)} g` : '--'}
+                                                </Typography>
+                                              </TableCell>
+                                              <TableCell align="center" sx={{ minWidth: 125 }}>
+                                                <Chip
+                                                  size="small"
+                                                  variant="outlined"
+                                                  color={preview?.isValid ? 'success' : 'warning'}
+                                                  label={
+                                                    preview
+                                                      ? `${formatNumber(actualCalories)}/${formatNumber(
+                                                          preview.totalCalories,
+                                                        )}`
+                                                      : '--'
+                                                  }
+                                                />
+                                              </TableCell>
+                                              <TableCell align="center">
+                                                <Button
+                                                  size="small"
+                                                  variant={row.isDefault ? 'contained' : 'outlined'}
+                                                  onClick={() =>
+                                                    handleMacroDistributionRowChange(row.id, {
+                                                      isDefault: true,
+                                                      dayType: row.dayType,
+                                                    })
+                                                  }
+                                                >
+                                                  {row.isDefault ? 'Si' : 'No'}
+                                                </Button>
+                                              </TableCell>
+                                              <TableCell align="right" sx={{ minWidth: 170 }}>
+                                                <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                                                  <Button
+                                                    size="small"
+                                                    variant="contained"
+                                                    onClick={() => handleSaveMacroDistribution(row)}
+                                                    disabled={
+                                                      macroDistributionSavingId !== null || !preview?.isValid
+                                                    }
+                                                  >
+                                                    {macroDistributionSavingId === row.id
+                                                      ? 'Guardando...'
+                                                      : 'Guardar'}
+                                                  </Button>
+                                                  <Button
+                                                    size="small"
+                                                    color="error"
+                                                    onClick={() => handleDeleteMacroDistribution(row)}
+                                                    disabled={macroDistributionSavingId !== null}
+                                                  >
+                                                    Eliminar
+                                                  </Button>
+                                                </Stack>
+                                              </TableCell>
+                                            </TableRow>
+                                          )
+                                        })}
+                                      </TableBody>
+                                    </Table>
+                                  </TableContainer>
+                                )}
+                                {macroDistributionError && (
+                                  <Alert severity="warning">{macroDistributionError}</Alert>
+                                )}
+                              </Stack>
+                            )}
+                          </AccordionDetails>
+                        </Accordion>
+
+                        <Accordion
+                          disableGutters
+                          elevation={0}
+                          sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider' }}
+                        >
+                          <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
+                            <Stack spacing={0.25}>
+                              <Typography variant="subtitle2" fontWeight={700}>
+                                Reparto de porciones por comida
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Reparte intercambios por categoria y comida. El total debe cuadrar con los macros objetivo.
+                              </Typography>
+                            </Stack>
+                          </AccordionSummary>
+                          <AccordionDetails>
+                            {!activePortionDate || !activePortionSyncPoint?.targetMacros ? (
+                              <Typography variant="body2" color="text.secondary">
+                                No hay dias del plan disponibles para repartir porciones.
+                              </Typography>
+                            ) : (
+                              <Stack spacing={2}>
+                                <Stack
+                                  direction={{ xs: 'column', sm: 'row' }}
+                                  spacing={1.5}
+                                  alignItems={{ xs: 'stretch', sm: 'center' }}
+                                >
+                                  <FormControl size="small" sx={{ minWidth: 190 }}>
+                                    <InputLabel id="portion-date-label">Dia</InputLabel>
+                                    <Select
+                                      labelId="portion-date-label"
+                                      label="Dia"
+                                      value={activePortionDate}
+                                      onChange={(event) => handlePortionDateChange(event.target.value)}
+                                    >
+                                      {portionDateOptions.map((item) => (
+                                        <MenuItem key={item.date} value={item.date}>
+                                          {item.label}
+                                        </MenuItem>
+                                      ))}
+                                    </Select>
+                                  </FormControl>
+                                  <FormControl size="small" sx={{ minWidth: 210 }}>
+                                    <InputLabel id="portion-distribution-label">Distribucion</InputLabel>
+                                    <Select
+                                      labelId="portion-distribution-label"
+                                      label="Distribucion"
+                                      value={portionDistributionId || activePortionDistribution?.id || ''}
+                                      onChange={(event) =>
+                                        handlePortionDistributionChange(event.target.value)
+                                      }
+                                      disabled={!selectedRecord.plan?.macroDistributions?.length}
+                                    >
+                                      {(selectedRecord.plan?.macroDistributions ?? []).map((item) => (
+                                        <MenuItem key={item.id} value={item.id}>
+                                          {item.name} · {optionLabel(item.dayType, dayTypeOptions)}
+                                          {item.isDefault ? ' · Default' : ''}
+                                        </MenuItem>
+                                      ))}
+                                    </Select>
+                                  </FormControl>
+                                  <Box sx={{ flex: 1 }} />
+                                  <Button size="small" variant="outlined" onClick={handleResetPortionTargets}>
+                                    Recalcular
+                                  </Button>
+                                  <Button
+                                    size="small"
+                                    variant="contained"
+                                    onClick={handleSavePortionTargets}
+                                    disabled={portionSaving || !isActiveCategoryDistributionBalanced}
+                                  >
+                                    {portionSaving ? 'Guardando...' : 'Guardar reparto'}
+                                  </Button>
+                                </Stack>
+
+                                <Box
+                                  sx={{
+                                    display: 'grid',
+                                    gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' },
+                                    gap: 1,
+                                  }}
+                                >
+                                  {PORTION_MACROS.map((macro) => (
+                                    <Paper key={macro.key} variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>
+                                      <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                        <Typography variant="caption" color="text.secondary">
+                                          {macro.label}
+                                        </Typography>
+                                        <Chip
+                                          size="small"
+                                          label={`${formatMacroGrams(
+                                            activeCategoryMacros.total[macro.key],
+                                          )}/${formatMacroGrams(activePortionTargetMacros[macro.key])} g`}
+                                          sx={{ bgcolor: `${macro.color}1A`, color: macro.color, fontWeight: 800 }}
+                                        />
+                                      </Stack>
+                                      <Typography
+                                        variant="caption"
+                                        color={
+                                          Math.abs(activePortionDiff[macro.key]) <=
+                                          MACRO_DISTRIBUTION_TOLERANCE[macro.key]
+                                            ? 'success.main'
+                                            : 'warning.main'
+                                        }
+                                      >
+                                        Diferencia: {formatMacroGrams(activePortionDiff[macro.key])} g
+                                      </Typography>
+                                    </Paper>
+                                  ))}
+                                </Box>
+
+                                <Alert severity={isActiveCategoryDistributionBalanced ? 'success' : 'warning'}>
+                                  {isActiveCategoryDistributionBalanced
+                                    ? 'El reparto cuadra con los macros objetivo.'
+                                    : 'Ajusta los intercambios: el guardado se habilita cuando HC, proteína y grasas están dentro de media porción del objetivo.'}
+                                </Alert>
+
+                                <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+                                  <Table size="small">
+                                    <TableHead>
+                                      <TableRow>
+                                        <TableCell>Categoria</TableCell>
+                                        {MEAL_DISTRIBUTION_COLUMNS.map((column) => (
+                                          <TableCell key={column.key} align="center">
+                                            {column.label}
+                                          </TableCell>
+                                        ))}
+                                        <TableCell align="center">Total</TableCell>
+                                      </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                      {categoryDistribution.map((row) => {
+                                        const category = FOOD_CATEGORY_EXCHANGES.find(
+                                          (item) => item.key === row.category,
+                                        )
+                                        const rowTotal = MEAL_DISTRIBUTION_COLUMNS.reduce(
+                                          (sum, column) => sum + row.portions[column.key],
+                                          0,
+                                        )
+                                        return (
+                                          <TableRow key={row.category}>
+                                            <TableCell sx={{ minWidth: 220 }}>
+                                              <Typography variant="body2" fontWeight={700}>
+                                                {row.name}
+                                              </Typography>
+                                              {category && (
+                                                <Typography variant="caption" color="text.secondary">
+                                                  HC {category.macros.carbs} · P {category.macros.protein} · G{' '}
+                                                  {category.macros.fat}
+                                                </Typography>
+                                              )}
+                                            </TableCell>
+                                            {MEAL_DISTRIBUTION_COLUMNS.map((column) => (
+                                              <TableCell key={column.key} align="center" sx={{ minWidth: 120 }}>
+                                                <Stack
+                                                  direction="row"
+                                                  spacing={0.5}
+                                                  alignItems="center"
+                                                  justifyContent="center"
+                                                >
+                                                  <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    onClick={() =>
+                                                      handleCategoryPortionChange(
+                                                        row.category,
+                                                        column.key,
+                                                        -0.5,
+                                                      )
+                                                    }
+                                                    disabled={row.portions[column.key] <= 0}
+                                                    sx={{ minWidth: 28, px: 0 }}
+                                                  >
+                                                    -
+                                                  </Button>
+                                                  <Typography variant="body2" fontWeight={800} sx={{ minWidth: 28 }}>
+                                                    {formatPortion(row.portions[column.key])}
+                                                  </Typography>
+                                                  <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    onClick={() =>
+                                                      handleCategoryPortionChange(
+                                                        row.category,
+                                                        column.key,
+                                                        0.5,
+                                                      )
+                                                    }
+                                                    sx={{ minWidth: 28, px: 0 }}
+                                                  >
+                                                    +
+                                                  </Button>
+                                                </Stack>
+                                              </TableCell>
+                                            ))}
+                                            <TableCell align="center">
+                                              <Typography variant="body2" fontWeight={900}>
+                                                {formatPortion(rowTotal)}
+                                              </Typography>
+                                            </TableCell>
+                                          </TableRow>
+                                        )
+                                      })}
+                                      {PORTION_MACROS.map((macro) => (
+                                        <TableRow key={macro.key} sx={{ bgcolor: `${macro.color}0D` }}>
+                                          <TableCell>
+                                            <Typography variant="body2" fontWeight={900} sx={{ color: macro.color }}>
+                                              {macro.label} (g)
+                                            </Typography>
+                                          </TableCell>
+                                          {MEAL_DISTRIBUTION_COLUMNS.map((column) => (
+                                            <TableCell key={column.key} align="center">
+                                              {formatMacroGrams(
+                                                activeCategoryMacros.byMeal[column.key][macro.key],
+                                              )}
+                                            </TableCell>
+                                          ))}
+                                          <TableCell align="center">
+                                            <Typography variant="body2" fontWeight={900} sx={{ color: macro.color }}>
+                                              {formatMacroGrams(activeCategoryMacros.total[macro.key])}
+                                            </Typography>
+                                          </TableCell>
+                                        </TableRow>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
+                                </TableContainer>
+
+                                {portionError && <Alert severity="warning">{portionError}</Alert>}
+                              </Stack>
+                            )}
                           </AccordionDetails>
                         </Accordion>
 
@@ -2926,78 +3281,19 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={macroDialogOpen} onClose={handleCloseMacroDialog} fullWidth maxWidth="xs">
-        <DialogTitle>Editar macros del plan</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 0.5 }}>
-            <Typography variant="caption" color="text.secondary">
-              Aplica desde hoy y no modifica dias anteriores.
-            </Typography>
-            <TextField
-              size="small"
-              type="number"
-              label="Kcal objetivo (dia)"
-              value={macroPreviewKcal ?? ''}
-              InputProps={{ readOnly: true }}
-              inputProps={{ min: 0, step: 1 }}
-              fullWidth
-            />
-            <TextField
-              size="small"
-              type="number"
-              label="Proteina (g)"
-              value={macroForm.protein}
-              onChange={(event) =>
-                setMacroForm((prev) => ({ ...prev, protein: event.target.value }))
-              }
-              inputProps={{ min: 0, step: 1 }}
-              fullWidth
-            />
-            <TextField
-              size="small"
-              type="number"
-              label="Carbohidratos ajustados (g)"
-              value={macroForm.carbsAdjusted}
-              onChange={(event) =>
-                setMacroForm((prev) => ({ ...prev, carbsAdjusted: event.target.value }))
-              }
-              inputProps={{ min: 0, step: 1 }}
-              fullWidth
-            />
-            <TextField
-              size="small"
-              type="number"
-              label="Grasas ajustadas (g)"
-              value={macroForm.fatsAdjusted}
-              onChange={(event) =>
-                setMacroForm((prev) => ({ ...prev, fatsAdjusted: event.target.value }))
-              }
-              inputProps={{ min: 0, step: 1 }}
-              fullWidth
-            />
-            {macroError && <Alert severity="warning">{macroError}</Alert>}
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseMacroDialog}>Cancelar</Button>
-          <Button variant="contained" onClick={handleSaveMacroOverride} disabled={macroSaving}>
-            {macroSaving ? 'Guardando...' : 'Guardar'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
       <Dialog open={dayMacroDialogOpen} onClose={handleCloseDayMacroDialog} fullWidth maxWidth="xs">
         <DialogTitle>Ajustar macros del dia</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 0.5 }}>
             <Typography variant="caption" color="text.secondary">
-              Aplica solo para {dayMacroDate ? dayjs(dayMacroDate).format('DD/MM/YYYY') : 'el dia seleccionado'}.
+              Aplica solo para {dayMacroDate ? dayjs(dayMacroDate).format('DD/MM/YYYY') : 'el dia seleccionado'}. HC y
+              proteina se ajustan en g/kg; las grasas completan las kcal objetivo.
             </Typography>
             <TextField
               size="small"
               type="number"
               label="Kcal objetivo (dia)"
-              value={dayMacroPreviewKcal ?? ''}
+              value={dayMacroContext?.targetCalories ?? ''}
               InputProps={{ readOnly: true }}
               inputProps={{ min: 0, step: 1 }}
               fullWidth
@@ -3005,42 +3301,65 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
             <TextField
               size="small"
               type="number"
-              label="Proteina (g)"
-              value={dayMacroForm.protein}
+              label="HC (g/kg)"
+              value={dayMacroForm.carbsPerKg}
               onChange={(event) =>
-                setDayMacroForm((prev) => ({ ...prev, protein: event.target.value }))
+                setDayMacroForm((prev) => ({ ...prev, carbsPerKg: event.target.value }))
               }
-              inputProps={{ min: 0, step: 1 }}
+              helperText={
+                dayMacroPreviewTargets
+                  ? `${formatMacroGrams(dayMacroPreviewTargets.carbs.grams)} g · ${formatNumber(dayMacroPreviewTargets.carbs.calories)} kcal`
+                  : 'Introduce gramos por kg'
+              }
+              inputProps={{ min: 0, step: 0.01 }}
               fullWidth
             />
             <TextField
               size="small"
               type="number"
-              label="Carbohidratos ajustados (g)"
-              value={dayMacroForm.carbsAdjusted}
+              label="Proteina (g/kg)"
+              value={dayMacroForm.proteinPerKg}
               onChange={(event) =>
-                setDayMacroForm((prev) => ({ ...prev, carbsAdjusted: event.target.value }))
+                setDayMacroForm((prev) => ({ ...prev, proteinPerKg: event.target.value }))
               }
-              inputProps={{ min: 0, step: 1 }}
+              helperText={
+                dayMacroPreviewTargets
+                  ? `${formatMacroGrams(dayMacroPreviewTargets.protein.grams)} g · ${formatNumber(dayMacroPreviewTargets.protein.calories)} kcal`
+                  : 'Introduce gramos por kg'
+              }
+              inputProps={{ min: 0, step: 0.01 }}
               fullWidth
             />
             <TextField
               size="small"
               type="number"
-              label="Grasas ajustadas (g)"
-              value={dayMacroForm.fatsAdjusted}
-              onChange={(event) =>
-                setDayMacroForm((prev) => ({ ...prev, fatsAdjusted: event.target.value }))
+              label="Grasas (g/kg)"
+              value={
+                dayMacroPreviewTargets && Number.isFinite(dayMacroPreviewTargets.fat.perKg)
+                  ? formatPerKg(dayMacroPreviewTargets.fat.perKg)
+                  : ''
               }
-              inputProps={{ min: 0, step: 1 }}
+              InputProps={{ readOnly: true }}
+              helperText={
+                dayMacroPreviewTargets
+                  ? `${formatMacroGrams(dayMacroPreviewTargets.fat.grams)} g · ${formatNumber(dayMacroPreviewTargets.fat.calories)} kcal`
+                  : 'Se calcula automaticamente'
+              }
               fullWidth
             />
+            {getMacroTargetsError(dayMacroPreviewTargets) && (
+              <Alert severity="warning">{getMacroTargetsError(dayMacroPreviewTargets)}</Alert>
+            )}
             {dayMacroError && <Alert severity="warning">{dayMacroError}</Alert>}
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDayMacroDialog}>Cancelar</Button>
-          <Button variant="contained" onClick={handleSaveDayMacroOverride} disabled={dayMacroSaving || !dayMacroDate}>
+          <Button
+            variant="contained"
+            onClick={handleSaveDayMacroOverride}
+            disabled={dayMacroSaving || !dayMacroDate || !dayMacroPreviewTargets?.isValid}
+          >
             {dayMacroSaving ? 'Guardando...' : 'Guardar'}
           </Button>
         </DialogActions>

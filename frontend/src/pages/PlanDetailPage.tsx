@@ -44,6 +44,7 @@ import {
   toMacroPortionValue,
   toMacroPortions,
 } from "../lib/calc";
+import { getDistributionMacroOverride } from "../lib/macroDistributions";
 import {
   createAdminUserMealTemplate,
   createMealTemplate,
@@ -418,8 +419,15 @@ const PlanDetailPage = () => {
   ) => {
     if (!outputs) return outputs;
     const dailyOverride = dayOverride?.overrides?.macroOverride ?? null;
+    const distributionOverride = getDistributionMacroOverride(
+      plan,
+      dayOverride,
+      dayType,
+      baseInputs?.weight ?? 0,
+    );
     const planOverride = getMacroOverrideForDate(date, plan?.macroOverrides);
-    const overrideMacros = dailyOverride ?? planOverride?.macros ?? null;
+    const overrideMacros =
+      dailyOverride ?? distributionOverride ?? planOverride?.macros ?? null;
     if (!overrideMacros) return outputs;
     if (!baseInputs?.goal) return outputs;
     return applyMacroOverrideToOutputs({

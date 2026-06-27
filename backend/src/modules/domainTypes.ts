@@ -71,6 +71,19 @@ export type MealPortionTargetInput = {
   }
 }
 
+export type MealCategoryDistributionInput = {
+  category: string
+  name: string
+  portions: {
+    breakfast: number
+    snack: number
+    lunch: number
+    snack2: number
+    dinner: number
+    extras: number
+  }
+}
+
 export type WizardInputs = {
   name: string
   sex: Sex
@@ -91,9 +104,11 @@ export type WizardInputs = {
 export type DayOverrideInputs = {
   activityLevel?: ActivityLevel | null
   dayType?: DayType | null
+  macroDistributionId?: string | null
   macroOverride?: MacroOverrideInput | null
   trainings?: TrainingOverrideInput[] | null
   training?: TrainingOverrideInput | null
   meals?: DayMealInput[]
   mealPortionTargets?: MealPortionTargetInput[] | null
+  mealCategoryDistribution?: MealCategoryDistributionInput[] | null
 }

@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { randomUUID } from 'node:crypto'
 import { Types } from 'mongoose'
 import { z } from 'zod'
 import { PlanDayOverrideModel } from '../models/PlanDayOverride'
@@ -60,6 +61,14 @@ const macroOverrideSchema = z.object({
 const macroOverrideBodySchema = z.object({
   effectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   macros: macroOverrideSchema,
+})
+
+const macroDistributionSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  dayType: z.enum(['rest', 'training_type_1', 'training_type_2', 'training']),
+  carbsPerKg: z.coerce.number().nonnegative(),
+  proteinPerKg: z.coerce.number().nonnegative(),
+  isDefault: z.boolean().optional().default(false),
 })
 
 const planStatusSchema = z.object({
@@ -147,6 +156,7 @@ type MacroOverrideValue = z.infer<typeof macroOverrideSchema> & {
   kcalObjectiveDay?: number
 }
 type MacroOverrideEntry = { effectiveFrom: string; macros?: MacroOverrideValue | null }
+type MacroDistributionValue = z.infer<typeof macroDistributionSchema> & { id: string }
 
 const normalizeMacroOverrides = (overrides: Array<MacroOverrideEntry> | undefined) =>
   (overrides ?? []).filter(
@@ -165,6 +175,51 @@ const getMacroOverrideForDate = (
   filtered.sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? -1 : 1))
   return filtered[filtered.length - 1]
 }
+
+const normalizeMacroDistributions = (
+  distributions: Array<MacroDistributionValue> | undefined,
+) => distributions ?? []
+
+const ensureMacroDistributionDefaults = (
+  distributions: MacroDistributionValue[],
+) => {
+  const result = distributions.map((item) => ({ ...item }))
+  const dayTypes = new Set(result.map((item) => item.dayType))
+  dayTypes.forEach((dayType) => {
+    const matches = result.filter((item) => item.dayType === dayType)
+    const selectedDefault = matches.find((item) => item.isDefault) ?? matches[0]
+    matches.forEach((item) => {
+      item.isDefault = item.id === selectedDefault?.id
+    })
+  })
+  return result
+}
+
+const getMacroDistributionForDay = (
+  distributions: Array<MacroDistributionValue> | undefined,
+  overrides: DayOverrideInputs | null | undefined,
+  dayType: WizardInputs['dayType'],
+) => {
+  const normalized = normalizeMacroDistributions(distributions)
+  const explicitId = overrides?.macroDistributionId
+  if (explicitId) {
+    const explicit = normalized.find((item) => item.id === explicitId)
+    if (explicit) return explicit
+  }
+  return normalized.find((item) => item.dayType === dayType && item.isDefault) ?? null
+}
+
+const macroOverrideFromDistribution = (
+  distribution: MacroDistributionValue | null,
+  weight: number,
+): MacroOverrideValue | null =>
+  distribution
+    ? {
+        protein: weight * distribution.proteinPerKg,
+        carbsAdjusted: weight * distribution.carbsPerKg,
+        fatsAdjusted: 0,
+      }
+    : null
 
 const getTrainingType = (
   overrides: DayOverrideInputs | null | undefined,
@@ -188,13 +243,14 @@ const applyMacroOverride = (
   outputs: ReturnType<typeof calculateDayFromBase>['outputs'],
   planOverride: { macros: MacroOverrideValue } | null,
   dayOverride: MacroOverrideValue | null,
+  distributionOverride: MacroOverrideValue | null,
   dayType: WizardInputs['dayType'],
   trainingType: WizardInputs['trainingType'] | null,
   goal: WizardInputs['goal'],
   weight: number,
   activityDelta = 0,
 ) => {
-  const override = dayOverride ?? planOverride?.macros ?? null
+  const override = dayOverride ?? distributionOverride ?? planOverride?.macros ?? null
   if (!override) return outputs
   return applyMacroOverrideToOutputs({
     outputs,
@@ -306,6 +362,97 @@ router.put(
   }),
 )
 
+router.post(
+  '/:planId/macro-distributions',
+  asyncHandler(async (req, res) => {
+    const { planId } = req.params
+    if (!Types.ObjectId.isValid(planId)) throw badRequest('planId invalido')
+    const parsed = macroDistributionSchema.safeParse(req.body)
+    if (!parsed.success) throw badRequest('Validation failed', parsed.error.flatten())
+
+    const plan = await PlanModel.findById(planId)
+    if (!plan) throw notFound('Plan no encontrado')
+    if (req.user?.role !== 'admin') throw badRequest('Acceso no permitido')
+
+    const existing = normalizeMacroDistributions(plan.macroDistributions)
+    const hasDefault = existing.some(
+      (item) => item.dayType === parsed.data.dayType && item.isDefault,
+    )
+    const nextDistribution: MacroDistributionValue = {
+      id: randomUUID(),
+      ...parsed.data,
+      isDefault: parsed.data.isDefault || !hasDefault,
+    }
+    const next = existing.map((item) =>
+      nextDistribution.isDefault && item.dayType === nextDistribution.dayType
+        ? { ...item, isDefault: false }
+        : item,
+    )
+    plan.set(
+      'macroDistributions',
+      ensureMacroDistributionDefaults([...next, nextDistribution]),
+    )
+    await plan.save()
+    res.status(201).json({ plan })
+  }),
+)
+
+router.put(
+  '/:planId/macro-distributions/:distributionId',
+  asyncHandler(async (req, res) => {
+    const { planId, distributionId } = req.params
+    if (!Types.ObjectId.isValid(planId)) throw badRequest('planId invalido')
+    const parsed = macroDistributionSchema.safeParse(req.body)
+    if (!parsed.success) throw badRequest('Validation failed', parsed.error.flatten())
+
+    const plan = await PlanModel.findById(planId)
+    if (!plan) throw notFound('Plan no encontrado')
+    if (req.user?.role !== 'admin') throw badRequest('Acceso no permitido')
+
+    const existing = normalizeMacroDistributions(plan.macroDistributions)
+    if (!existing.some((item) => item.id === distributionId)) {
+      throw notFound('Distribucion no encontrada')
+    }
+    const next = existing.map((item) => {
+      if (item.id === distributionId) return { id: distributionId, ...parsed.data }
+      if (parsed.data.isDefault && item.dayType === parsed.data.dayType) {
+        return { ...item, isDefault: false }
+      }
+      return item
+    })
+    plan.set('macroDistributions', ensureMacroDistributionDefaults(next))
+    await plan.save()
+    res.json({ plan })
+  }),
+)
+
+router.delete(
+  '/:planId/macro-distributions/:distributionId',
+  asyncHandler(async (req, res) => {
+    const { planId, distributionId } = req.params
+    if (!Types.ObjectId.isValid(planId)) throw badRequest('planId invalido')
+
+    const plan = await PlanModel.findById(planId)
+    if (!plan) throw notFound('Plan no encontrado')
+    if (req.user?.role !== 'admin') throw badRequest('Acceso no permitido')
+
+    const existing = normalizeMacroDistributions(plan.macroDistributions)
+    if (!existing.some((item) => item.id === distributionId)) {
+      throw notFound('Distribucion no encontrada')
+    }
+    plan.set(
+      'macroDistributions',
+      ensureMacroDistributionDefaults(existing.filter((item) => item.id !== distributionId)),
+    )
+    await plan.save()
+    await PlanDayOverrideModel.updateMany(
+      { planId, 'overrides.macroDistributionId': distributionId },
+      { $set: { 'overrides.macroDistributionId': null } },
+    )
+    res.json({ plan })
+  }),
+)
+
 router.put(
   '/:planId/status',
   asyncHandler(async (req, res) => {
@@ -390,11 +537,21 @@ router.put(
     const macroOverride = getMacroOverrideForDate(plan.macroOverrides, parsed.data.date)
     const dayMacroOverride = getDayMacroOverride(parsed.data.overrides)
     const dayType = parsed.data.overrides.dayType ?? assessment.inputs.dayType ?? 'rest'
+    const macroDistribution = getMacroDistributionForDay(
+      plan.macroDistributions,
+      parsed.data.overrides,
+      dayType,
+    )
+    const distributionOverride = macroOverrideFromDistribution(
+      macroDistribution,
+      assessment.inputs.weight,
+    )
     const trainingType = getTrainingType(parsed.data.overrides, assessment.inputs)
     const computed = applyMacroOverride(
       outputs,
       macroOverride,
       dayMacroOverride,
+      distributionOverride,
       dayType,
       trainingType,
       assessment.inputs.goal,
@@ -459,6 +616,15 @@ router.get(
       const macroOverride = getMacroOverrideForDate(plan.macroOverrides, date)
       const dayMacroOverride = getDayMacroOverride(existing.overrides ?? null)
       const dayType = existing.overrides?.dayType ?? assessment.inputs.dayType ?? 'rest'
+      const macroDistribution = getMacroDistributionForDay(
+        plan.macroDistributions,
+        existing.overrides ?? null,
+        dayType,
+      )
+      const distributionOverride = macroOverrideFromDistribution(
+        macroDistribution,
+        assessment.inputs.weight,
+      )
       const { outputs } = calculateDayFromBase(assessment.inputs, existing.overrides ?? {})
       const baseOverrides = { ...(existing.overrides ?? {}), activityLevel: undefined }
       const { outputs: baseOutputs } = calculateDayFromBase(assessment.inputs, baseOverrides)
@@ -468,6 +634,7 @@ router.get(
         outputs,
         macroOverride,
         dayMacroOverride,
+        distributionOverride,
         dayType,
         trainingType,
         assessment.inputs.goal,
@@ -482,10 +649,20 @@ router.get(
     const macroOverride = getMacroOverrideForDate(plan.macroOverrides, date)
     const dayMacroOverride = null
     const dayType = assessment.inputs.dayType ?? 'rest'
+    const macroDistribution = getMacroDistributionForDay(
+      plan.macroDistributions,
+      null,
+      dayType,
+    )
+    const distributionOverride = macroOverrideFromDistribution(
+      macroDistribution,
+      assessment.inputs.weight,
+    )
     const computed = applyMacroOverride(
       outputs,
       macroOverride,
       dayMacroOverride,
+      distributionOverride,
       dayType,
       assessment.inputs.trainingType ?? null,
       assessment.inputs.goal,

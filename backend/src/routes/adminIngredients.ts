@@ -25,6 +25,7 @@ const ingredientSchema = z.object({
   group: groupSchema,
   subgrup: z.string().trim().optional().nullable(),
   subgrupo: z.string().trim().optional().nullable(),
+  subgroup: z.string().trim().optional().nullable(),
   sub_group: z.string().trim().optional().nullable(),
   prot_100g: z.coerce.number().min(0),
   cho_100g: z.coerce.number().min(0),
@@ -47,6 +48,7 @@ const normalizeName = (value: string) => value.trim()
 const resolveSubgrup = (ingredient: Record<string, any>) =>
   ingredient.subgrup ??
   ingredient.subgrupo ??
+  ingredient.subgroup ??
   ingredient.sub_group ??
   ingredient.subGroup ??
   ingredient.subgroupo ??
@@ -55,7 +57,12 @@ const resolveSubgrup = (ingredient: Record<string, any>) =>
 const buildIngredientPayload = (data: z.infer<typeof ingredientSchema>) => ({
   name: normalizeName(data.name),
   group: data.group,
-  subgrupo: data.subgrup?.trim() || data.subgrupo?.trim() || data.sub_group?.trim() || null,
+  subgrupo:
+    data.subgrup?.trim() ||
+    data.subgrupo?.trim() ||
+    data.subgroup?.trim() ||
+    data.sub_group?.trim() ||
+    null,
   prot_100g: data.prot_100g,
   cho_100g: data.cho_100g,
   fat_100g: data.fat_100g,
@@ -106,7 +113,7 @@ router.get(
       if (coreGroups.has(group)) {
         filter.group = group
       } else {
-        filter.$or = [{ group }, { subgrupo: group }, { subgrup: group }]
+        filter.$or = [{ group }, { subgrupo: group }, { subgroup: group }, { subgrup: group }]
       }
     }
 

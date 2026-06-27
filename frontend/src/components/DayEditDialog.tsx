@@ -237,6 +237,7 @@ const DayEditDialog = ({
         : (values.activityLevel as ActivityLevel);
 
     const overrides: DayOverrideInputs = {
+      ...(existingOverride?.overrides ?? {}),
       activityLevel,
       dayType: values.dayType,
     };

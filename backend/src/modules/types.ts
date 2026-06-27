@@ -58,6 +58,7 @@ export const wizardInputsSchema = z
 export const dayOverrideSchema = z.object({
   activityLevel: activityEnum.nullable().optional(),
   dayType: dayTypeEnum.nullable().optional(),
+  macroDistributionId: z.string().trim().min(1).nullable().optional(),
   macroOverride: z
     .object({
       protein: z.coerce.number().nonnegative(),
@@ -112,6 +113,23 @@ export const dayOverrideSchema = z.object({
           protein: z.number().nonnegative(),
           carbs: z.number().nonnegative(),
           fat: z.number().nonnegative(),
+        }),
+      }),
+    )
+    .nullable()
+    .optional(),
+  mealCategoryDistribution: z
+    .array(
+      z.object({
+        category: z.string().trim().min(1),
+        name: z.string().trim().min(1),
+        portions: z.object({
+          breakfast: z.number().nonnegative(),
+          snack: z.number().nonnegative(),
+          lunch: z.number().nonnegative(),
+          snack2: z.number().nonnegative(),
+          dinner: z.number().nonnegative(),
+          extras: z.number().nonnegative(),
         }),
       }),
     )

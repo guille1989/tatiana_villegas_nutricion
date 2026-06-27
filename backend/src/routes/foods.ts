@@ -34,12 +34,21 @@ router.get(
       if (group === 'proteinas' || group === 'carbohidratos' || group === 'grasas') {
         filter.group = group
       } else {
-        filter.$or = [{ group }, { subgrupo: group }, { subgrup: group }]
+        filter.$or = [{ group }, { subgrupo: group }, { subgroup: group }, { subgrup: group }]
       }
     }
 
-    const foods = await FoodModel.find(filter).skip(offset).limit(limit).sort({ name: 1 })
-    res.json({ foods })
+    const foods = await FoodModel.find(filter).skip(offset).limit(limit).sort({ name: 1 }).lean()
+    const normalizedFoods = foods.map((food) => ({
+      ...food,
+      subgrup:
+        food.subgrupo ??
+        food.subgroup ??
+        (food as Record<string, unknown>).subgrup ??
+        (food as Record<string, unknown>).sub_group ??
+        null,
+    }))
+    res.json({ foods: normalizedFoods })
   }),
 )
 

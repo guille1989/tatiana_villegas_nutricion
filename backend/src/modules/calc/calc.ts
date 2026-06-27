@@ -48,6 +48,77 @@ export type MacroGramsValue = {
   fat: number
 }
 
+export type MacroTargetsInput = {
+  weightKg: number
+  targetCalories: number
+  carbsPerKg: number
+  proteinPerKg: number
+}
+
+export type MacroTargetValue = {
+  perKg: number
+  grams: number
+  calories: number
+}
+
+export type MacroTargetsResult = {
+  carbs: MacroTargetValue
+  protein: MacroTargetValue
+  fat: MacroTargetValue
+  totalCalories: number
+  isValid: boolean
+}
+
+export const calculateMacroTargets = ({
+  weightKg,
+  targetCalories,
+  carbsPerKg,
+  proteinPerKg,
+}: MacroTargetsInput): MacroTargetsResult => {
+  const hasValidInputs =
+    Number.isFinite(weightKg) &&
+    weightKg > 0 &&
+    Number.isFinite(targetCalories) &&
+    targetCalories >= 0 &&
+    Number.isFinite(carbsPerKg) &&
+    carbsPerKg >= 0 &&
+    Number.isFinite(proteinPerKg) &&
+    proteinPerKg >= 0
+
+  const carbsGrams = weightKg * carbsPerKg
+  const carbsCalories = carbsGrams * 4
+  const proteinGrams = weightKg * proteinPerKg
+  const proteinCalories = proteinGrams * 4
+  const fatCalories = targetCalories - carbsCalories - proteinCalories
+  const fatGrams = fatCalories / 9
+  const fatPerKg = fatGrams / weightKg
+
+  return {
+    carbs: {
+      perKg: carbsPerKg,
+      grams: carbsGrams,
+      calories: carbsCalories,
+    },
+    protein: {
+      perKg: proteinPerKg,
+      grams: proteinGrams,
+      calories: proteinCalories,
+    },
+    fat: {
+      perKg: fatPerKg,
+      grams: fatGrams,
+      calories: fatCalories,
+    },
+    totalCalories: carbsCalories + proteinCalories + fatCalories,
+    isValid: hasValidInputs && fatCalories >= 0,
+  }
+}
+
+export const getDayTargetCalories = (
+  baseTargetCalories: number,
+  dayType: WizardInputs['dayType'],
+) => roundInt(baseTargetCalories + (dayType === 'rest' ? 0 : 300))
+
 export const MACRO_PORTION_GRAMS = {
   protein: 10,
   carbs: 15,
@@ -136,6 +207,7 @@ export const adjustCarbFat = ({
 
 export type MacroOutputsLike = {
   eee?: number
+  kcalObjectiveBase?: number
   kcalObjectiveDay: number
   protein: number
   carbsAdjusted: number
@@ -146,10 +218,7 @@ export const applyMacroOverrideToOutputs = <T extends MacroOutputsLike>({
   outputs,
   overrideMacros,
   dayType,
-  trainingType,
-  goal,
   weight,
-  activityDelta = 0,
 }: {
   outputs: T
   overrideMacros: MacroOverrideValue
@@ -159,30 +228,25 @@ export const applyMacroOverrideToOutputs = <T extends MacroOutputsLike>({
   weight: number
   activityDelta?: number
 }): T => {
-  const eeeFactor = getEeeFactor(goal)
-  const macroKcal = calcKcalFromMacros(overrideMacros) + (outputs.eee ?? 0) * eeeFactor
-  const kcalObjectiveDay = macroKcal + activityDelta
-  const carbFactor = dayType === 'training' ? getCarbFactor(dayType, trainingType) : 0
-  const fatFactor = dayType === 'training' ? 1 - carbFactor : 0
-  const activityCarbDelta = activityDelta ? (activityDelta * carbFactor) / 4 : 0
-  const activityFatDelta = activityDelta ? (activityDelta * fatFactor) / 9 : 0
-  const baseCarbs = Math.max(0, round1(overrideMacros.carbsAdjusted + activityCarbDelta))
-  const baseFats = Math.max(0, round1(overrideMacros.fatsAdjusted + activityFatDelta))
-  const { carbsAdjusted, fatsAdjusted } = adjustCarbFat({
-    fats: baseFats,
-    carbs: baseCarbs,
-    dayType,
-    trainingType,
-    eee: outputs.eee ?? 0,
-    goal,
-    weight,
+  const targetCalories =
+    outputs.kcalObjectiveBase === undefined
+      ? roundInt(outputs.kcalObjectiveDay)
+      : getDayTargetCalories(outputs.kcalObjectiveBase, dayType)
+  const targets = calculateMacroTargets({
+    weightKg: weight,
+    targetCalories,
+    carbsPerKg: overrideMacros.carbsAdjusted / weight,
+    proteinPerKg: overrideMacros.protein / weight,
   })
+
+  if (!targets.isValid) return outputs
+
   return {
     ...outputs,
-    kcalObjectiveDay,
-    protein: overrideMacros.protein,
-    carbsAdjusted,
-    fatsAdjusted,
+    kcalObjectiveDay: targetCalories,
+    protein: round1(targets.protein.grams),
+    carbsAdjusted: round1(targets.carbs.grams),
+    fatsAdjusted: round1(targets.fat.grams),
   }
 }
 
@@ -236,7 +300,7 @@ const goalFactorMap: Record<WizardInputs['goal'], number> = {
 const macroPresetMap: Record<Exclude<NormalizedDayType, 'training'>, { carbsGkg: number; proteinGkg: number; extraKcal: number }> = {
   rest: { carbsGkg: 2, proteinGkg: 1.8, extraKcal: 0 },
   training_type_1: { carbsGkg: 5, proteinGkg: 1.5, extraKcal: 300 },
-  training_type_2: { carbsGkg: 2, proteinGkg: 1.6, extraKcal: 0 },
+  training_type_2: { carbsGkg: 2, proteinGkg: 1.6, extraKcal: 300 },
 }
 
 const calcRmrAverage = (inputs: WizardInputs) => {
@@ -263,10 +327,16 @@ export const calculateInitials = (inputs: WizardInputs): { outputs: CalculationO
   const kcalObjectiveBase = get * (goalFactorMap[inputs.goal] ?? 1)
   const normalizedDayType = normalizeDayType(inputs.dayType)
   const preset = macroPresetMap[normalizedDayType === 'training' ? 'training_type_1' : normalizedDayType]
-  const kcalObjectiveDay = kcalObjectiveBase + preset.extraKcal
-  const carbs = inputs.weight * preset.carbsGkg
-  const protein = inputs.weight * preset.proteinGkg
-  const fats = Math.max(0, (kcalObjectiveDay - (protein * 4 + carbs * 4)) / 9)
+  const kcalObjectiveDay = getDayTargetCalories(kcalObjectiveBase, inputs.dayType)
+  const macroTargets = calculateMacroTargets({
+    weightKg: inputs.weight,
+    targetCalories: kcalObjectiveDay,
+    carbsPerKg: preset.carbsGkg,
+    proteinPerKg: preset.proteinGkg,
+  })
+  const carbs = macroTargets.carbs.grams
+  const protein = macroTargets.protein.grams
+  const fats = Math.max(0, macroTargets.fat.grams)
   const eee = preset.extraKcal
   const ea = ffm ? kcalObjectiveDay / ffm : undefined
 
