@@ -9,6 +9,7 @@ export const env = {
   mongoUri: process.env.MONGO_URI ?? 'mongodb://localhost:27017/nutrition',
   jwtSecret: process.env.JWT_SECRET ?? 'dev-secret',
   bootstrapSecret: process.env.BOOTSTRAP_SECRET ?? '',
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? '',
   clientUrl: rawClientUrl.split(',')[0]?.trim() || rawClientUrl,
   planEnabledMessageTemplate:
     process.env.PLAN_ENABLED_MESSAGE_TEMPLATE ??

@@ -117,7 +117,12 @@ export const calculateMacroTargets = ({
 export const getDayTargetCalories = (
   baseTargetCalories: number,
   dayType: WizardInputs['dayType'],
-) => roundInt(baseTargetCalories + (dayType === 'rest' ? 0 : 300))
+  kcalDelta?: number | null,
+) =>
+  roundInt(
+    baseTargetCalories +
+      (Number.isFinite(kcalDelta) ? Number(kcalDelta) : dayType === 'rest' ? 0 : 300),
+  )
 
 export const MACRO_PORTION_GRAMS = {
   protein: 10,
@@ -219,6 +224,7 @@ export const applyMacroOverrideToOutputs = <T extends MacroOutputsLike>({
   overrideMacros,
   dayType,
   weight,
+  targetCaloriesOverride,
 }: {
   outputs: T
   overrideMacros: MacroOverrideValue
@@ -227,9 +233,12 @@ export const applyMacroOverrideToOutputs = <T extends MacroOutputsLike>({
   goal: WizardInputs['goal']
   weight: number
   activityDelta?: number
+  targetCaloriesOverride?: number
 }): T => {
   const targetCalories =
-    outputs.kcalObjectiveBase === undefined
+    Number.isFinite(targetCaloriesOverride)
+      ? roundInt(Number(targetCaloriesOverride))
+      : outputs.kcalObjectiveBase === undefined
       ? roundInt(outputs.kcalObjectiveDay)
       : getDayTargetCalories(outputs.kcalObjectiveBase, dayType)
   const targets = calculateMacroTargets({

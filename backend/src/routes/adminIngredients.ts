@@ -11,6 +11,21 @@ const router = Router()
 
 const groupSchema = z.enum(['proteinas', 'carbohidratos', 'grasas', 'extras', 'vegetales'])
 const statusSchema = z.enum(['active', 'inactive'])
+const mealCategorySchema = z.enum([
+  'whole_dairy',
+  'protein_dairy',
+  'semi_dairy',
+  'skim_dairy',
+  'vegetables',
+  'fruit',
+  'cereals',
+  'legumes',
+  'sugars',
+  'lean_protein',
+  'semi_fat_protein',
+  'fat_protein',
+  'fats',
+])
 
 const listSchema = z.object({
   q: z.string().trim().optional(),
@@ -27,6 +42,7 @@ const ingredientSchema = z.object({
   subgrupo: z.string().trim().optional().nullable(),
   subgroup: z.string().trim().optional().nullable(),
   sub_group: z.string().trim().optional().nullable(),
+  mealCategory: mealCategorySchema.optional().nullable(),
   prot_100g: z.coerce.number().min(0),
   cho_100g: z.coerce.number().min(0),
   fat_100g: z.coerce.number().min(0),
@@ -45,6 +61,12 @@ const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$
 
 const normalizeName = (value: string) => value.trim()
 
+const normalizeLegacyNumber = (value: unknown, fallback: number | null = null) => {
+  if (value === null || value === undefined || value === '') return fallback
+  const parsed = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
 const resolveSubgrup = (ingredient: Record<string, any>) =>
   ingredient.subgrup ??
   ingredient.subgrupo ??
@@ -57,6 +79,7 @@ const resolveSubgrup = (ingredient: Record<string, any>) =>
 const buildIngredientPayload = (data: z.infer<typeof ingredientSchema>) => ({
   name: normalizeName(data.name),
   group: data.group,
+  ...(data.mealCategory !== undefined ? { mealCategory: data.mealCategory } : {}),
   subgrupo:
     data.subgrup?.trim() ||
     data.subgrupo?.trim() ||
@@ -126,6 +149,12 @@ router.get(
     const normalizedIngredients = ingredients.map((ingredient) => ({
       ...ingredient,
       subgrup: resolveSubgrup(ingredient),
+      prot_100g: normalizeLegacyNumber(ingredient.prot_100g, 0),
+      cho_100g: normalizeLegacyNumber(ingredient.cho_100g, 0),
+      fat_100g: normalizeLegacyNumber(ingredient.fat_100g, 0),
+      kcal_100g: normalizeLegacyNumber(ingredient.kcal_100g, 0),
+      default_portion_g: normalizeLegacyNumber(ingredient.default_portion_g),
+      max_portion_in_meal: normalizeLegacyNumber(ingredient.max_portion_in_meal),
     }))
 
     res.json({ ingredients: normalizedIngredients })
@@ -190,6 +219,9 @@ router.put(
     if (!ingredient) throw notFound('Ingrediente no encontrado')
 
     const payload = buildIngredientPayload(parsed.data)
+    if (parsed.data.mealCategory === undefined) {
+      payload.mealCategory = ingredient.mealCategory ?? null
+    }
     const existing = await findActiveNameConflict(payload.name, ingredientId)
     if (existing) throw badRequest('Nombre ya existe')
 

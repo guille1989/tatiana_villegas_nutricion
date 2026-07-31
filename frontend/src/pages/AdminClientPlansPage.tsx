@@ -18,9 +18,14 @@ import { getPlan, listAdminUserPlans } from "../lib/api";
 import {
   applyMacroOverrideToOutputs,
   calculateDayFromBase,
+  getDayTargetCalories,
   getMacroKcalBreakdown,
 } from "../lib/calc";
-import { getDistributionMacroOverride } from "../lib/macroDistributions";
+import {
+  getDistributionKcalDelta,
+  getDistributionMacroOverride,
+  getMacroDistributionForDay,
+} from "../lib/macroDistributions";
 import type {
   Assessment,
   CalculationOutputs,
@@ -85,6 +90,7 @@ const applyPlanMacroOverride = (
 ) => {
   if (!outputs) return outputs;
   const dailyOverride = getDayMacroOverride(dayOverride);
+  const distribution = getMacroDistributionForDay(plan, dayOverride, dayType);
   const distributionOverride = getDistributionMacroOverride(
     plan,
     dayOverride,
@@ -104,6 +110,14 @@ const applyPlanMacroOverride = (
     goal,
     weight,
     activityDelta,
+    targetCaloriesOverride:
+      distributionOverride && outputs.kcalObjectiveBase !== undefined
+        ? getDayTargetCalories(
+            outputs.kcalObjectiveBase,
+            dayType,
+            getDistributionKcalDelta(distribution),
+          )
+        : undefined,
   });
 };
 

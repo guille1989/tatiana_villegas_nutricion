@@ -42,10 +42,14 @@ export type Plan = {
 export type PlanMacroDistribution = {
   id: string
   name: string
-  dayType: WizardFormData['dayType']
+  dayType?: WizardFormData['dayType'] | string | null
+  kcalDelta?: number
   carbsPerKg: number
   proteinPerKg: number
   isDefault: boolean
+  mealCategoryDistribution?: MealCategoryDistribution[] | null
+  generatedMenu?: unknown
+  mealPreferences?: string | null
 }
 
 export type PlanMacroOverride = {
@@ -69,6 +73,21 @@ export type Food = {
   name: string
   subgrup?: string | null
   group: 'proteinas' | 'carbohidratos' | 'grasas' | 'extras' | 'vegetales'
+  mealCategory?:
+    | 'whole_dairy'
+    | 'protein_dairy'
+    | 'semi_dairy'
+    | 'skim_dairy'
+    | 'vegetables'
+    | 'fruit'
+    | 'cereals'
+    | 'legumes'
+    | 'sugars'
+    | 'lean_protein'
+    | 'semi_fat_protein'
+    | 'fat_protein'
+    | 'fats'
+    | null
   prot_100g: number
   cho_100g: number
   fat_100g: number
@@ -77,7 +96,7 @@ export type Food = {
   default_portion_g?: number | null
 }
 
-export type MealKey = 'breakfast' | 'lunch' | 'snack' | 'dinner' | 'snack2'
+export type MealKey = 'breakfast' | 'lunch' | 'snack' | 'dinner' | 'snack2' | 'extras'
 
 export type MealPortionTarget = {
   key: MealKey
@@ -133,6 +152,8 @@ export type DayOverride = {
   overrides: DayOverrideInputs
   computed: CalculationOutputs
   meals?: Meal[]
+  generatedMenu?: unknown
+  generatedSelections?: Record<number, number>
   note?: string
   updatedAt: string
 }

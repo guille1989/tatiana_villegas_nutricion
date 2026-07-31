@@ -26,8 +26,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import WeeklyIntakeCard from '../components/WeeklyIntakeCard'
 import { createPlan, deletePlan, getLatestAssessment, getPlan, listPlans } from '../lib/api'
-import { applyMacroOverrideToOutputs, calculateDayFromBase, getMacroKcalBreakdown } from '../lib/calc'
-import { getDistributionMacroOverride } from '../lib/macroDistributions'
+import { applyMacroOverrideToOutputs, calculateDayFromBase, getDayTargetCalories, getMacroKcalBreakdown } from '../lib/calc'
+import {
+  getDistributionKcalDelta,
+  getDistributionMacroOverride,
+  getMacroDistributionForDay,
+} from '../lib/macroDistributions'
 import type { Assessment, CalculationOutputs, DayOverride, Meal, Plan, WizardInputs } from '../types'
 
 type PlanDetail = {
@@ -121,6 +125,7 @@ const applyPlanMacroOverride = (
 ) => {
   if (!outputs) return outputs
   const dailyOverride = getDayMacroOverride(dayOverride)
+  const distribution = getMacroDistributionForDay(plan, dayOverride, dayType)
   const distributionOverride = getDistributionMacroOverride(plan, dayOverride, dayType, weight)
   const planOverride = getPlanMacroOverrideForDate(plan, date)
   const overrideMacros = dailyOverride ?? distributionOverride ?? planOverride?.macros ?? null
@@ -134,6 +139,10 @@ const applyPlanMacroOverride = (
     goal,
     weight,
     activityDelta,
+    targetCaloriesOverride:
+      distributionOverride && outputs.kcalObjectiveBase !== undefined
+        ? getDayTargetCalories(outputs.kcalObjectiveBase, dayType, getDistributionKcalDelta(distribution))
+        : undefined,
   })
 }
 

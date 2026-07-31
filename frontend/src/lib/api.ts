@@ -46,6 +46,8 @@ type OverrideDto = {
   overrides: DayOverrideInputs
   computed: CalculationOutputs
   meals?: any
+  generatedMenu?: any
+  generatedSelections?: Record<number, number>
   note?: string
   updatedAt: string
 }
@@ -153,6 +155,7 @@ export type IngredientPayload = {
   name: string
   group: Ingredient['group']
   subgrup?: string | null
+  mealCategory?: Ingredient['mealCategory']
   prot_100g: number
   cho_100g: number
   fat_100g: number
@@ -238,6 +241,8 @@ const mapOverride = (raw: OverrideDto): DayOverride => ({
       ((raw.overrides as any).training ? [(raw.overrides as any).training] : undefined),
   },
   meals: raw.meals as any,
+  generatedMenu: raw.generatedMenu,
+  generatedSelections: raw.generatedSelections,
   computed: raw.computed,
   note: raw.note,
   updatedAt: raw.updatedAt,
@@ -254,10 +259,22 @@ const mapInvite = (raw: InviteDto): Invite => ({
   status: raw.status,
 })
 
+const normalizeApiNumber = (value: unknown, fallback = 0) => {
+  const parsed = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+const normalizeOptionalApiNumber = (value: unknown) => {
+  if (value === null || value === undefined || value === '') return null
+  const parsed = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 const mapIngredient = (item: IngredientDto): Ingredient => ({
   id: item._id ?? item.id,
   name: item.name,
   group: item.group,
+  mealCategory: item.mealCategory ?? null,
   subgrup:
     (item as any).subgrup ??
     (item as any).subgrupo ??
@@ -266,12 +283,12 @@ const mapIngredient = (item: IngredientDto): Ingredient => ({
     (item as any).subGroup ??
     (item as any).subgroupo ??
     null,
-  prot_100g: item.prot_100g,
-  cho_100g: item.cho_100g,
-  fat_100g: item.fat_100g,
-  kcal_100g: item.kcal_100g,
-  default_portion_g: item.default_portion_g ?? null,
-  max_portion_in_meal: item.max_portion_in_meal ?? null,
+  prot_100g: normalizeApiNumber(item.prot_100g),
+  cho_100g: normalizeApiNumber(item.cho_100g),
+  fat_100g: normalizeApiNumber(item.fat_100g),
+  kcal_100g: normalizeApiNumber(item.kcal_100g),
+  default_portion_g: normalizeOptionalApiNumber(item.default_portion_g),
+  max_portion_in_meal: normalizeOptionalApiNumber(item.max_portion_in_meal),
   status: item.status ?? 'active',
   version: item.version,
   versionedFrom: item.versionedFrom ?? null,
@@ -607,10 +624,14 @@ export const upsertPlanMacroOverride = async (payload: {
 
 export type MacroDistributionPayload = {
   name: string
-  dayType: PlanMacroDistribution['dayType']
+  dayType?: PlanMacroDistribution['dayType']
+  kcalDelta: number
   carbsPerKg: number
   proteinPerKg: number
   isDefault: boolean
+  mealCategoryDistribution?: PlanMacroDistribution['mealCategoryDistribution']
+  generatedMenu?: PlanMacroDistribution['generatedMenu']
+  mealPreferences?: PlanMacroDistribution['mealPreferences']
 }
 
 export const createMacroDistribution = async (
@@ -672,6 +693,8 @@ export const upsertOverride = async (payload: {
   overrides: DayOverrideInputs
   note?: string
   meals?: any
+  generatedMenu?: any
+  generatedSelections?: Record<number, number>
 }) => {
   const { planId, ...body } = payload
   const { data, error } = await request<{ override: OverrideDto }>(`/plans/${planId}/overrides`, {
@@ -685,6 +708,50 @@ export const upsertOverride = async (payload: {
 export const deleteOverride = async (planId: string, date: string) => {
   const { error } = await request(`/plans/${planId}/overrides?date=${date}`, { method: 'DELETE' })
   if (error) throw new Error(error)
+}
+
+export type GeneratedMealIngredient = {
+  name: string
+  grams: number
+  protein: number
+  carbs: number
+  fat: number
+}
+
+export type GeneratedMealOption = {
+  name: string
+  ingredients: GeneratedMealIngredient[]
+  totals: { protein: number; carbs: number; fat: number; kcal: number }
+}
+
+export type GeneratedMeal = {
+  meal: string
+  options: GeneratedMealOption[]
+}
+
+export type GeneratedMenu = {
+  meals: GeneratedMeal[]
+}
+
+export type MealPlanRequestEntry = {
+  name: string
+  macros?: { protein: number; carbs: number; fat: number }
+  categories?: { name: string; portions: number }[]
+}
+
+export const generateMealOptions = async (payload: {
+  planId: string
+  targetMacros: { protein: number; carbs: number; fat: number; kcal: number }
+  meals: MealPlanRequestEntry[]
+  preferences?: string
+}) => {
+  const { planId, ...body } = payload
+  const { data, error } = await request<{ menu: GeneratedMenu }>(
+    `/plans/${planId}/meal-suggestions`,
+    { method: 'POST', body: JSON.stringify(body) },
+  )
+  if (error) throw new Error(error)
+  return data.menu
 }
 
 export const getDay = async (planId: string, date: string) => {
@@ -765,16 +832,17 @@ export const searchFoodsApi = async (
     id: f._id ?? f.id,
     name: f.name,
     group: f.group,
+    mealCategory: f.mealCategory ?? null,
     subgrup:
       (f as any).subgrup ??
       (f as any).subgrupo ??
       (f as any).subgroup ??
       (f as any).sub_group,
-    prot_100g: f.prot_100g,
-    cho_100g: f.cho_100g,
-    fat_100g: f.fat_100g,
-    kcal_100g: f.kcal_100g,
-    default_portion_g: f.default_portion_g,
-    max_portion_in_meal: (f as any).max_portion_in_meal,
+    prot_100g: normalizeApiNumber(f.prot_100g),
+    cho_100g: normalizeApiNumber(f.cho_100g),
+    fat_100g: normalizeApiNumber(f.fat_100g),
+    kcal_100g: normalizeApiNumber(f.kcal_100g),
+    default_portion_g: normalizeOptionalApiNumber(f.default_portion_g),
+    max_portion_in_meal: normalizeOptionalApiNumber((f as any).max_portion_in_meal),
   }))
 }

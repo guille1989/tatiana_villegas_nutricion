@@ -9,6 +9,8 @@ export type PlanDayOverrideDoc = {
   overrides: DayOverrideInputs
   computed: CalculationOutputs
   meals?: unknown
+  generatedMenu?: unknown
+  generatedSelections?: unknown
   note?: string
 } & Document
 
@@ -20,6 +22,8 @@ const overrideSchema = new Schema(
     overrides: { type: Schema.Types.Mixed, required: true },
     computed: { type: Schema.Types.Mixed, required: true },
     meals: { type: Schema.Types.Mixed },
+    generatedMenu: { type: Schema.Types.Mixed },
+    generatedSelections: { type: Schema.Types.Mixed },
     note: { type: String },
   },
   { timestamps: true },

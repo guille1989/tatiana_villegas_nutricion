@@ -28,6 +28,7 @@ import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import { useEffect, useRef, useState } from "react";
 import {
   calcFoodMacrosFromGrams,
+  calcFoodMacrosFromPortions,
   fetchFoodsCatalog,
   gramsFromPortions,
   FOOD_GROUP_OPTIONS,
@@ -44,6 +45,7 @@ type MealTargets = Record<Meal["key"], MacroTargets>;
 type Props = {
   meals: Meal[];
   mealTargets: MealTargets;
+  focusedMealKey?: Meal["key"];
   onChange: (meals: Meal[]) => void;
   onSave?: (meals: Meal[]) => void;
   onError: (msg: string) => void;
@@ -256,6 +258,7 @@ const MacroGauge = ({
 const MealBuilder = ({
   meals,
   mealTargets,
+  focusedMealKey,
   onChange,
   onSave,
   onError,
@@ -456,7 +459,10 @@ const MealBuilder = ({
       return false;
     }
 
-    const macros = calcFoodMacrosFromGrams(food, grams);
+    const macros =
+      usedMode === "portions"
+        ? calcFoodMacrosFromPortions(food, nextAmount)
+        : calcFoodMacrosFromGrams(food, grams);
     const newItem: MealItem = {
       foodId: food.id,
       nameSnapshot: food.name,
@@ -691,7 +697,7 @@ const MealBuilder = ({
   return (
     <>
       <Stack spacing={1.5}>
-        {meals.map((meal) => {
+        {meals.filter((meal) => !focusedMealKey || meal.key === focusedMealKey).map((meal) => {
           const targets = mealTargets[meal.key] ?? {
             protein: 0,
             carbs: 0,

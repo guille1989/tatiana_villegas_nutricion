@@ -30,7 +30,7 @@ export const FOOD_CATEGORY_EXCHANGES: Array<{
   { key: 'fruit', name: 'Fruta', macros: { carbs: 15, protein: 1, fat: 0.25 } },
   {
     key: 'cereals',
-    name: 'Cereales, tubérculos y derivados',
+    name: 'Almidones',
     macros: { carbs: 14, protein: 2, fat: 0.5 },
   },
   { key: 'legumes', name: 'Legumbres', macros: { carbs: 14, protein: 7, fat: 0.5 } },

@@ -17,6 +17,8 @@ import AddIcon from "@mui/icons-material/Add";
 import type { Food } from "../types";
 import {
   calcFoodMacrosFromGrams,
+  calcFoodMacrosFromPortions,
+  getFoodExchange,
   gramsFromPortions,
   type FoodGroupFilter,
 } from "../lib/foods";
@@ -53,6 +55,7 @@ const IngredientCatalogTable = ({
   };
 
   const getPortionGrams = (food: Food) => {
+    if (getFoodExchange(food)) return gramsFromPortions(food, 1);
     const defaultGrams = getDefaultPortionGrams(food);
     const useDefault =
       selectedGroup === "vegetales" || selectedGroup === "extras";
@@ -69,7 +72,9 @@ const IngredientCatalogTable = ({
     }
     return {
       grams: portionGrams,
-      macros: calcFoodMacrosFromGrams(food, portionGrams),
+      macros: getFoodExchange(food)
+        ? calcFoodMacrosFromPortions(food, 1)
+        : calcFoodMacrosFromGrams(food, portionGrams),
     };
   };
 

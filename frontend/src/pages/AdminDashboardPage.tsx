@@ -44,6 +44,9 @@ import HeightRoundedIcon from '@mui/icons-material/HeightRounded'
 import LocalFireDepartmentRoundedIcon from '@mui/icons-material/LocalFireDepartmentRounded'
 import MonitorWeightRoundedIcon from '@mui/icons-material/MonitorWeightRounded'
 import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
+import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded'
+import EditRoundedIcon from '@mui/icons-material/EditRounded'
+import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import PersonOutlineRoundedIcon from '@mui/icons-material/PersonOutlineRounded'
 import PercentRoundedIcon from '@mui/icons-material/PercentRounded'
 import dayjs, { type Dayjs } from 'dayjs'
@@ -58,6 +61,8 @@ import {
   getAdminUserMessages,
   getAdminOverview,
   getPlan,
+  generateMealOptions,
+  listAdminIngredients,
   listInvites,
   sendAdminMessage,
   upsertOverride,
@@ -67,6 +72,10 @@ import {
   updateMacroDistribution,
   updateUserStatus,
   updatePlanStatus,
+  type GeneratedMenu,
+  type GeneratedMealIngredient,
+  type GeneratedMealOption,
+  type MealPlanRequestEntry,
 } from '../lib/api'
 import {
   applyMacroOverrideToOutputs,
@@ -88,6 +97,7 @@ import {
 } from '../lib/schema'
 import { getMacroState, type MacroState } from '../lib/macroStatus'
 import {
+  getDistributionKcalDelta,
   getDistributionMacroOverride,
   getMacroDistributionForDay,
 } from '../lib/macroDistributions'
@@ -106,6 +116,7 @@ import type {
   Assessment,
   CalculationOutputs,
   DayOverride,
+  Ingredient,
   MealCategoryDistribution,
   MealDistributionColumnKey,
   Meal,
@@ -114,6 +125,69 @@ import type {
 } from '../types'
 
 type AdherenceState = MacroState | 'none'
+
+type RecipeIngredientDraft = {
+  name: string
+  grams: string
+  proteinPerGram: number
+  carbsPerGram: number
+  fatPerGram: number
+}
+
+type RecipeEditorState = {
+  mealIndex: number
+  optionIndex: number
+  name: string
+  ingredients: RecipeIngredientDraft[]
+}
+
+const roundRecipeValue = (value: number) => Math.round(value * 10) / 10
+
+const ingredientToDraft = (ingredient: GeneratedMealIngredient): RecipeIngredientDraft => {
+  const grams = Number.isFinite(ingredient.grams) && ingredient.grams > 0 ? ingredient.grams : 0
+  return {
+    name: ingredient.name,
+    grams: String(grams),
+    proteinPerGram: grams > 0 ? ingredient.protein / grams : 0,
+    carbsPerGram: grams > 0 ? ingredient.carbs / grams : 0,
+    fatPerGram: grams > 0 ? ingredient.fat / grams : 0,
+  }
+}
+
+const recipeOptionFromEditor = (editor: RecipeEditorState): GeneratedMealOption => {
+  const ingredients = editor.ingredients.map((ingredient) => {
+    const parsedGrams = Number(ingredient.grams)
+    const grams = Number.isFinite(parsedGrams) ? Math.max(0, parsedGrams) : 0
+    return {
+      name: ingredient.name,
+      grams: roundRecipeValue(grams),
+      protein: roundRecipeValue(ingredient.proteinPerGram * grams),
+      carbs: roundRecipeValue(ingredient.carbsPerGram * grams),
+      fat: roundRecipeValue(ingredient.fatPerGram * grams),
+    }
+  })
+  const totals = ingredients.reduce(
+    (sum, ingredient) => ({
+      protein: sum.protein + ingredient.protein,
+      carbs: sum.carbs + ingredient.carbs,
+      fat: sum.fat + ingredient.fat,
+    }),
+    { protein: 0, carbs: 0, fat: 0 },
+  )
+  const protein = roundRecipeValue(totals.protein)
+  const carbs = roundRecipeValue(totals.carbs)
+  const fat = roundRecipeValue(totals.fat)
+  return {
+    name: editor.name.trim(),
+    ingredients,
+    totals: {
+      protein,
+      carbs,
+      fat,
+      kcal: Math.round(protein * 4 + carbs * 4 + fat * 9),
+    },
+  }
+}
 
 type AdherenceSummary = {
   state: AdherenceState
@@ -136,7 +210,8 @@ type PortionMacroKey = keyof MacroSummary
 type MacroDistributionRow = {
   id: string
   name: string
-  dayType: WizardInputs['dayType']
+  dayType?: WizardInputs['dayType'] | string | null
+  kcalDelta: string
   carbsPerKg: string
   proteinPerKg: string
   isDefault: boolean
@@ -351,6 +426,7 @@ const applyPlanMacroOverride = (
 ) => {
   if (!outputs) return outputs
   const dailyOverride = getDayMacroOverride(dayOverride)
+  const distribution = getMacroDistributionForDay(plan, dayOverride, dayType)
   const distributionMacros = getDistributionMacroOverride(plan, dayOverride, dayType, weight)
   const planOverride = getPlanMacroOverrideForDate(plan, date)
   const overrideMacros = dailyOverride ?? distributionMacros ?? planOverride?.macros ?? null
@@ -364,6 +440,10 @@ const applyPlanMacroOverride = (
     goal,
     weight,
     activityDelta,
+    targetCaloriesOverride:
+      distributionMacros && outputs.kcalObjectiveBase !== undefined
+        ? getDayTargetCalories(outputs.kcalObjectiveBase, dayType, getDistributionKcalDelta(distribution))
+        : undefined,
   })
 }
 
@@ -631,11 +711,20 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     proteinPerKg: '',
     carbsPerKg: '',
   })
-  const [portionDate, setPortionDate] = useState<string | null>(null)
   const [portionDistributionId, setPortionDistributionId] = useState('')
   const [categoryDistribution, setCategoryDistribution] = useState<MealCategoryDistribution[]>([])
   const [portionSaving, setPortionSaving] = useState(false)
   const [portionError, setPortionError] = useState<string | null>(null)
+  const [mealPreferences, setMealPreferences] = useState('')
+  const [generatingMeals, setGeneratingMeals] = useState(false)
+  const [mealGenerationError, setMealGenerationError] = useState<string | null>(null)
+  const [recipeEditor, setRecipeEditor] = useState<RecipeEditorState | null>(null)
+  const [recipeEditorSaving, setRecipeEditorSaving] = useState(false)
+  const [recipeEditorError, setRecipeEditorError] = useState<string | null>(null)
+  const [recipeIngredientSearch, setRecipeIngredientSearch] = useState('')
+  const [recipeIngredientResults, setRecipeIngredientResults] = useState<Ingredient[]>([])
+  const [recipeIngredientSearching, setRecipeIngredientSearching] = useState(false)
+  const [recipeIngredientSearchError, setRecipeIngredientSearchError] = useState<string | null>(null)
   const [selectedClientPlan, setSelectedClientPlan] = useState<SelectedClientPlanState | null>(null)
   const [selectedClientPlanLoading, setSelectedClientPlanLoading] = useState(false)
   const [selectedClientPlanError, setSelectedClientPlanError] = useState<string | null>(null)
@@ -869,34 +958,24 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     () => new Map((selectedRecord?.overrides ?? []).map((item) => [item.date, item])),
     [selectedRecord?.overrides],
   )
-  const portionDateOptions = useMemo(
-    () => syncSeries.map((item) => ({ date: item.date, label: dayjs(item.date).format('DD MMM YYYY') })),
-    [syncSeries],
-  )
-  const activePortionDate = portionDate ?? portionDateOptions[0]?.date ?? null
-  const activePortionSyncPoint = syncSeries.find((item) => item.date === activePortionDate) ?? null
-  const activePortionOverride = activePortionDate ? selectedOverridesByDate.get(activePortionDate) ?? null : null
-  const activePortionDayType = getDayType(
-    activePortionOverride,
-    selectedRecord?.latestAssessment?.inputs.dayType,
-  )
+  const activePortionDayType = selectedRecord?.latestAssessment?.inputs.dayType ?? 'rest'
   const activePortionDistribution =
     selectedRecord?.plan?.macroDistributions?.find((item) => item.id === portionDistributionId) ??
-    getMacroDistributionForDay(
-      selectedRecord?.plan,
-      activePortionOverride,
-      activePortionDayType,
-    )
+    selectedRecord?.plan?.macroDistributions?.find((item) => item.isDefault) ??
+    selectedRecord?.plan?.macroDistributions?.[0] ??
+    null
   const activePortionDistributionTargets =
     activePortionDistribution && selectedRecord?.latestAssessment
       ? (() => {
           const { inputs } = selectedRecord.latestAssessment
-          const dayOutputs = calculateDayFromBase(inputs, activePortionOverride?.overrides ?? {
-            dayType: activePortionDayType,
-          })
+          const dayOutputs = calculateDayFromBase(inputs, { dayType: activePortionDayType })
           return calculateMacroTargets({
             weightKg: inputs.weight,
-            targetCalories: getDayTargetCalories(dayOutputs.kcalObjectiveBase, activePortionDayType),
+            targetCalories: getDayTargetCalories(
+              dayOutputs.kcalObjectiveBase,
+              activePortionDayType,
+              getDistributionKcalDelta(activePortionDistribution),
+            ),
             carbsPerKg: activePortionDistribution.carbsPerKg,
             proteinPerKg: activePortionDistribution.proteinPerKg,
           })
@@ -908,9 +987,7 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
         carbs: activePortionDistributionTargets.carbs.grams,
         fat: activePortionDistributionTargets.fat.grams,
       }
-    : activePortionSyncPoint?.targetMacros
-      ? activePortionSyncPoint.targetMacros
-      : emptyPortionSummary()
+    : emptyPortionSummary()
   const activeCategoryMacros = useMemo(
     () => calculateCategoryDistributionMacros(categoryDistribution),
     [categoryDistribution],
@@ -929,35 +1006,39 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
 
   useEffect(() => {
     setTrackingWindowPage(0)
-    setPortionDate(null)
     setPortionDistributionId('')
     setCategoryDistribution([])
     setPortionError(null)
+    setMealPreferences('')
+    setMealGenerationError(null)
   }, [selectedRecord?.plan?.id])
 
   useEffect(() => {
-    if (!activePortionDate) return
-    const existingDistribution =
-      activePortionOverride?.overrides?.mealCategoryDistribution ?? null
-    const assignedDistribution = getMacroDistributionForDay(
-      selectedRecord?.plan,
-      activePortionOverride,
-      activePortionDayType,
-    )
-    setPortionDistributionId(assignedDistribution?.id ?? '')
+    const assignedDistribution = activePortionDistribution
+    if (!assignedDistribution) {
+      setCategoryDistribution([])
+      setPortionError(null)
+      return
+    }
+    setPortionDistributionId(assignedDistribution.id)
+    const existingDistribution = assignedDistribution.mealCategoryDistribution ?? null
     if (existingDistribution?.length) {
       setCategoryDistribution(normalizeCategoryDistribution(existingDistribution))
     } else {
-      let targetMacros = activePortionSyncPoint?.targetMacros ?? emptyPortionSummary()
+      let targetMacros = emptyPortionSummary()
       const assessmentInputs = selectedRecord?.latestAssessment?.inputs
       if (assignedDistribution && assessmentInputs) {
         const dayOutputs = calculateDayFromBase(
           assessmentInputs,
-          activePortionOverride?.overrides ?? { dayType: activePortionDayType },
+          { dayType: activePortionDayType },
         )
         const targets = calculateMacroTargets({
           weightKg: assessmentInputs.weight,
-          targetCalories: getDayTargetCalories(dayOutputs.kcalObjectiveBase, activePortionDayType),
+          targetCalories: getDayTargetCalories(
+            dayOutputs.kcalObjectiveBase,
+            activePortionDayType,
+            getDistributionKcalDelta(assignedDistribution),
+          ),
           carbsPerKg: assignedDistribution.carbsPerKg,
           proteinPerKg: assignedDistribution.proteinPerKg,
         })
@@ -972,7 +1053,9 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
       setCategoryDistribution(buildAutomaticCategoryDistribution(targetMacros))
     }
     setPortionError(null)
-  }, [activePortionDate, activePortionOverride?.updatedAt])
+    setMealPreferences(assignedDistribution.mealPreferences ?? '')
+    setMealGenerationError(null)
+  }, [activePortionDistribution?.id, selectedRecord?.plan?.id])
 
   useEffect(() => {
     if (trackingWindowPage > totalTrackingPages - 1) {
@@ -1173,24 +1256,29 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     })
   }
 
-  const handlePortionDateChange = (date: string) => {
-    setPortionDate(date)
-  }
-
   const handlePortionDistributionChange = (distributionId: string) => {
     setPortionDistributionId(distributionId)
     const distribution = selectedRecord?.plan?.macroDistributions?.find(
       (item) => item.id === distributionId,
     )
     const inputs = selectedRecord?.latestAssessment?.inputs
+    if (distribution?.mealCategoryDistribution?.length) {
+      setCategoryDistribution(normalizeCategoryDistribution(distribution.mealCategoryDistribution))
+      setPortionError(null)
+      return
+    }
     if (distribution && inputs) {
       const dayOutputs = calculateDayFromBase(
         inputs,
-        activePortionOverride?.overrides ?? { dayType: activePortionDayType },
+        { dayType: activePortionDayType },
       )
       const targets = calculateMacroTargets({
         weightKg: inputs.weight,
-        targetCalories: getDayTargetCalories(dayOutputs.kcalObjectiveBase, activePortionDayType),
+        targetCalories: getDayTargetCalories(
+          dayOutputs.kcalObjectiveBase,
+          activePortionDayType,
+          getDistributionKcalDelta(distribution),
+        ),
         carbsPerKg: distribution.carbsPerKg,
         proteinPerKg: distribution.proteinPerKg,
       })
@@ -1233,7 +1321,7 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
   }
 
   const handleSavePortionTargets = async () => {
-    if (!selectedRecord?.plan || !assessment || !activePortionDate) {
+    if (!selectedRecord?.plan || !assessment || !activePortionDistribution) {
       setPortionError('No hay datos suficientes para guardar el reparto.')
       return
     }
@@ -1249,25 +1337,16 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     setPortionSaving(true)
     setPortionError(null)
     try {
-      const existingOverride = activePortionOverride
-      const overrides = {
-        ...(existingOverride?.overrides ?? {
-          dayType: assessment.inputs.dayType ?? 'rest',
-          activityLevel: assessment.inputs.activityLevel,
-        }),
-        macroDistributionId: portionDistributionId || activePortionDistribution?.id || null,
-        macroOverride: null,
-        mealPortionTargets: null,
+      const plan = await updateMacroDistribution(selectedRecord.plan.id, activePortionDistribution.id, {
+        name: activePortionDistribution.name,
+        ...(activePortionDistribution.dayType ? { dayType: activePortionDistribution.dayType } : {}),
+        kcalDelta: getDistributionKcalDelta(activePortionDistribution),
+        carbsPerKg: activePortionDistribution.carbsPerKg,
+        proteinPerKg: activePortionDistribution.proteinPerKg,
+        isDefault: activePortionDistribution.isDefault,
         mealCategoryDistribution: normalizedDistribution,
-      }
-      const updatedOverride = await upsertOverride({
-        planId: selectedRecord.plan.id,
-        date: activePortionDate,
-        overrides,
-        meals: existingOverride?.meals,
-        note: existingOverride?.note,
       })
-      applyDayOverrideUpdate(selectedRecord.userId, updatedOverride)
+      applySelectedPlanUpdate(plan)
       setCategoryDistribution(normalizedDistribution)
     } catch (err) {
       setPortionError(err instanceof Error ? err.message : 'No se pudo guardar el reparto.')
@@ -1284,11 +1363,250 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     setActionsMenuAnchor(null)
   }
 
+  const handleGenerateAdminMeals = async () => {
+    if (!selectedRecord?.plan || !activePortionDistribution) return
+    if (!activePortionDistribution.mealCategoryDistribution?.length) {
+      setMealGenerationError('Guarda primero el reparto de porciones por comida.')
+      return
+    }
+
+    const meals: MealPlanRequestEntry[] = MEAL_DISTRIBUTION_COLUMNS
+      .map((column) => ({
+        name: column.label,
+        macros: {
+          protein: Math.round(activeCategoryMacros.byMeal[column.key].protein),
+          carbs: Math.round(activeCategoryMacros.byMeal[column.key].carbs),
+          fat: Math.round(activeCategoryMacros.byMeal[column.key].fat),
+        },
+        categories: categoryDistribution
+          .filter((row) => row.portions[column.key] > 0)
+          .map((row) => ({ name: row.name, portions: row.portions[column.key] })),
+      }))
+      .filter((meal) => meal.categories.length > 0)
+
+    if (!meals.length) {
+      setMealGenerationError('El reparto guardado no contiene comidas con porciones.')
+      return
+    }
+
+    setGeneratingMeals(true)
+    setMealGenerationError(null)
+    try {
+      const menu = await generateMealOptions({
+        planId: selectedRecord.plan.id,
+        targetMacros: {
+          ...activePortionTargetMacros,
+          kcal: Math.round(
+            activePortionTargetMacros.protein * 4 +
+              activePortionTargetMacros.carbs * 4 +
+              activePortionTargetMacros.fat * 9,
+          ),
+        },
+        meals,
+        preferences: mealPreferences.trim() || undefined,
+      })
+      const plan = await updateMacroDistribution(
+        selectedRecord.plan.id,
+        activePortionDistribution.id,
+        {
+          name: activePortionDistribution.name,
+          ...(activePortionDistribution.dayType
+            ? { dayType: activePortionDistribution.dayType }
+            : {}),
+          kcalDelta: getDistributionKcalDelta(activePortionDistribution),
+          carbsPerKg: activePortionDistribution.carbsPerKg,
+          proteinPerKg: activePortionDistribution.proteinPerKg,
+          isDefault: activePortionDistribution.isDefault,
+          mealCategoryDistribution: activePortionDistribution.mealCategoryDistribution,
+          generatedMenu: menu,
+          mealPreferences: mealPreferences.trim() || null,
+        },
+      )
+      applySelectedPlanUpdate(plan)
+    } catch (err) {
+      setMealGenerationError(
+        err instanceof Error ? err.message : 'No se pudieron generar las recetas.',
+      )
+    } finally {
+      setGeneratingMeals(false)
+    }
+  }
+
+  const handleOpenRecipeEditor = (
+    mealIndex: number,
+    optionIndex: number,
+    option: GeneratedMealOption,
+  ) => {
+    setRecipeEditor({
+      mealIndex,
+      optionIndex,
+      name: option.name,
+      ingredients: option.ingredients.map(ingredientToDraft),
+    })
+    setRecipeEditorError(null)
+    setRecipeIngredientSearch('')
+    setRecipeIngredientResults([])
+    setRecipeIngredientSearchError(null)
+  }
+
+  const handleCloseRecipeEditor = () => {
+    if (recipeEditorSaving) return
+    setRecipeEditor(null)
+    setRecipeEditorError(null)
+    setRecipeIngredientSearch('')
+    setRecipeIngredientResults([])
+    setRecipeIngredientSearchError(null)
+  }
+
+  const handleSearchRecipeIngredients = async () => {
+    setRecipeIngredientSearching(true)
+    setRecipeIngredientSearchError(null)
+    try {
+      const ingredients = await listAdminIngredients({
+        query: recipeIngredientSearch.trim() || undefined,
+        status: 'active',
+        limit: 20,
+      })
+      setRecipeIngredientResults(ingredients)
+    } catch (err) {
+      setRecipeIngredientSearchError(
+        err instanceof Error ? err.message : 'No se pudieron buscar ingredientes.',
+      )
+    } finally {
+      setRecipeIngredientSearching(false)
+    }
+  }
+
+  const handleAddRecipeIngredient = (ingredient: Ingredient) => {
+    if (!recipeEditor) return
+    const alreadyAdded = recipeEditor.ingredients.some(
+      (item) => item.name.trim().toLowerCase() === ingredient.name.trim().toLowerCase(),
+    )
+    if (alreadyAdded) {
+      setRecipeIngredientSearchError('Ese ingrediente ya forma parte de la receta.')
+      return
+    }
+    const initialGrams =
+      Number.isFinite(ingredient.default_portion_g) && Number(ingredient.default_portion_g) > 0
+        ? Number(ingredient.default_portion_g)
+        : 100
+    setRecipeEditor((current) =>
+      current
+        ? {
+            ...current,
+            ingredients: [
+              ...current.ingredients,
+              {
+                name: ingredient.name,
+                grams: String(initialGrams),
+                proteinPerGram: ingredient.prot_100g / 100,
+                carbsPerGram: ingredient.cho_100g / 100,
+                fatPerGram: ingredient.fat_100g / 100,
+              },
+            ],
+          }
+        : current,
+    )
+    setRecipeIngredientSearchError(null)
+  }
+
+  const handleRemoveRecipeIngredient = (ingredientIndex: number) => {
+    setRecipeEditor((current) =>
+      current
+        ? {
+            ...current,
+            ingredients: current.ingredients.filter((_, index) => index !== ingredientIndex),
+          }
+        : current,
+    )
+  }
+
+  const handleRecipeIngredientGramsChange = (ingredientIndex: number, grams: string) => {
+    if (grams !== '' && (!/^\d*(?:[.,]\d*)?$/.test(grams) || Number(grams.replace(',', '.')) < 0)) {
+      return
+    }
+    setRecipeEditor((current) =>
+      current
+        ? {
+            ...current,
+            ingredients: current.ingredients.map((ingredient, index) =>
+              index === ingredientIndex
+                ? { ...ingredient, grams: grams.replace(',', '.') }
+                : ingredient,
+            ),
+          }
+        : current,
+    )
+  }
+
+  const handleSaveRecipeEditor = async () => {
+    if (!recipeEditor || !selectedRecord?.plan || !activePortionDistribution) return
+    const currentMenu = activePortionDistribution.generatedMenu as GeneratedMenu | null | undefined
+    const meal = currentMenu?.meals?.[recipeEditor.mealIndex]
+    if (!currentMenu || !meal?.options?.[recipeEditor.optionIndex]) {
+      setRecipeEditorError('La receta ya no esta disponible. Cierra el editor e intenta de nuevo.')
+      return
+    }
+    if (!recipeEditor.name.trim()) {
+      setRecipeEditorError('La receta debe tener un nombre.')
+      return
+    }
+    if (recipeEditor.ingredients.length === 0) {
+      setRecipeEditorError('La receta debe tener al menos un ingrediente.')
+      return
+    }
+
+    const updatedOption = recipeOptionFromEditor(recipeEditor)
+    const nextMenu: GeneratedMenu = {
+      meals: currentMenu.meals.map((currentMeal, mealIndex) =>
+        mealIndex === recipeEditor.mealIndex
+          ? {
+              ...currentMeal,
+              options: currentMeal.options.map((option, optionIndex) =>
+                optionIndex === recipeEditor.optionIndex ? updatedOption : option,
+              ),
+            }
+          : currentMeal,
+      ),
+    }
+
+    setRecipeEditorSaving(true)
+    setRecipeEditorError(null)
+    try {
+      const plan = await updateMacroDistribution(
+        selectedRecord.plan.id,
+        activePortionDistribution.id,
+        {
+          name: activePortionDistribution.name,
+          ...(activePortionDistribution.dayType
+            ? { dayType: activePortionDistribution.dayType }
+            : {}),
+          kcalDelta: getDistributionKcalDelta(activePortionDistribution),
+          carbsPerKg: activePortionDistribution.carbsPerKg,
+          proteinPerKg: activePortionDistribution.proteinPerKg,
+          isDefault: activePortionDistribution.isDefault,
+          mealCategoryDistribution: activePortionDistribution.mealCategoryDistribution,
+          generatedMenu: nextMenu,
+          mealPreferences: activePortionDistribution.mealPreferences ?? null,
+        },
+      )
+      applySelectedPlanUpdate(plan)
+      setRecipeEditor(null)
+    } catch (err) {
+      setRecipeEditorError(err instanceof Error ? err.message : 'No se pudo guardar la receta.')
+    } finally {
+      setRecipeEditorSaving(false)
+    }
+  }
+
+  const recipeEditorPreview = recipeEditor ? recipeOptionFromEditor(recipeEditor) : null
+
   const rowsFromPlan = (plan: Plan): MacroDistributionRow[] =>
     (plan.macroDistributions ?? []).map((item) => ({
       id: item.id,
       name: item.name,
       dayType: item.dayType,
+      kcalDelta: formatNumber(getDistributionKcalDelta(item)),
       carbsPerKg: formatPerKg(item.carbsPerKg),
       proteinPerKg: formatPerKg(item.proteinPerKg),
       isDefault: item.isDefault,
@@ -1305,11 +1623,12 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     if (!assessment) return null
     const carbsPerKg = parseMacroValue(row.carbsPerKg)
     const proteinPerKg = parseMacroValue(row.proteinPerKg)
-    if (carbsPerKg === null || proteinPerKg === null) return null
-    const dayOutputs = calculateDayFromBase(assessment.inputs, { dayType: row.dayType })
+    const kcalDelta = parseMacroValue(row.kcalDelta)
+    if (carbsPerKg === null || proteinPerKg === null || kcalDelta === null) return null
+    const dayOutputs = calculateDayFromBase(assessment.inputs, { dayType: assessment.inputs.dayType ?? 'rest' })
     return calculateMacroTargets({
       weightKg: assessment.inputs.weight,
-      targetCalories: getDayTargetCalories(dayOutputs.kcalObjectiveBase, row.dayType),
+      targetCalories: getDayTargetCalories(dayOutputs.kcalObjectiveBase, assessment.inputs.dayType ?? 'rest', kcalDelta),
       carbsPerKg,
       proteinPerKg,
     })
@@ -1318,16 +1637,17 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
   const handleAddMacroDistribution = () => {
     if (!assessment) return
     const dayType = assessment.inputs.dayType ?? 'rest'
-    const existingForType = macroDistributionRows.some((item) => item.dayType === dayType)
+    const hasDefault = macroDistributionRows.some((item) => item.isDefault)
     setMacroDistributionRows((prev) => [
       ...prev,
       {
         id: `new-${Date.now()}`,
         name: `Distribucion ${prev.length + 1}`,
-        dayType,
+        dayType: null,
+        kcalDelta: formatNumber(dayType === 'rest' ? 0 : 300),
         carbsPerKg: formatPerKg(effectiveMacroOverview?.carbs.perKg ?? 0),
         proteinPerKg: formatPerKg(effectiveMacroOverview?.protein.perKg ?? 0),
-        isDefault: !existingForType,
+        isDefault: !hasDefault,
         isNew: true,
       },
     ])
@@ -1341,11 +1661,7 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     setMacroDistributionRows((prev) =>
       prev.map((item) => {
         if (item.id !== id) {
-          if (
-            changes.isDefault &&
-            changes.dayType !== undefined &&
-            item.dayType === changes.dayType
-          ) {
+          if (changes.isDefault) {
             return { ...item, isDefault: false }
           }
           return item
@@ -1375,7 +1691,8 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     const preview = getMacroDistributionRowPreview(row)
     const carbsPerKg = parseMacroValue(row.carbsPerKg)
     const proteinPerKg = parseMacroValue(row.proteinPerKg)
-    if (!row.name.trim() || carbsPerKg === null || proteinPerKg === null || !preview?.isValid) {
+    const kcalDelta = parseMacroValue(row.kcalDelta)
+    if (!row.name.trim() || carbsPerKg === null || proteinPerKg === null || kcalDelta === null || !preview?.isValid) {
       setMacroDistributionError(
         getMacroTargetsError(preview) ?? 'Completa el nombre y los valores de la distribucion.',
       )
@@ -1385,12 +1702,15 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     setMacroDistributionSavingId(row.id)
     setMacroDistributionError(null)
     try {
+      const existingDistribution = selectedRecord.plan.macroDistributions?.find((item) => item.id === row.id)
       const payload = {
         name: row.name.trim(),
-        dayType: row.dayType,
+        ...(row.dayType ? { dayType: row.dayType } : {}),
+        kcalDelta,
         carbsPerKg,
         proteinPerKg,
         isDefault: row.isDefault,
+        mealCategoryDistribution: existingDistribution?.mealCategoryDistribution ?? null,
       }
       const plan = row.isNew
         ? await createMacroDistribution(selectedRecord.plan.id, payload)
@@ -2609,7 +2929,7 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
                                       <TableHead>
                                         <TableRow>
                                           <TableCell>Nombre</TableCell>
-                                          <TableCell>Tipo de dia</TableCell>
+                                          <TableCell>Kcal extra</TableCell>
                                           <TableCell align="center">HC</TableCell>
                                           <TableCell align="center">Proteina</TableCell>
                                           <TableCell align="center">Grasas</TableCell>
@@ -2640,24 +2960,19 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
                                                   fullWidth
                                                 />
                                               </TableCell>
-                                              <TableCell sx={{ minWidth: 170 }}>
-                                                <FormControl size="small" fullWidth>
-                                                  <Select
-                                                    value={row.dayType}
-                                                    onChange={(event) =>
-                                                      handleMacroDistributionRowChange(row.id, {
-                                                        dayType: event.target.value as WizardInputs['dayType'],
-                                                        isDefault: false,
-                                                      })
-                                                    }
-                                                  >
-                                                    {dayTypeOptions.map((option) => (
-                                                      <MenuItem key={option.value} value={option.value}>
-                                                        {option.label}
-                                                      </MenuItem>
-                                                    ))}
-                                                  </Select>
-                                                </FormControl>
+                                              <TableCell sx={{ minWidth: 130 }}>
+                                                <TextField
+                                                  size="small"
+                                                  type="number"
+                                                  value={row.kcalDelta}
+                                                  onChange={(event) =>
+                                                    handleMacroDistributionRowChange(row.id, {
+                                                      kcalDelta: event.target.value,
+                                                    })
+                                                  }
+                                                  inputProps={{ step: 25 }}
+                                                  fullWidth
+                                                />
                                               </TableCell>
                                               {(
                                                 [
@@ -2736,7 +3051,6 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
                                                   onClick={() =>
                                                     handleMacroDistributionRowChange(row.id, {
                                                       isDefault: true,
-                                                      dayType: row.dayType,
                                                     })
                                                   }
                                                 >
@@ -2798,9 +3112,9 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
                             </Stack>
                           </AccordionSummary>
                           <AccordionDetails>
-                            {!activePortionDate || !activePortionSyncPoint?.targetMacros ? (
+                            {!activePortionDistribution ? (
                               <Typography variant="body2" color="text.secondary">
-                                No hay dias del plan disponibles para repartir porciones.
+                                Crea una distribucion del plan para poder repartir porciones.
                               </Typography>
                             ) : (
                               <Stack spacing={2}>
@@ -2809,21 +3123,6 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
                                   spacing={1.5}
                                   alignItems={{ xs: 'stretch', sm: 'center' }}
                                 >
-                                  <FormControl size="small" sx={{ minWidth: 190 }}>
-                                    <InputLabel id="portion-date-label">Dia</InputLabel>
-                                    <Select
-                                      labelId="portion-date-label"
-                                      label="Dia"
-                                      value={activePortionDate}
-                                      onChange={(event) => handlePortionDateChange(event.target.value)}
-                                    >
-                                      {portionDateOptions.map((item) => (
-                                        <MenuItem key={item.date} value={item.date}>
-                                          {item.label}
-                                        </MenuItem>
-                                      ))}
-                                    </Select>
-                                  </FormControl>
                                   <FormControl size="small" sx={{ minWidth: 210 }}>
                                     <InputLabel id="portion-distribution-label">Distribucion</InputLabel>
                                     <Select
@@ -2837,7 +3136,8 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
                                     >
                                       {(selectedRecord.plan?.macroDistributions ?? []).map((item) => (
                                         <MenuItem key={item.id} value={item.id}>
-                                          {item.name} · {optionLabel(item.dayType, dayTypeOptions)}
+                                          {item.name} · {getDistributionKcalDelta(item) >= 0 ? '+' : ''}
+                                          {formatNumber(getDistributionKcalDelta(item))} kcal
                                           {item.isDefault ? ' · Default' : ''}
                                         </MenuItem>
                                       ))}
@@ -2851,7 +3151,7 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
                                     size="small"
                                     variant="contained"
                                     onClick={handleSavePortionTargets}
-                                    disabled={portionSaving || !isActiveCategoryDistributionBalanced}
+                                    disabled={portionSaving || !activePortionDistribution || !isActiveCategoryDistributionBalanced}
                                   >
                                     {portionSaving ? 'Guardando...' : 'Guardar reparto'}
                                   </Button>
@@ -3022,6 +3322,189 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
                           sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider' }}
                         >
                           <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
+                            <Stack spacing={0.25}>
+                              <Typography variant="subtitle2" fontWeight={700}>
+                                Recetas para las comidas
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Genera y publica las opciones que verá el usuario para esta distribución.
+                              </Typography>
+                            </Stack>
+                          </AccordionSummary>
+                          <AccordionDetails>
+                            <Stack spacing={2}>
+                              <FormControl size="small" sx={{ minWidth: 260, alignSelf: 'flex-start' }}>
+                                <InputLabel id="recipe-macro-distribution-label">
+                                  Cálculo de macros objetivo
+                                </InputLabel>
+                                <Select
+                                  labelId="recipe-macro-distribution-label"
+                                  label="Cálculo de macros objetivo"
+                                  value={portionDistributionId || activePortionDistribution?.id || ''}
+                                  onChange={(event) =>
+                                    handlePortionDistributionChange(event.target.value)
+                                  }
+                                  disabled={!selectedRecord.plan?.macroDistributions?.length}
+                                >
+                                  {(selectedRecord.plan?.macroDistributions ?? []).map((item) => (
+                                    <MenuItem key={item.id} value={item.id}>
+                                      {item.name} · {getDistributionKcalDelta(item) >= 0 ? '+' : ''}
+                                      {formatNumber(getDistributionKcalDelta(item))} kcal
+                                      {item.isDefault ? ' · Default' : ''}
+                                    </MenuItem>
+                                  ))}
+                                </Select>
+                              </FormControl>
+                            {!activePortionDistribution?.mealCategoryDistribution?.length ? (
+                              <Alert severity="info">
+                                Guarda primero el reparto de porciones por comida.
+                              </Alert>
+                            ) : (
+                              <Stack spacing={2}>
+                                <Box
+                                  sx={{
+                                    display: 'grid',
+                                    gridTemplateColumns: {
+                                      xs: '1fr',
+                                      sm: 'repeat(4, minmax(0, 1fr))',
+                                    },
+                                    gap: 1,
+                                  }}
+                                >
+                                  <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>
+                                    <Typography variant="caption" color="text.secondary">
+                                      Calorías
+                                    </Typography>
+                                    <Typography fontWeight={800}>
+                                      {Math.round(
+                                        activePortionTargetMacros.protein * 4 +
+                                          activePortionTargetMacros.carbs * 4 +
+                                          activePortionTargetMacros.fat * 9,
+                                      )}{' '}
+                                      kcal
+                                    </Typography>
+                                  </Paper>
+                                  {PORTION_MACROS.map((macro) => (
+                                    <Paper
+                                      key={macro.key}
+                                      variant="outlined"
+                                      sx={{ p: 1.25, borderRadius: 2 }}
+                                    >
+                                      <Typography variant="caption" color="text.secondary">
+                                        {macro.label}
+                                      </Typography>
+                                      <Typography fontWeight={800} sx={{ color: macro.color }}>
+                                        {formatMacroGrams(activePortionTargetMacros[macro.key])} g
+                                      </Typography>
+                                    </Paper>
+                                  ))}
+                                </Box>
+
+                                <TextField
+                                  label="Preferencias o restricciones"
+                                  value={mealPreferences}
+                                  onChange={(event) =>
+                                    setMealPreferences(event.target.value.slice(0, 500))
+                                  }
+                                  multiline
+                                  minRows={2}
+                                  fullWidth
+                                  helperText={`${mealPreferences.length}/500`}
+                                />
+                                <Button
+                                  variant="contained"
+                                  onClick={handleGenerateAdminMeals}
+                                  disabled={generatingMeals}
+                                  startIcon={<AutoAwesomeRoundedIcon />}
+                                  sx={{ alignSelf: { xs: 'stretch', sm: 'flex-start' } }}
+                                >
+                                  {generatingMeals
+                                    ? 'Generando recetas...'
+                                    : activePortionDistribution.generatedMenu
+                                      ? 'Regenerar opciones de recetas'
+                                      : 'Generar opciones de recetas'}
+                                </Button>
+                                {generatingMeals && <LinearProgress sx={{ borderRadius: 999 }} />}
+                                {mealGenerationError && (
+                                  <Alert severity="error">{mealGenerationError}</Alert>
+                                )}
+                                {!!activePortionDistribution.generatedMenu &&
+                                  ((activePortionDistribution.generatedMenu as GeneratedMenu).meals ?? []).map(
+                                    (meal, mealIndex) => (
+                                      <Accordion
+                                        key={`${meal.meal}-${mealIndex}`}
+                                        disableGutters
+                                        elevation={0}
+                                        variant="outlined"
+                                      >
+                                        <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
+                                          <Typography fontWeight={800}>
+                                            {meal.meal} · {meal.options.length} opciones
+                                          </Typography>
+                                        </AccordionSummary>
+                                        <AccordionDetails>
+                                          <Stack spacing={1}>
+                                            {meal.options.map((option, optionIndex) => (
+                                              <Paper
+                                                key={`${option.name}-${optionIndex}`}
+                                                variant="outlined"
+                                                sx={{ p: 1.25, borderRadius: 2 }}
+                                              >
+                                                <Stack
+                                                  direction={{ xs: 'column', sm: 'row' }}
+                                                  justifyContent="space-between"
+                                                  alignItems={{ xs: 'stretch', sm: 'center' }}
+                                                  spacing={1}
+                                                >
+                                                  <Box>
+                                                    <Typography variant="subtitle2" fontWeight={800}>
+                                                      {option.name}
+                                                    </Typography>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                      {Math.round(option.totals.kcal)} kcal · P{' '}
+                                                      {formatMacroGrams(option.totals.protein)} g · HC{' '}
+                                                      {formatMacroGrams(option.totals.carbs)} g · G{' '}
+                                                      {formatMacroGrams(option.totals.fat)} g
+                                                    </Typography>
+                                                  </Box>
+                                                  <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    startIcon={<EditRoundedIcon />}
+                                                    onClick={() =>
+                                                      handleOpenRecipeEditor(mealIndex, optionIndex, option)
+                                                    }
+                                                  >
+                                                    Modificar receta
+                                                  </Button>
+                                                </Stack>
+                                                <Typography variant="caption" color="text.secondary">
+                                                  {option.ingredients
+                                                    .map(
+                                                      (ingredient) =>
+                                                        `${ingredient.name} (${Math.round(ingredient.grams)} g)`,
+                                                    )
+                                                    .join(' · ')}
+                                                </Typography>
+                                              </Paper>
+                                            ))}
+                                          </Stack>
+                                        </AccordionDetails>
+                                      </Accordion>
+                                    ),
+                                  )}
+                              </Stack>
+                            )}
+                            </Stack>
+                          </AccordionDetails>
+                        </Accordion>
+
+                        <Accordion
+                          disableGutters
+                          elevation={0}
+                          sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider' }}
+                        >
+                          <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
                             <Typography variant="subtitle2" fontWeight={700}>
                               Seguimiento semanal
                             </Typography>
@@ -3113,6 +3596,214 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
       )}
         </Box>
       </Stack>
+
+      <Dialog
+        open={!!recipeEditor}
+        onClose={handleCloseRecipeEditor}
+        fullWidth
+        maxWidth="md"
+      >
+        <DialogTitle>Modificar receta</DialogTitle>
+        <DialogContent dividers>
+          {recipeEditor && recipeEditorPreview && (
+            <Stack spacing={2}>
+              <TextField
+                label="Nombre del plato"
+                value={recipeEditor.name}
+                onChange={(event) =>
+                  setRecipeEditor((current) =>
+                    current ? { ...current, name: event.target.value } : current,
+                  )
+                }
+                fullWidth
+              />
+
+              <Alert severity="info">
+                Al cambiar los gramos, las macros se recalculan manteniendo la proporcion
+                nutricional original de cada ingrediente.
+              </Alert>
+
+              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                <Stack spacing={1.25}>
+                  <Typography variant="subtitle2" fontWeight={800}>
+                    Agregar insumo del catalogo
+                  </Typography>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                    <TextField
+                      size="small"
+                      label="Buscar por nombre"
+                      value={recipeIngredientSearch}
+                      onChange={(event) => setRecipeIngredientSearch(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault()
+                          void handleSearchRecipeIngredients()
+                        }
+                      }}
+                      fullWidth
+                    />
+                    <Button
+                      variant="outlined"
+                      onClick={() => void handleSearchRecipeIngredients()}
+                      disabled={recipeIngredientSearching}
+                    >
+                      {recipeIngredientSearching ? 'Buscando...' : 'Buscar'}
+                    </Button>
+                  </Stack>
+                  {recipeIngredientSearchError && (
+                    <Alert severity="warning">{recipeIngredientSearchError}</Alert>
+                  )}
+                  {recipeIngredientResults.length > 0 && (
+                    <Stack spacing={0.5} sx={{ maxHeight: 190, overflowY: 'auto' }}>
+                      {recipeIngredientResults.map((ingredient) => (
+                        <Stack
+                          key={ingredient.id}
+                          direction="row"
+                          alignItems="center"
+                          justifyContent="space-between"
+                          spacing={1}
+                          sx={{ px: 1, py: 0.75, borderRadius: 1.5, bgcolor: 'action.hover' }}
+                        >
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography variant="body2" fontWeight={700}>
+                              {ingredient.name}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {ingredient.subgrup || ingredient.group} · P{' '}
+                              {formatMacroGrams(ingredient.prot_100g)} · HC{' '}
+                              {formatMacroGrams(ingredient.cho_100g)} · G{' '}
+                              {formatMacroGrams(ingredient.fat_100g)} por 100 g
+                            </Typography>
+                          </Box>
+                          <Button
+                            size="small"
+                            variant="contained"
+                            onClick={() => handleAddRecipeIngredient(ingredient)}
+                          >
+                            Agregar
+                          </Button>
+                        </Stack>
+                      ))}
+                    </Stack>
+                  )}
+                </Stack>
+              </Paper>
+
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Ingrediente</TableCell>
+                      <TableCell align="right">Gramos</TableCell>
+                      <TableCell align="right">Proteina</TableCell>
+                      <TableCell align="right">HC</TableCell>
+                      <TableCell align="right">Grasa</TableCell>
+                      <TableCell align="right">Kcal</TableCell>
+                      <TableCell align="center">Acciones</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {recipeEditor.ingredients.map((ingredient, ingredientIndex) => {
+                      const previewIngredient = recipeEditorPreview.ingredients[ingredientIndex]
+                      const ingredientKcal = Math.round(
+                        previewIngredient.protein * 4 +
+                          previewIngredient.carbs * 4 +
+                          previewIngredient.fat * 9,
+                      )
+                      return (
+                        <TableRow key={`${ingredient.name}-${ingredientIndex}`}>
+                          <TableCell>
+                            <Typography variant="body2" fontWeight={700}>
+                              {ingredient.name}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right" sx={{ width: 140 }}>
+                            <TextField
+                              value={ingredient.grams}
+                              onChange={(event) =>
+                                handleRecipeIngredientGramsChange(
+                                  ingredientIndex,
+                                  event.target.value,
+                                )
+                              }
+                              type="number"
+                              size="small"
+                              inputProps={{ min: 0, step: 1 }}
+                              slotProps={{ htmlInput: { min: 0, step: 1 } }}
+                              sx={{ width: 110 }}
+                            />
+                          </TableCell>
+                          <TableCell align="right">
+                            {formatMacroGrams(previewIngredient.protein)} g
+                          </TableCell>
+                          <TableCell align="right">
+                            {formatMacroGrams(previewIngredient.carbs)} g
+                          </TableCell>
+                          <TableCell align="right">
+                            {formatMacroGrams(previewIngredient.fat)} g
+                          </TableCell>
+                          <TableCell align="right">{ingredientKcal}</TableCell>
+                          <TableCell align="center">
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => handleRemoveRecipeIngredient(ingredientIndex)}
+                              aria-label={`Quitar ${ingredient.name}`}
+                            >
+                              <DeleteOutlineRoundedIcon fontSize="small" />
+                            </IconButton>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                    <TableRow sx={{ bgcolor: 'action.hover' }}>
+                      <TableCell colSpan={2}>
+                        <Typography fontWeight={900}>Total recalculado</Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography fontWeight={900}>
+                          {formatMacroGrams(recipeEditorPreview.totals.protein)} g
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography fontWeight={900}>
+                          {formatMacroGrams(recipeEditorPreview.totals.carbs)} g
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography fontWeight={900}>
+                          {formatMacroGrams(recipeEditorPreview.totals.fat)} g
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography fontWeight={900}>{recipeEditorPreview.totals.kcal}</Typography>
+                      </TableCell>
+                      <TableCell />
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </TableContainer>
+              {recipeEditorError && <Alert severity="error">{recipeEditorError}</Alert>}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseRecipeEditor} disabled={recipeEditorSaving}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSaveRecipeEditor}
+            disabled={
+              recipeEditorSaving ||
+              !recipeEditor?.name.trim() ||
+              recipeEditor.ingredients.length === 0
+            }
+          >
+            {recipeEditorSaving ? 'Guardando...' : 'Guardar cambios'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={messageDialogOpen} onClose={handleCloseMessageDialog} fullWidth maxWidth="sm">
         <DialogTitle>Mensajes con {messageTarget?.name ?? 'cliente'}</DialogTitle>

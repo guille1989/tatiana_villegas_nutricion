@@ -1,4 +1,7 @@
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
   Box,
   Button,
@@ -9,11 +12,11 @@ import {
   Card,
   Container,
   Dialog,
+  Divider,
   DialogActions,
   DialogContent,
   DialogTitle,
   Fade,
-  Paper,
   Snackbar,
   Stack,
   Typography,
@@ -31,6 +34,12 @@ import ChevronLeftRoundedIcon from "@mui/icons-material/ChevronLeftRounded";
 import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import SearchIcon from "@mui/icons-material/Search";
+import SpaRoundedIcon from "@mui/icons-material/SpaRounded";
+import BoltRoundedIcon from "@mui/icons-material/BoltRounded";
+import FitnessCenterRoundedIcon from "@mui/icons-material/FitnessCenterRounded";
+import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
+import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
+import RestaurantMenuRoundedIcon from "@mui/icons-material/RestaurantMenuRounded";
 import dayjs from "dayjs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@mui/material/styles";
@@ -40,11 +49,20 @@ import DayEditDialog from "../components/DayEditDialog";
 import {
   applyMacroOverrideToOutputs,
   calculateDayFromBase,
+  getDayTargetCalories,
   getMacroKcalBreakdown,
   toMacroPortionValue,
   toMacroPortions,
 } from "../lib/calc";
-import { getDistributionMacroOverride } from "../lib/macroDistributions";
+import {
+  getDistributionKcalDelta,
+  getDistributionMacroOverride,
+  getMacroDistributionForDay,
+} from "../lib/macroDistributions";
+import {
+  MEAL_DISTRIBUTION_COLUMNS,
+  calculateCategoryDistributionMacros,
+} from "../lib/mealCategoryDistribution";
 import {
   createAdminUserMealTemplate,
   createMealTemplate,
@@ -52,6 +70,8 @@ import {
   listAdminUserMealTemplates,
   listMealTemplates,
   upsertOverride,
+  type GeneratedMenu,
+  type GeneratedMealOption,
 } from "../lib/api";
 import MealBuilder from "../components/MealBuilder";
 import {
@@ -76,12 +96,19 @@ import type {
   MealItem,
   MealTemplate,
   Plan,
+  PlanMacroDistribution,
   PlanMacroOverride,
   WizardInputs,
 } from "../types";
 
 const CLONE_PAGE_SIZE = 6;
 const TEMPLATE_DATE_REGEX = /\d{4}-\d{2}-\d{2}/;
+const normalizeGeneratedMealName = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
 const MEAL_TYPE_OPTIONS = [
   "Desayuno",
   "Comida",
@@ -91,6 +118,61 @@ const MEAL_TYPE_OPTIONS = [
   "Merienda 2",
 ];
 const MOBILE_WEEK_STICKY_TOP = 0;
+
+type DayTypeMeta = {
+  label: string;
+  description: string;
+  color: string;
+  Icon: typeof SpaRoundedIcon;
+};
+
+const DAY_TYPE_META: Record<string, DayTypeMeta> = {
+  rest: {
+    label: "Descanso",
+    description: "Sin entrenamiento o actividad ligera",
+    color: "#2e9e83",
+    Icon: SpaRoundedIcon,
+  },
+  training_type_1: {
+    label: "Entreno tipo 1",
+    description: "Cardio intenso · alta demanda energetica",
+    color: "#e0574f",
+    Icon: BoltRoundedIcon,
+  },
+  training_type_2: {
+    label: "Entreno tipo 2",
+    description: "Fuerza y recuperacion muscular",
+    color: "#d99a2b",
+    Icon: FitnessCenterRoundedIcon,
+  },
+  training: {
+    label: "Entreno",
+    description: "Entrenamiento",
+    color: "#e0574f",
+    Icon: BoltRoundedIcon,
+  },
+};
+
+const formatPerKg = (value: number) =>
+  Number.isFinite(value) ? (Math.round(value * 10) / 10).toFixed(1) : "0.0";
+
+const formatInt = (value: number) => Math.round(value);
+
+// Contenedor antiguo de comidas del dia. Oculto mientras se construye la v2.
+const SHOW_MEALS_V1 = false;
+
+// Horas sugeridas por comida para simular una linea de tiempo del dia
+// (desde la manana hasta la noche). Solo es visual/orientativo.
+const MEAL_TIME_HINTS: Record<string, { time: string; suffix: string }> = {
+  breakfast: { time: "8:00", suffix: "AM" },
+  snack: { time: "11:00", suffix: "AM" },
+  lunch: { time: "2:00", suffix: "PM" },
+  snack2: { time: "5:30", suffix: "PM" },
+  dinner: { time: "9:00", suffix: "PM" },
+  extras: { time: "10:30", suffix: "PM" },
+};
+
+const DEFAULT_MEAL_TIME = { time: "—", suffix: "" };
 
 type RepeatMode = "replace" | "only_if_empty";
 
@@ -155,6 +237,16 @@ const PlanDetailPage = () => {
   const [editingDate, setEditingDate] = useState<string | null>(null);
   const [snackbar, setSnackbar] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [distributionSavingId, setDistributionSavingId] = useState<
+    string | null
+  >(null);
+  const [distributionsExpanded, setDistributionsExpanded] = useState(false);
+  const [generatedMenu, setGeneratedMenu] = useState<GeneratedMenu | null>(null);
+  const [selectedGeneratedOptions, setSelectedGeneratedOptions] = useState<Record<number, number>>({});
+  const [mealChoiceModes, setMealChoiceModes] = useState<
+    Partial<Record<Meal["key"], "recipes" | "custom">>
+  >({});
+  const [generatedAccordionExpanded, setGeneratedAccordionExpanded] = useState<Record<number, boolean>>({});
   const [mealsByDate, setMealsByDate] = useState<Record<string, Meal[]>>({});
   const [mealLibrary, setMealLibrary] = useState<MealTemplate[]>([]);
   const [mealLibraryLoading, setMealLibraryLoading] = useState(false);
@@ -419,6 +511,7 @@ const PlanDetailPage = () => {
   ) => {
     if (!outputs) return outputs;
     const dailyOverride = dayOverride?.overrides?.macroOverride ?? null;
+    const distribution = getMacroDistributionForDay(plan, dayOverride, dayType);
     const distributionOverride = getDistributionMacroOverride(
       plan,
       dayOverride,
@@ -438,6 +531,14 @@ const PlanDetailPage = () => {
       goal: baseInputs.goal,
       weight: baseInputs.weight ?? 0,
       activityDelta,
+      targetCaloriesOverride:
+        distributionOverride && outputs.kcalObjectiveBase !== undefined
+          ? getDayTargetCalories(
+              outputs.kcalObjectiveBase,
+              dayType,
+              getDistributionKcalDelta(distribution),
+            )
+          : undefined,
     });
   };
 
@@ -542,12 +643,514 @@ const PlanDetailPage = () => {
         ? "training_type_2"
         : "training_type_1"
       : (selectedOverride?.overrides.dayType ?? baseInputs?.dayType ?? "rest");
-  const selectedTrainingLabel =
-    selectedDayType !== "rest"
-      ? selectedTrainingCount > 1
-        ? "Entreno tipo 2"
-        : "Entreno tipo 1"
-      : "Descanso";
+
+  const distributionOptions = useMemo(() => {
+    const list = plan?.macroDistributions ?? [];
+    return [...list].sort(
+      (a, b) =>
+        getDistributionKcalDelta(a) - getDistributionKcalDelta(b) ||
+        a.name.localeCompare(b.name),
+    );
+  }, [plan?.macroDistributions]);
+
+  const selectedDistributionId =
+    selectedOverride?.overrides?.macroDistributionId ??
+    getMacroDistributionForDay(plan, selectedOverride, selectedDayType)?.id ??
+    null;
+
+  useEffect(() => {
+    if (selectedOverride?.generatedMenu) {
+      setGeneratedMenu(selectedOverride.generatedMenu as GeneratedMenu);
+      setSelectedGeneratedOptions(selectedOverride.generatedSelections ?? {});
+      setGeneratedAccordionExpanded({});
+      return;
+    }
+    const distributionMenu = plan?.macroDistributions?.find(
+      (item) => item.id === selectedDistributionId,
+    )?.generatedMenu;
+    if (distributionMenu) {
+      setGeneratedMenu(distributionMenu as GeneratedMenu);
+      setSelectedGeneratedOptions({});
+      setGeneratedAccordionExpanded({});
+      return;
+    }
+    setGeneratedMenu(null);
+    setSelectedGeneratedOptions({});
+    setGeneratedAccordionExpanded({});
+  }, [selectedOverride?.id, selectedDate, selectedDistributionId, plan?.macroDistributions]);
+
+  const getDistributionPreview = (dist: PlanMacroDistribution) => {
+    const outputs = computeOutputs(selectedDate, {
+      overrides: {
+        ...(selectedOverride?.overrides ?? {}),
+        dayType: selectedDayType,
+        macroDistributionId: dist.id,
+        macroOverride: null,
+      },
+    } as DayOverride);
+    const weight = baseInputs?.weight ?? 0;
+    return {
+      kcal: outputs?.kcalObjectiveDay ?? null,
+      carbsPerKg: dist.carbsPerKg,
+      proteinPerKg: dist.proteinPerKg,
+      fatPerKg:
+        outputs && weight > 0 ? (outputs.fatsAdjusted ?? 0) / weight : 0,
+    };
+  };
+
+  const handleSelectDistribution = async (dist: PlanMacroDistribution) => {
+    if (!planId || !selectedDate) return;
+    if (dist.id === selectedDistributionId) return;
+    setDistributionSavingId(dist.id);
+    const baseOverride = selectedOverride?.overrides ?? {
+      dayType: baseInputs?.dayType,
+      activityLevel: baseInputs?.activityLevel,
+    };
+    const meals =
+      mealsByDate[selectedDate] ??
+      (selectedOverride?.meals as Meal[] | undefined);
+    try {
+      const record = await upsertOverride({
+        planId,
+        date: selectedDate,
+        overrides: {
+          ...baseOverride,
+          dayType: baseOverride.dayType ?? selectedDayType,
+          macroDistributionId: dist.id,
+          macroOverride: null,
+        },
+        meals,
+        note: selectedOverride?.note,
+      });
+      handleSaved(record);
+      setDistributionsExpanded(false);
+    } catch (err) {
+      console.error(err);
+      setError("No se pudo aplicar el reparto");
+    } finally {
+      setDistributionSavingId(null);
+    }
+  };
+
+  const dayMealPlan = useMemo(() => {
+    const planDistribution = selectedDistributionId
+      ? plan?.macroDistributions?.find((item) => item.id === selectedDistributionId)
+      : null;
+    const legacyDayDistribution = selectedOverride?.overrides?.mealCategoryDistribution;
+    const legacySharedDistribution = selectedDistributionId
+      ? (overrides.find(
+          (item) =>
+            item.overrides?.macroDistributionId === selectedDistributionId &&
+            (item.overrides?.mealCategoryDistribution?.length ?? 0) > 0,
+        )?.overrides?.mealCategoryDistribution ?? null)
+      : null;
+    const dist =
+      planDistribution?.mealCategoryDistribution && planDistribution.mealCategoryDistribution.length > 0
+        ? planDistribution.mealCategoryDistribution
+        : legacyDayDistribution && legacyDayDistribution.length > 0
+          ? legacyDayDistribution
+          : legacySharedDistribution && legacySharedDistribution.length > 0
+            ? legacySharedDistribution
+            : null;
+    if (!dist || dist.length === 0) return null;
+    const { byMeal } = calculateCategoryDistributionMacros(dist);
+    const entries = MEAL_DISTRIBUTION_COLUMNS.map((col) => ({
+      key: col.key,
+      label: col.label,
+      macros: byMeal[col.key] ?? { protein: 0, carbs: 0, fat: 0 },
+      categories: dist
+        .map((row) => ({
+          name: row.name,
+          portions: row.portions?.[col.key] ?? 0,
+        }))
+        .filter((cat) => cat.portions > 0),
+    })).filter((entry) => entry.categories.length > 0);
+    return entries.length > 0 ? entries : null;
+  }, [
+    selectedOverride?.overrides?.mealCategoryDistribution,
+    selectedDistributionId,
+    plan?.macroDistributions,
+    overrides,
+  ]);
+
+  const generatedOptionToMeal = (
+    option: GeneratedMealOption,
+    mealIndex: number,
+  ): Meal | null => {
+    const mealPlanEntry = dayMealPlan?.[mealIndex];
+    if (!mealPlanEntry) return null;
+    const items = option.ingredients.map((ingredient, ingredientIndex) => ({
+      foodId: `generated-${mealPlanEntry.key}-${ingredientIndex}`,
+      nameSnapshot: ingredient.name,
+      grams: ingredient.grams,
+      macros: {
+        protein: ingredient.protein,
+        carbs: ingredient.carbs,
+        fat: ingredient.fat,
+      },
+      kcal: Math.round(ingredient.protein * 4 + ingredient.carbs * 4 + ingredient.fat * 9),
+    }));
+    return {
+      key: mealPlanEntry.key as Meal["key"],
+      name: mealPlanEntry.label,
+      items,
+      totals: {
+        protein: option.totals.protein,
+        carbs: option.totals.carbs,
+        fat: option.totals.fat,
+        kcal: option.totals.kcal,
+      },
+    };
+  };
+
+  const saveGeneratedSelections = async (selections: Record<number, number>) => {
+    if (!generatedMenu || !dayMealPlan) return;
+    const selectedMeals = generatedMenu.meals
+      .map((meal, mealIndex) => {
+        const optionIndex = selections[mealIndex];
+        if (optionIndex === undefined) return null;
+        const option = meal.options[optionIndex];
+        return option ? generatedOptionToMeal(option, mealIndex) : null;
+      })
+      .filter((meal): meal is Meal => meal !== null);
+    if (selectedMeals.length === 0) {
+      return;
+    }
+    const replacements = new Map(selectedMeals.map((meal) => [meal.key, meal]));
+    const mergedMeals = currentMeals.map(
+      (meal) => replacements.get(meal.key) ?? meal,
+    );
+    selectedMeals.forEach((meal) => {
+      if (!mergedMeals.some((item) => item.key === meal.key)) mergedMeals.push(meal);
+    });
+    await handleSaveMeals(mergedMeals, {
+      generatedMenu,
+      generatedSelections: selections,
+    });
+  };
+
+  const handleSelectGeneratedOption = (
+    mealIndex: number,
+    optionIndex: number,
+  ) => {
+    const nextSelections = {
+      ...selectedGeneratedOptions,
+      [mealIndex]: optionIndex,
+    };
+    setSelectedGeneratedOptions(nextSelections);
+    const mealKey = dayMealPlan?.[mealIndex]?.key;
+    if (mealKey) {
+      setMealChoiceModes((prev) => ({
+        ...prev,
+        [mealKey as Meal["key"]]: "recipes",
+      }));
+    }
+    void saveGeneratedSelections(nextSelections);
+  };
+
+  const renderGeneratedMealOption = (
+    opt: GeneratedMealOption,
+    mealIndex: number,
+    optionIndex: number,
+  ) => {
+    const selected = selectedGeneratedOptions[mealIndex] === optionIndex;
+    return (
+      <Stack
+        key={`${opt.name}-${optionIndex}`}
+        spacing={1}
+        role="button"
+        tabIndex={0}
+        onClick={() => handleSelectGeneratedOption(mealIndex, optionIndex)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            handleSelectGeneratedOption(mealIndex, optionIndex);
+          }
+        }}
+        sx={{
+          p: 1.5,
+          borderRadius: 2.5,
+          border: "1px solid",
+          borderColor: selected ? "primary.main" : "divider",
+          bgcolor: selected ? "primary.50" : "background.paper",
+          cursor: "pointer",
+          transition: "border-color 160ms ease, box-shadow 160ms ease",
+          "&:hover": {
+            borderColor: "primary.main",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.06)",
+          },
+        }}
+      >
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+            <Typography variant="body2" fontWeight={700}>
+              {opt.name}
+            </Typography>
+          </Stack>
+        </Box>
+
+        <Stack direction="row" sx={{ flexWrap: "wrap", gap: 0.5 }}>
+          <Box
+            sx={{
+              display: "inline-flex",
+              alignItems: "center",
+              px: 0.85,
+              py: 0.25,
+              borderRadius: 999,
+              bgcolor: "grey.100",
+              fontWeight: 700,
+              fontSize: 12,
+            }}
+          >
+            {formatInt(opt.totals.kcal)} kcal
+          </Box>
+          {[
+            {
+              label: "P",
+              value: opt.totals.protein,
+              color: theme.palette.primary.main,
+            },
+            {
+              label: "C",
+              value: opt.totals.carbs,
+              color: theme.palette.success.main,
+            },
+            {
+              label: "G",
+              value: opt.totals.fat,
+              color: theme.palette.warning.main,
+            },
+          ].map((m) => (
+            <Box
+              key={m.label}
+              sx={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 0.5,
+                px: 0.85,
+                py: 0.25,
+                borderRadius: 999,
+                bgcolor: m.color + "1F",
+                color: m.color,
+              }}
+            >
+              <Box
+                sx={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  bgcolor: m.color,
+                }}
+              />
+              <Typography variant="caption" fontWeight={700}>
+                {m.label} {formatInt(m.value)}
+              </Typography>
+            </Box>
+          ))}
+        </Stack>
+
+        <Divider sx={{ my: 0.25 }} />
+
+        <Stack spacing={0.4}>
+          {opt.ingredients.map((ing, i) => (
+            <Stack
+              key={`${ing.name}-${i}`}
+              direction="row"
+              justifyContent="space-between"
+              spacing={1}
+            >
+              <Typography variant="caption" color="text.secondary" sx={{ minWidth: 0 }}>
+                {ing.name}
+              </Typography>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                fontWeight={600}
+                sx={{ flexShrink: 0 }}
+              >
+                {formatInt(ing.grams)} g
+              </Typography>
+            </Stack>
+          ))}
+        </Stack>
+      </Stack>
+    );
+  };
+
+  const renderDistributionCard = (
+    dist: PlanMacroDistribution,
+    options?: { asHeader?: boolean; expandable?: boolean },
+  ) => {
+    const asHeader = options?.asHeader ?? false;
+    const expandable = options?.expandable ?? false;
+    const kcalDelta = getDistributionKcalDelta(dist);
+    const meta =
+      DAY_TYPE_META[dist.dayType ?? (kcalDelta === 0 ? "rest" : "training")] ??
+      DAY_TYPE_META.training;
+    const preview = getDistributionPreview(dist);
+    const isSelected = dist.id === selectedDistributionId;
+    const isSaving = distributionSavingId === dist.id;
+    const Icon = meta.Icon;
+    return (
+      <ButtonBase
+        key={dist.id}
+        onClick={() =>
+          asHeader
+            ? setDistributionsExpanded((prev) => !prev)
+            : handleSelectDistribution(dist)
+        }
+        disabled={!asHeader && distributionSavingId !== null}
+        aria-pressed={asHeader ? undefined : isSelected}
+        aria-expanded={asHeader ? distributionsExpanded : undefined}
+        aria-label={
+          asHeader
+            ? distributionsExpanded
+              ? "Ocultar opciones de entrenamiento"
+              : "Ver opciones de entrenamiento"
+            : `Aplicar ${dist.name}`
+        }
+        sx={{
+          display: "block",
+          width: "100%",
+          textAlign: "left",
+          borderRadius: 3,
+          p: { xs: 1.25, md: 1.5 },
+          position: "relative",
+          overflow: "hidden",
+          border: "1.5px solid",
+          borderColor: isSelected ? "rgba(0, 97, 86, 0.55)" : "divider",
+          bgcolor: isSelected ? "rgba(0, 97, 86, 0.06)" : "background.paper",
+          opacity: distributionSavingId !== null && !isSaving ? 0.6 : 1,
+          transition:
+            "border-color 200ms ease, background-color 200ms ease, box-shadow 200ms ease",
+          boxShadow: isSelected ? "0 6px 16px rgba(0, 97, 86, 0.10)" : "none",
+          "&:hover": {
+            borderColor: isSelected
+              ? "rgba(0, 97, 86, 0.6)"
+              : "rgba(148, 163, 184, 0.5)",
+          },
+          "&::before": {
+            content: '""',
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 4,
+            bgcolor: meta.color,
+          },
+        }}
+      >
+        <Stack direction="row" spacing={1.5} alignItems="center" pl={0.75}>
+          <Box
+            sx={{
+              width: 40,
+              height: 40,
+              borderRadius: "50%",
+              flexShrink: 0,
+              display: "grid",
+              placeItems: "center",
+              bgcolor: `${meta.color}1f`,
+              color: meta.color,
+            }}
+          >
+            <Icon fontSize="small" />
+          </Box>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography
+              variant="body2"
+              fontWeight={800}
+              noWrap
+              sx={{ color: "text.primary" }}
+            >
+              {dist.name}
+            </Typography>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: "block", lineHeight: 1.3 }}
+              noWrap
+            >
+              {kcalDelta >= 0 ? "+" : ""}
+              {formatInt(kcalDelta)} kcal
+            </Typography>
+            <Typography
+              variant="caption"
+              sx={{
+                display: "block",
+                mt: 0.5,
+                fontWeight: 600,
+                color: "text.secondary",
+              }}
+            >
+              HC {formatPerKg(preview.carbsPerKg)} · PRO{" "}
+              {formatPerKg(preview.proteinPerKg)} · GRA{" "}
+              {formatPerKg(preview.fatPerKg)} g/kg
+            </Typography>
+          </Box>
+          <Stack alignItems="flex-end" spacing={0.5} flexShrink={0}>
+            {isSelected && !asHeader && (
+              <CheckCircleRoundedIcon
+                fontSize="small"
+                sx={{ color: "#006156" }}
+              />
+            )}
+            {preview.kcal !== null && (
+              <Typography
+                variant="body2"
+                fontWeight={800}
+                sx={{ color: meta.color, whiteSpace: "nowrap" }}
+              >
+                {formatInt(preview.kcal)} kcal
+              </Typography>
+            )}
+            {isSaving && (
+              <LinearProgress sx={{ width: 48, borderRadius: 999 }} />
+            )}
+          </Stack>
+          {expandable && (
+            <ExpandMoreRoundedIcon
+              sx={{
+                flexShrink: 0,
+                color: "text.secondary",
+                transform: distributionsExpanded
+                  ? "rotate(180deg)"
+                  : "rotate(0deg)",
+                transition: "transform 200ms ease",
+              }}
+            />
+          )}
+        </Stack>
+      </ButtonBase>
+    );
+  };
+
+  const selectedDistribution =
+    distributionOptions.find((dist) => dist.id === selectedDistributionId) ??
+    null;
+  const otherDistributions = distributionOptions.filter(
+    (dist) => dist.id !== selectedDistribution?.id,
+  );
+
+  const distributionSelector =
+    distributionOptions.length === 0 ? null : selectedDistribution ? (
+      <Stack spacing={1.25}>
+        {renderDistributionCard(selectedDistribution, {
+          asHeader: otherDistributions.length > 0,
+          expandable: otherDistributions.length > 0,
+        })}
+        {otherDistributions.length > 0 && (
+          <Collapse in={distributionsExpanded} timeout="auto" unmountOnExit>
+            <Stack spacing={1.25}>
+              {otherDistributions.map((dist) => renderDistributionCard(dist))}
+            </Stack>
+          </Collapse>
+        )}
+      </Stack>
+    ) : (
+      <Stack spacing={1.25}>
+        {distributionOptions.map((dist) => renderDistributionCard(dist))}
+      </Stack>
+    );
 
   const canGoPrevWeek = weekIndex > 0;
   const canGoNextWeek = weekIndex < weeks.length - 1;
@@ -647,7 +1250,6 @@ const PlanDetailPage = () => {
     return summary;
   };
 
-  const formatInt = (value: number) => Math.round(value);
   const formatPortions = (value: number) =>
     (Math.round(value * 10) / 10).toFixed(1);
 
@@ -719,60 +1321,25 @@ const PlanDetailPage = () => {
     );
   };
 
-  const buildRepeatConfigSource = (
-    sourceDate: string,
-  ): RepeatConfigSource | null => {
-    if (!baseInputs) return null;
-    const sourceOverride = getDayOverride(sourceDate);
-    const dayType =
-      sourceOverride?.overrides?.dayType ?? baseInputs.dayType ?? "rest";
-    const activityLevel =
-      sourceOverride?.overrides?.activityLevel ??
-      baseInputs.activityLevel ??
-      undefined;
-    const overrideTrainings =
-      sourceOverride?.overrides?.trainings ??
-      (sourceOverride?.overrides?.training
-        ? [sourceOverride?.overrides?.training]
-        : undefined);
-    const fallbackTraining =
-      baseInputs.trainingType && baseInputs.duration
-        ? [
-            {
-              type: baseInputs.trainingType,
-              met: baseInputs.trainingMet ?? undefined,
-              durationMin: baseInputs.duration,
-            },
-          ]
-        : [];
-    const normalizedTrainings =
-      dayType === "training"
-        ? (overrideTrainings ?? fallbackTraining).map((item) =>
-            item
-              ? {
-                  type: item.type ?? undefined,
-                  met: item.met ?? undefined,
-                  durationMin: item.durationMin ?? undefined,
-                }
-              : null,
-          )
-        : null;
-
-    return {
-      activityLevel,
-      dayType,
-      trainings: normalizedTrainings,
-    };
-  };
-
   const rawMeals =
     (selectedDate && mealsByDate[selectedDate]) ||
     (selectedOverride?.meals as Meal[] | undefined);
-  const mealCount = getMealCount(rawMeals);
-  const mealTemplate = mealCount ? getMealsByCount(mealCount) : [];
-  const currentMeals = mealCount
-    ? mergeMealsWithTemplate(rawMeals, mealTemplate)
-    : [];
+  const distributionMealTemplate: Meal[] = (dayMealPlan ?? []).map((meal) => ({
+    key: meal.key as Meal["key"],
+    name: meal.label,
+    items: [],
+    totals: { protein: 0, carbs: 0, fat: 0, kcal: 0 },
+  }));
+  const storedMealCount = getMealCount(rawMeals);
+  const mealTemplate =
+    distributionMealTemplate.length > 0
+      ? distributionMealTemplate
+      : storedMealCount
+        ? getMealsByCount(storedMealCount)
+        : [];
+  const currentMeals =
+    mealTemplate.length > 0 ? mergeMealsWithTemplate(rawMeals, mealTemplate) : [];
+  const mealCount = getMealCount(currentMeals);
   const currentTotals = totalsFromMeals(currentMeals);
   const currentMacroSources = calcMacroSources(currentMeals);
   const macroLabels: Record<MacroKey, string> = {
@@ -802,10 +1369,38 @@ const PlanDetailPage = () => {
         fat: selectedOutputs.fatsAdjusted,
       }
     : { protein: 0, carbs: 0, fat: 0 };
-  const mealTargets = distributeMacros(
-    dailyMacros,
-    mealCount ? getWeightsByCount(mealCount) : [],
-  );
+  const mealTargets = dayMealPlan
+    ? dayMealPlan.reduce(
+        (targets, meal) => ({
+          ...targets,
+          [meal.key]: meal.macros,
+        }),
+        distributeMacros(dailyMacros, []),
+      )
+    : distributeMacros(
+        dailyMacros,
+        mealCount ? getWeightsByCount(mealCount) : [],
+      );
+
+  useEffect(() => {
+    if (!dayMealPlan) {
+      setMealChoiceModes({});
+      return;
+    }
+    const selections = selectedOverride?.generatedSelections ?? {};
+    const nextModes: Partial<Record<Meal["key"], "recipes" | "custom">> = {};
+    dayMealPlan.forEach((meal, index) => {
+      const key = meal.key as Meal["key"];
+      const storedMeal = currentMeals.find((item) => item.key === key);
+      nextModes[key] =
+        selections[index] !== undefined
+          ? "recipes"
+          : storedMeal?.items.length
+            ? "custom"
+            : "recipes";
+    });
+    setMealChoiceModes(nextModes);
+  }, [selectedDate, selectedOverride?.id, dayMealPlan]);
 
   const cloneSource = mealLibrary.find((item) => item.id === cloneSourceId);
   const cloneDisabled =
@@ -867,12 +1462,13 @@ const PlanDetailPage = () => {
     handleMealsChange(nextMeals);
   };
 
-  const handleEditSelectedDay = () => {
-    if (!selectedDate) return;
-    setEditingDate(selectedDate);
-  };
-
-  const handleSaveMeals = async (mealsOverride?: Meal[] | unknown) => {
+  const handleSaveMeals = async (
+    mealsOverride?: Meal[] | unknown,
+    generatedPayload?: {
+      generatedMenu?: GeneratedMenu | null
+      generatedSelections?: Record<number, number>
+    },
+  ) => {
     if (!planId || !selectedDate || !baseInputs) return;
     if (!mealCount && !Array.isArray(mealsOverride)) {
       setSnackbar("Selecciona cuantas comidas haras hoy");
@@ -891,6 +1487,9 @@ const PlanDetailPage = () => {
         date: selectedDate,
         overrides: baseOverride,
         meals: mealsToSave,
+        generatedMenu: generatedPayload?.generatedMenu ?? selectedOverride?.generatedMenu,
+        generatedSelections:
+          generatedPayload?.generatedSelections ?? selectedOverride?.generatedSelections,
       });
       handleSaved(record);
       setMealsByDate((prev) => ({ ...prev, [selectedDate]: mealsToSave }));
@@ -900,6 +1499,50 @@ const PlanDetailPage = () => {
       console.error(err);
       setError("No se pudieron guardar las comidas");
     }
+  };
+
+  const handleChooseCustomMeal = async (
+    mealIndex: number,
+    mealKey: Meal["key"],
+    mealName: string,
+  ) => {
+    const nextSelections = { ...selectedGeneratedOptions };
+    const wasGenerated = nextSelections[mealIndex] !== undefined;
+    delete nextSelections[mealIndex];
+    setSelectedGeneratedOptions(nextSelections);
+    setMealChoiceModes((prev) => ({ ...prev, [mealKey]: "custom" }));
+
+    if (!wasGenerated) return;
+    const nextMeals = currentMeals.map((meal) =>
+      meal.key === mealKey
+        ? {
+            key: mealKey,
+            name: mealName,
+            items: [],
+            totals: { protein: 0, carbs: 0, fat: 0, kcal: 0 },
+          }
+        : meal,
+    );
+    handleMealsChange(nextMeals);
+    await handleSaveMeals(nextMeals, {
+      generatedMenu,
+      generatedSelections: nextSelections,
+    });
+  };
+
+  const handleSaveCustomMeal = async (
+    mealIndex: number,
+    mealKey: Meal["key"],
+    meals: Meal[],
+  ) => {
+    const nextSelections = { ...selectedGeneratedOptions };
+    delete nextSelections[mealIndex];
+    setSelectedGeneratedOptions(nextSelections);
+    setMealChoiceModes((prev) => ({ ...prev, [mealKey]: "custom" }));
+    await handleSaveMeals(meals, {
+      generatedMenu,
+      generatedSelections: nextSelections,
+    });
   };
 
   const saveMealsToLibrary = async (meals: Meal[]) => {
@@ -1155,25 +1798,6 @@ const PlanDetailPage = () => {
     } finally {
       setRepeatSaving(false);
     }
-  };
-
-  const handleOpenRepeatConfig = () => {
-    if (!planId || !selectedDate) {
-      setSnackbar("Selecciona un dia para repetir la configuracion");
-      return;
-    }
-    const sourceConfig = buildRepeatConfigSource(selectedDate);
-    if (!sourceConfig) {
-      setSnackbar("No hay datos base para repetir la configuracion");
-      return;
-    }
-    setRepeatConfigOpen(true);
-    setRepeatConfigSaving(false);
-    setRepeatConfigError(null);
-    setRepeatConfigSourceDate(selectedDate);
-    setRepeatConfigSource(sourceConfig);
-    setRepeatConfigTargetDates([]);
-    setRepeatConfigMode("replace");
   };
 
   const handleCloseRepeatConfig = () => {
@@ -2116,68 +2740,6 @@ const PlanDetailPage = () => {
           </Stack>
         </Stack>
 
-        {/* Summary card */}
-        {selectedOutputs && (
-          <Paper
-            variant="outlined"
-            sx={{
-              p: 2,
-              borderRadius: 3,
-              borderColor: "divider",
-              scrollMarginTop: 16,
-            }}
-            ref={detailRef}
-          >
-            <Stack
-              direction={{ xs: "column", sm: "row" }}
-              justifyContent="space-between"
-              alignItems={{ xs: "flex-start", sm: "center" }}
-              spacing={1}
-            >
-              <Box>
-                <Typography variant="subtitle1" fontWeight={800}>
-                  {dayjs(selectedDate).format("dddd, DD MMM YYYY")}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  EEE: {formatInt(selectedOutputs.eee)} kcal | PAL:{" "}
-                  {selectedOutputs.pal !== undefined
-                    ? selectedOutputs.pal.toFixed(2)
-                    : "--"}
-                </Typography>
-              </Box>
-              <Stack
-                direction={{ xs: "column", sm: "row" }}
-                spacing={1}
-                sx={{
-                  alignSelf: { xs: "stretch", sm: "center" },
-                  width: { xs: "100%", sm: "auto" },
-                }}
-              >
-                <Chip
-                  label={selectedTrainingLabel}
-                  color={selectedDayType !== "rest" ? "primary" : "default"}
-                  variant={
-                    selectedDayType !== "rest" ? "outlined" : "filled"
-                  }
-                  onClick={handleEditSelectedDay}
-                  clickable
-                  aria-label="Editar dia"
-                  sx={{ alignSelf: { xs: "flex-start", sm: "center" } }}
-                />
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={handleOpenRepeatConfig}
-                  aria-label="Repetir configuracion"
-                  sx={{ width: { xs: "100%", sm: "auto" } }}
-                >
-                  Repetir configuracion
-                </Button>
-              </Stack>
-            </Stack>
-          </Paper>
-        )}
-
         {/* Detail card */}
         <Fade in={!!selectedOutputs}>
           <div>
@@ -2200,51 +2762,87 @@ const PlanDetailPage = () => {
                   >
                     <Box>
                       <Typography variant="subtitle1" fontWeight={700}>
-                        Resumen nutricional
+                        {distributionSelector
+                          ? "Selecciona tu tipo de entrenamiento"
+                          : "Resumen nutricional"}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        Kcal objetivo del día
+                        {distributionSelector
+                          ? "Elige el reparto de macros para este día"
+                          : "Kcal objetivo del día"}
                       </Typography>
                     </Box>
-                    <Button
-                      size="small"
-                      variant="contained"
-                      onClick={handleEditSelectedDay}
-                      aria-label="Editar dia"
-                      sx={{ alignSelf: { xs: "stretch", md: "center" } }}
+                    {/*
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      spacing={1}
+                      sx={{ width: { xs: "100%", sm: "auto" } }}
                     >
-                      Editar dia
-                    </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={handleEditSelectedDay}
+                        aria-label="Editar dia"
+                        sx={{ width: { xs: "100%", sm: "auto" } }}
+                      >
+                        Editar dia
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={handleOpenRepeatConfig}
+                        aria-label="Repetir configuracion"
+                        sx={{ width: { xs: "100%", sm: "auto" } }}
+                      >
+                        Repetir configuracion
+                      </Button>
+                    </Stack>
+                     */}
                   </Stack>
+
+                  {distributionSelector && (
+                    <Stack
+                      direction="row"
+                      alignItems="center"
+                      spacing={{ xs: 2, md: 3 }}
+                    >
+                      <div>
+                        <MacroDonut
+                          protein={selectedOutputs.protein}
+                          carbs={selectedOutputs.carbsAdjusted}
+                          fats={selectedOutputs.fatsAdjusted}
+                          kcal={selectedOutputs.kcalObjectiveDay}
+                        />
+                      </div>
+                      <div style={{ flex: 1, width: "100%" }}>
+                        {distributionSelector}
+                      </div>
+                    </Stack>
+                  )}
+
+                  <Divider sx={{ my: 0.5 }} />
 
                   <Stack
                     direction={{ xs: "column", md: "row" }}
                     alignItems={{ xs: "center", md: "center" }}
                     spacing={{ xs: 2, md: 3 }}
                   >
-                    <MacroDonut
-                      protein={selectedOutputs.protein}
-                      carbs={selectedOutputs.carbsAdjusted}
-                      fats={selectedOutputs.fatsAdjusted}
-                      kcal={selectedOutputs.kcalObjectiveDay}
-                    />
-
                     <Stack spacing={1} width="100%">
-                      <Typography variant="body2" color="text.secondary">
-                        {`Consumidas: ${currentTotals.kcal.toFixed(
-                          0,
-                        )} / ${formatInt(
-                          selectedOutputs.kcalObjectiveDay,
-                        )} kcal`}
-                      </Typography>
+                      <Stack direction="row" justifyContent="space-between" alignItems="baseline">
+                        <Typography variant="body2" color="text.secondary">
+                          Consumidas
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" fontWeight={700}>
+                          {`${currentTotals.kcal.toFixed(0)} / ${formatInt(
+                            selectedOutputs.kcalObjectiveDay,
+                          )} kcal`}
+                        </Typography>
+                      </Stack>
                       <Box
                         sx={{
                           display: "grid",
                           gap: 1,
-                          gridTemplateColumns: {
-                            xs: "repeat(1, minmax(0,1fr))",
-                            sm: "repeat(3, minmax(0,1fr))",
-                          },
+                          gridTemplateColumns: "minmax(0, 1fr)",
                         }}
                       >
                         {(["protein", "carbs", "fat"] as const).map((key) => {
@@ -2276,9 +2874,6 @@ const PlanDetailPage = () => {
                                 ? toMacroPortionValue(usedGrams, "carbs")
                                 : toMacroPortionValue(usedGrams, "fat");
                           const remainingRaw = budget - usedPortions;
-                          const tol = getTol(budget, key);
-                          const remaining =
-                            Math.abs(remainingRaw) <= tol ? 0 : remainingRaw;
                           const percent =
                             budget > 0
                               ? Math.min((usedPortions / budget) * 100, 140)
@@ -2298,11 +2893,6 @@ const PlanDetailPage = () => {
                           const isExcess = state === "over";
                           const isPending = state === "pending";
                           const isCompleted = state === "ok";
-                          const statusText = isExcess
-                            ? `Exceso ${formatInt(Math.abs(remaining))}`
-                            : isPending
-                              ? `Restan ${formatInt(remaining)}`
-                              : "Completado";
                           const indirectLimit =
                             key === "protein" ? objective * 0.15 : objective;
                           const indirectRatio =
@@ -2334,39 +2924,23 @@ const PlanDetailPage = () => {
                                       : "grey.50",
                               }}
                             >
-                              <Typography
-                                variant="caption"
-                                color="text.secondary"
-                                fontWeight={700}
-                                fontSize={13}
-                              >
-                                {`${label}: ${formatInt(
-                                  totalGrams,
-                                )} / ${objective.toFixed(0)} g | ${formatInt(
-                                  budget,
-                                )} porciones`}
-                              </Typography>
                               <Stack
                                 direction="row"
                                 justifyContent="space-between"
-                                alignItems="center"
-                                marginTop={1}
+                                alignItems="baseline"
                               >
                                 <Typography
-                                  variant="body1"
+                                  variant="caption"
                                   fontWeight={700}
-                                  color={
-                                    isExcess ? "error.main" : "text.primary"
-                                  }
+                                  fontSize={13}
                                 >
-                                  {statusText}
+                                  {label}
                                 </Typography>
-                                <Chip
-                                  size="small"
-                                  color={isExcess ? "error" : "default"}
-                                  label={`de ${formatInt(budget)} porciones`}
-                                  variant={isExcess ? "filled" : "outlined"}
-                                />
+                                <Typography variant="caption" color="text.secondary" fontSize={13}>
+                                  {`${formatInt(totalGrams)} / ${objective.toFixed(0)} g · ${formatInt(
+                                    budget,
+                                  )} porciones`}
+                                </Typography>
                               </Stack>
                               <LinearProgress
                                 variant="determinate"
@@ -2396,15 +2970,6 @@ const PlanDetailPage = () => {
                                   },
                                 }}
                               />
-                              {isExcess && (
-                                <Typography
-                                  variant="caption"
-                                  color="error.main"
-                                >
-                                  Te pasaste en {formatInt(Math.abs(remaining))}{" "}
-                                  porciones
-                                </Typography>
-                              )}
                               <Stack
                                 spacing={0.5}
                                 sx={{ mt: 1 }}
@@ -2541,7 +3106,7 @@ const PlanDetailPage = () => {
           </div>
         </Fade>
 
-        {selectedOutputs && (
+        {SHOW_MEALS_V1 && selectedOutputs && (
           <Stack spacing={2}>
             <Card
               variant="outlined"
@@ -2639,6 +3204,675 @@ const PlanDetailPage = () => {
               }}
             />*/}
           </Stack>
+        )}
+
+        {/* Comidas del dia v2 */}
+        {selectedOutputs && (
+          <Card
+            variant="outlined"
+            sx={{
+              borderRadius: 3,
+              borderColor: "divider",
+              boxShadow: "0 6px 24px rgba(0,0,0,0.06)",
+              p: { xs: 2, md: 2.5 },
+            }}
+          >
+            <Stack spacing={2.5}>
+              {/* Encabezado */}
+              <Stack direction="row" spacing={1.5} alignItems="flex-start">
+                <Box
+                  sx={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 2,
+                    flexShrink: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    bgcolor: "primary.main",
+                    color: "primary.contrastText",
+                  }}
+                >
+                  <RestaurantMenuRoundedIcon fontSize="small" />
+                </Box>
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={700}>
+                    Comidas del día
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Consulta las opciones de recetas preparadas por tu especialista.
+                  </Typography>
+                </Box>
+              </Stack>
+
+              {dayMealPlan ? (
+                <Box>
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    alignItems="center"
+                    justifyContent="space-between"
+                    sx={{ mb: 1.5 }}
+                  >
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      fontWeight={700}
+                      sx={{
+                        textTransform: "uppercase",
+                        letterSpacing: 0.5,
+                      }}
+                    >
+                      Tu día, comida a comida
+                    </Typography>
+                    {generatedMenu && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => setGeneratedAccordionExpanded({})}
+                        sx={{
+                          borderRadius: 2,
+                          textTransform: "none",
+                          fontWeight: 700,
+                        }}
+                      >
+                        Contraer todos
+                      </Button>
+                    )}
+                  </Stack>
+                  <Box>
+                    {dayMealPlan.map((meal, mi) => {
+                      const isFirst = mi === 0;
+                      const isLast = mi === dayMealPlan.length - 1;
+                      const timeHint =
+                        MEAL_TIME_HINTS[meal.key] ?? DEFAULT_MEAL_TIME;
+                      const macroPills = [
+                        {
+                          label: "P",
+                          value: meal.macros.protein,
+                          color: theme.palette.primary.main,
+                        },
+                        {
+                          label: "C",
+                          value: meal.macros.carbs,
+                          color: theme.palette.success.main,
+                        },
+                        {
+                          label: "G",
+                          value: meal.macros.fat,
+                          color: theme.palette.warning.main,
+                        },
+                      ];
+                      const generatedMeal =
+                        generatedMenu?.meals.find(
+                          (item) =>
+                            normalizeGeneratedMealName(item.meal) ===
+                            normalizeGeneratedMealName(meal.label),
+                        ) ?? generatedMenu?.meals[mi];
+                      const selectedOptionIndex = selectedGeneratedOptions[mi];
+                      const mealKey = meal.key as Meal["key"];
+                      const choiceMode = mealChoiceModes[mealKey] ?? "recipes";
+                      const visibleGeneratedOptions =
+                        generatedMeal && selectedOptionIndex !== undefined
+                          ? generatedMeal.options[selectedOptionIndex]
+                            ? [
+                                {
+                                  option: generatedMeal.options[selectedOptionIndex],
+                                  optionIndex: selectedOptionIndex,
+                                },
+                              ]
+                            : []
+                          : (generatedMeal?.options ?? []).map((option, optionIndex) => ({
+                              option,
+                              optionIndex,
+                            }));
+                      return (
+                        <Box
+                          key={meal.key}
+                          sx={{ display: "flex", gap: 1.25 }}
+                        >
+                          {/* Hora sugerida */}
+                          <Box
+                            sx={{
+                              width: 56,
+                              flexShrink: 0,
+                              textAlign: "right",
+                              pt: 0.85,
+                            }}
+                          >
+                            <Typography
+                              variant="body2"
+                              fontWeight={800}
+                              lineHeight={1.1}
+                            >
+                              {timeHint.time}
+                            </Typography>
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                            >
+                              {timeHint.suffix}
+                            </Typography>
+                          </Box>
+
+                          {/* Riel de la línea de tiempo */}
+                          <Box
+                            sx={{ position: "relative", width: 16, flexShrink: 0 }}
+                          >
+                            <Box
+                              sx={{
+                                position: "absolute",
+                                left: "50%",
+                                transform: "translateX(-50%)",
+                                width: 2,
+                                bgcolor: "divider",
+                                top: isFirst ? 20 : 0,
+                                bottom: isLast
+                                  ? "calc(100% - 20px)"
+                                  : 0,
+                              }}
+                            />
+                            <Box
+                              sx={{
+                                position: "absolute",
+                                left: "50%",
+                                top: 13,
+                                transform: "translateX(-50%)",
+                                width: 14,
+                                height: 14,
+                                borderRadius: "50%",
+                                bgcolor: "primary.main",
+                                boxShadow: (t) =>
+                                  `0 0 0 3px ${t.palette.background.paper}`,
+                              }}
+                            />
+                          </Box>
+
+                          {/* Comida */}
+                          <Box sx={{ flex: 1, pb: isLast ? 0 : 1 }}>
+                            {generatedMeal ? (
+                              <Accordion
+                                disableGutters
+                                elevation={0}
+                                expanded={generatedAccordionExpanded[mi] ?? false}
+                                onChange={(_, expanded) =>
+                                  setGeneratedAccordionExpanded((prev) => ({
+                                    ...prev,
+                                    [mi]: expanded,
+                                  }))
+                                }
+                                sx={{
+                                  borderRadius: 2,
+                                  border: "1px solid",
+                                  borderColor: "divider",
+                                  bgcolor: "background.paper",
+                                  overflow: "hidden",
+                                  "&::before": { display: "none" },
+                                }}
+                              >
+                                <AccordionSummary
+                                  expandIcon={<ExpandMoreRoundedIcon />}
+                                  sx={{
+                                    minHeight: 50,
+                                    px: 1.25,
+                                    "& .MuiAccordionSummary-content": {
+                                      my: 0.75,
+                                      minWidth: 0,
+                                    },
+                                  }}
+                                >
+                                  <Stack
+                                    direction="row"
+                                    alignItems="center"
+                                    justifyContent="space-between"
+                                    spacing={1}
+                                    sx={{ width: "100%", minWidth: 0 }}
+                                  >
+                                    <Stack spacing={0.35} sx={{ minWidth: 0 }}>
+                                      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                                        <Typography
+                                          variant="body2"
+                                          fontWeight={800}
+                                          noWrap
+                                          sx={{ minWidth: 0 }}
+                                        >
+                                          {meal.label}
+                                        </Typography>
+                                        {selectedOptionIndex === undefined && (
+                                          <Chip
+                                            size="small"
+                                            label={`${generatedMeal.options.length} opciones`}
+                                            sx={{ height: 22, fontWeight: 700 }}
+                                          />
+                                        )}
+                                      </Stack>
+                                      <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap" }}>
+                                        {macroPills.map((m) => (
+                                          <Box
+                                            key={m.label}
+                                            sx={{
+                                              display: "inline-flex",
+                                              alignItems: "baseline",
+                                              gap: 0.35,
+                                              px: 0.6,
+                                              py: 0.15,
+                                              borderRadius: 1,
+                                              bgcolor: m.color + "1F",
+                                              color: m.color,
+                                            }}
+                                          >
+                                            <Typography
+                                              variant="caption"
+                                              fontWeight={800}
+                                              sx={{ fontSize: 11, lineHeight: 1.4 }}
+                                            >
+                                              {m.label}
+                                            </Typography>
+                                            <Typography
+                                              variant="caption"
+                                              fontWeight={700}
+                                              sx={{ fontSize: 11, lineHeight: 1.4 }}
+                                            >
+                                              {formatInt(m.value)}
+                                            </Typography>
+                                          </Box>
+                                        ))}
+                                      </Stack>
+                                    </Stack>
+                                    {selectedOptionIndex !== undefined && (
+                                      <CheckCircleRoundedIcon
+                                        fontSize="small"
+                                        sx={{ color: "success.main", flexShrink: 0, mr: 0.5 }}
+                                      />
+                                    )}
+                                  </Stack>
+                                </AccordionSummary>
+                                <AccordionDetails sx={{ px: 1.25, pt: 0, pb: 1.25 }}>
+                                  <Stack spacing={1.25}>
+                                    <ToggleButtonGroup
+                                      value={choiceMode}
+                                      exclusive
+                                      size="small"
+                                      fullWidth
+                                      onChange={(_, value: "recipes" | "custom" | null) => {
+                                        if (!value) return;
+                                        if (value === "custom") {
+                                          void handleChooseCustomMeal(
+                                            mi,
+                                            mealKey,
+                                            meal.label,
+                                          );
+                                        } else {
+                                          setMealChoiceModes((prev) => ({
+                                            ...prev,
+                                            [mealKey]: "recipes",
+                                          }));
+                                        }
+                                      }}
+                                    >
+                                      <ToggleButton value="recipes">
+                                        Recetas del especialista
+                                      </ToggleButton>
+                                      <ToggleButton value="custom">
+                                        Crear mi plato
+                                      </ToggleButton>
+                                    </ToggleButtonGroup>
+
+                                    {choiceMode === "recipes" ? (
+                                      <>
+                                        {selectedOptionIndex !== undefined && (
+                                          <Button
+                                            size="small"
+                                            variant="text"
+                                            onClick={() =>
+                                              setSelectedGeneratedOptions((prev) => {
+                                                const next = { ...prev };
+                                                delete next[mi];
+                                                return next;
+                                              })
+                                            }
+                                            sx={{
+                                              alignSelf: "flex-start",
+                                              textTransform: "none",
+                                              fontWeight: 700,
+                                            }}
+                                          >
+                                            Cambiar opción
+                                          </Button>
+                                        )}
+                                        <Box
+                                          sx={{
+                                            display: "grid",
+                                            gap: 1.25,
+                                            gridTemplateColumns:
+                                              selectedOptionIndex !== undefined
+                                                ? "1fr"
+                                                : {
+                                                    xs: "1fr",
+                                                    md: "repeat(3, minmax(0, 1fr))",
+                                                  },
+                                          }}
+                                        >
+                                          {visibleGeneratedOptions.map(({ option, optionIndex }) =>
+                                            renderGeneratedMealOption(option, mi, optionIndex),
+                                          )}
+                                        </Box>
+                                      </>
+                                    ) : (
+                                      <MealBuilder
+                                        meals={currentMeals}
+                                        focusedMealKey={mealKey}
+                                        onChange={handleMealsChange}
+                                        onSave={(meals) =>
+                                          void handleSaveCustomMeal(mi, mealKey, meals)
+                                        }
+                                        mealTargets={mealTargets}
+                                        onError={(msg) => setSnackbar(msg)}
+                                        onCloneMeal={handleOpenClone}
+                                        onRepeatMeal={handleOpenRepeatMeal}
+                                      />
+                                    )}
+                                  </Stack>
+                                </AccordionDetails>
+                              </Accordion>
+                            ) : (
+                              <Stack spacing={1}>
+                                <Stack
+                                  direction="row"
+                                  alignItems="center"
+                                  justifyContent="space-between"
+                                  spacing={1}
+                                  sx={{
+                                    borderRadius: 2,
+                                    border: "1px solid",
+                                    borderColor: "divider",
+                                    bgcolor: "background.paper",
+                                    px: 1.25,
+                                    py: 0.85,
+                                  }}
+                                >
+                                  <Typography
+                                    variant="body2"
+                                    fontWeight={800}
+                                    noWrap
+                                    sx={{ minWidth: 0 }}
+                                  >
+                                    {meal.label}
+                                  </Typography>
+                                  <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
+                                  {macroPills.map((m) => (
+                                    <Box
+                                      key={m.label}
+                                      sx={{
+                                        display: "inline-flex",
+                                        alignItems: "baseline",
+                                        gap: 0.35,
+                                        px: 0.6,
+                                        py: 0.15,
+                                        borderRadius: 1,
+                                        bgcolor: m.color + "1F",
+                                        color: m.color,
+                                      }}
+                                    >
+                                      <Typography
+                                        variant="caption"
+                                        fontWeight={800}
+                                        sx={{ fontSize: 11, lineHeight: 1.4 }}
+                                      >
+                                        {m.label}
+                                      </Typography>
+                                      <Typography
+                                        variant="caption"
+                                        fontWeight={700}
+                                        sx={{ fontSize: 11, lineHeight: 1.4 }}
+                                      >
+                                        {formatInt(m.value)}
+                                      </Typography>
+                                    </Box>
+                                  ))}
+                                  </Stack>
+                                </Stack>
+                                <MealBuilder
+                                  meals={currentMeals}
+                                  focusedMealKey={mealKey}
+                                  onChange={handleMealsChange}
+                                  onSave={(meals) =>
+                                    void handleSaveCustomMeal(mi, mealKey, meals)
+                                  }
+                                  mealTargets={mealTargets}
+                                  onError={(msg) => setSnackbar(msg)}
+                                  onCloneMeal={handleOpenClone}
+                                  onRepeatMeal={handleOpenRepeatMeal}
+                                />
+                              </Stack>
+                            )}
+                          </Box>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                </Box>
+              ) : (
+                <Alert severity="info" sx={{ borderRadius: 2 }}>
+                  Tu especialista aún no ha configurado el reparto de porciones
+                  para esta distribución de macros.
+                </Alert>
+              )}
+
+              {!generatedMenu && dayMealPlan && (
+                <Alert severity="info" sx={{ borderRadius: 2 }}>
+                  Tu especialista aún no ha publicado opciones de recetas para esta distribución.
+                </Alert>
+              )}
+
+              {generatedMenu && (
+                <Stack spacing={0}>
+                  {/* 
+                  <Stack
+                    direction={{ xs: "column", sm: "row" }}
+                    spacing={1}
+                    alignItems={{ xs: "stretch", sm: "center" }}
+                    justifyContent="space-between"
+                  >
+                    <Stack spacing={0.5}>
+                      <Typography variant="subtitle2" fontWeight={800}>
+                        Seleccion automatica
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Toca una opcion en cada horario. Cada seleccion se guarda automaticamente.
+                      </Typography>
+                    </Stack>
+                  </Stack>
+                  */}
+                  {false && generatedMenu?.meals.map((meal, idx) => (
+                    <Stack key={`${meal.meal}-${idx}`} spacing={0}>
+                      <Stack
+                        direction="row"
+                        alignItems="center"
+                        spacing={1}
+                        flexWrap="wrap"
+                      >
+                        <Typography variant="body2" fontWeight={800}>
+                          {meal.meal}
+                        </Typography>
+                        <Chip
+                          size="small"
+                          label={`${meal.options.length} ${
+                            meal.options.length === 1 ? "opción" : "opciones"
+                          }`}
+                          sx={{ height: 22, fontWeight: 600 }}
+                        />
+                      </Stack>
+                      <Box
+                        sx={{
+                          display: "grid",
+                          gap: 1.25,
+                          gridTemplateColumns: {
+                            xs: "1fr",
+                            md: "repeat(3, minmax(0, 1fr))",
+                          },
+                        }}
+                      >
+                        {meal.options.map((opt, oi) => {
+                          const selected = (selectedGeneratedOptions[idx] ?? 0) === oi;
+                          return (
+                          <Stack
+                            key={`${opt.name}-${oi}`}
+                            spacing={1}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() =>
+                              setSelectedGeneratedOptions((prev) => ({
+                                ...prev,
+                                [idx]: oi,
+                              }))
+                            }
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                setSelectedGeneratedOptions((prev) => ({
+                                  ...prev,
+                                  [idx]: oi,
+                                }));
+                              }
+                            }}
+                            sx={{
+                              p: 1.5,
+                              borderRadius: 2.5,
+                              border: "1px solid",
+                              borderColor: selected ? "primary.main" : "divider",
+                              bgcolor: selected ? "primary.50" : "background.paper",
+                              cursor: "pointer",
+                              transition:
+                                "border-color 160ms ease, box-shadow 160ms ease",
+                              "&:hover": {
+                                borderColor: "primary.main",
+                                boxShadow: "0 4px 16px rgba(0,0,0,0.06)",
+                              },
+                            }}
+                          >
+                            <Box>
+                              <Typography
+                                variant="caption"
+                                color="primary.main"
+                                fontWeight={700}
+                                sx={{
+                                  textTransform: "uppercase",
+                                  letterSpacing: 0.4,
+                                }}
+                              >
+                              </Typography>
+                              <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+                                <Typography variant="body2" fontWeight={700}>
+                                  {opt.name}
+                                </Typography>
+                              </Stack>
+                            </Box>
+
+                            <Stack
+                              direction="row"
+                              sx={{ flexWrap: "wrap", gap: 0.5 }}
+                            >
+                              <Box
+                                sx={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  px: 0.85,
+                                  py: 0.25,
+                                  borderRadius: 999,
+                                  bgcolor: "grey.100",
+                                  fontWeight: 700,
+                                  fontSize: 12,
+                                }}
+                              >
+                                {formatInt(opt.totals.kcal)} kcal
+                              </Box>
+                              {[
+                                {
+                                  label: "P",
+                                  value: opt.totals.protein,
+                                  color: theme.palette.primary.main,
+                                },
+                                {
+                                  label: "C",
+                                  value: opt.totals.carbs,
+                                  color: theme.palette.success.main,
+                                },
+                                {
+                                  label: "G",
+                                  value: opt.totals.fat,
+                                  color: theme.palette.warning.main,
+                                },
+                              ].map((m) => (
+                                <Box
+                                  key={m.label}
+                                  sx={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 0.5,
+                                    px: 0.85,
+                                    py: 0.25,
+                                    borderRadius: 999,
+                                    bgcolor: m.color + "1F",
+                                    color: m.color,
+                                  }}
+                                >
+                                  <Box
+                                    sx={{
+                                      width: 6,
+                                      height: 6,
+                                      borderRadius: "50%",
+                                      bgcolor: m.color,
+                                    }}
+                                  />
+                                  <Typography
+                                    variant="caption"
+                                    fontWeight={700}
+                                  >
+                                    {m.label} {formatInt(m.value)}
+                                  </Typography>
+                                </Box>
+                              ))}
+                            </Stack>
+
+                            <Divider sx={{ my: 0.25 }} />
+
+                            <Stack spacing={0.4}>
+                              {opt.ingredients.map((ing, i) => (
+                                <Stack
+                                  key={`${ing.name}-${i}`}
+                                  direction="row"
+                                  justifyContent="space-between"
+                                  spacing={1}
+                                >
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{ minWidth: 0 }}
+                                  >
+                                    {ing.name}
+                                  </Typography>
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    fontWeight={600}
+                                    sx={{ flexShrink: 0 }}
+                                  >
+                                    {formatInt(ing.grams)} g
+                                  </Typography>
+                                </Stack>
+                              ))}
+                            </Stack>
+                          </Stack>
+                          );
+                        })}
+                      </Box>
+                    </Stack>
+                  ))}
+                </Stack>
+              )}
+            </Stack>
+          </Card>
         )}
       </Stack>
 

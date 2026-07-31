@@ -5,6 +5,21 @@ export type FoodDoc = {
   subgrupo?: string | null
   subgroup?: string | null
   group: 'proteinas' | 'carbohidratos' | 'grasas' | 'extras' | 'vegetales'
+  mealCategory?:
+    | 'whole_dairy'
+    | 'protein_dairy'
+    | 'semi_dairy'
+    | 'skim_dairy'
+    | 'vegetables'
+    | 'fruit'
+    | 'cereals'
+    | 'legumes'
+    | 'sugars'
+    | 'lean_protein'
+    | 'semi_fat_protein'
+    | 'fat_protein'
+    | 'fats'
+    | null
   prot_100g: number
   cho_100g: number
   fat_100g: number
@@ -26,6 +41,26 @@ const foodSchema = new Schema<FoodDoc>(
     subgrupo: { type: String, trim: true },
     subgroup: { type: String, trim: true },
     group: { type: String, enum: ['proteinas', 'carbohidratos', 'grasas', 'extras', 'vegetales'], required: true },
+    mealCategory: {
+      type: String,
+      enum: [
+        'whole_dairy',
+        'protein_dairy',
+        'semi_dairy',
+        'skim_dairy',
+        'vegetables',
+        'fruit',
+        'cereals',
+        'legumes',
+        'sugars',
+        'lean_protein',
+        'semi_fat_protein',
+        'fat_protein',
+        'fats',
+        null,
+      ],
+      default: null,
+    },
     prot_100g: { type: Number, required: true, min: 0 },
     cho_100g: { type: Number, required: true, min: 0 },
     fat_100g: { type: Number, required: true, min: 0 },

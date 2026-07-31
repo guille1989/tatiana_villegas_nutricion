@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { randomUUID } from 'node:crypto'
+import Anthropic from '@anthropic-ai/sdk'
 import { Types } from 'mongoose'
 import { z } from 'zod'
 import { PlanDayOverrideModel } from '../models/PlanDayOverride'
@@ -11,7 +12,7 @@ import { AssessmentModel } from '../models/Assessment'
 import { env } from '../config/env'
 import { authMiddleware } from '../middleware/auth'
 import { asyncHandler } from '../utils/asyncHandler'
-import { badRequest, notFound, unauthorized } from '../utils/apiError'
+import { ApiError, badRequest, notFound, unauthorized } from '../utils/apiError'
 import { dayOverrideSchema, type DayOverrideInputs, type WizardInputs } from '../modules/types'
 
 const router = Router()
@@ -65,10 +66,30 @@ const macroOverrideBodySchema = z.object({
 
 const macroDistributionSchema = z.object({
   name: z.string().trim().min(1).max(60),
-  dayType: z.enum(['rest', 'training_type_1', 'training_type_2', 'training']),
+  dayType: z.enum(['rest', 'training_type_1', 'training_type_2', 'training']).optional(),
+  kcalDelta: z.coerce.number().finite().optional(),
   carbsPerKg: z.coerce.number().nonnegative(),
   proteinPerKg: z.coerce.number().nonnegative(),
   isDefault: z.boolean().optional().default(false),
+  mealCategoryDistribution: z
+    .array(
+      z.object({
+        category: z.string().trim().min(1),
+        name: z.string().trim().min(1),
+        portions: z.object({
+          breakfast: z.number().nonnegative(),
+          snack: z.number().nonnegative(),
+          lunch: z.number().nonnegative(),
+          snack2: z.number().nonnegative(),
+          dinner: z.number().nonnegative(),
+          extras: z.number().nonnegative(),
+        }),
+      }),
+    )
+    .nullable()
+    .optional(),
+  generatedMenu: z.unknown().nullable().optional(),
+  mealPreferences: z.string().max(500).nullable().optional(),
 })
 
 const planStatusSchema = z.object({
@@ -156,7 +177,11 @@ type MacroOverrideValue = z.infer<typeof macroOverrideSchema> & {
   kcalObjectiveDay?: number
 }
 type MacroOverrideEntry = { effectiveFrom: string; macros?: MacroOverrideValue | null }
-type MacroDistributionValue = z.infer<typeof macroDistributionSchema> & { id: string }
+type MacroDistributionValue = Omit<z.infer<typeof macroDistributionSchema>, 'dayType' | 'kcalDelta'> & {
+  id: string
+  dayType?: string | null
+  kcalDelta?: number
+}
 
 const normalizeMacroOverrides = (overrides: Array<MacroOverrideEntry> | undefined) =>
   (overrides ?? []).filter(
@@ -180,17 +205,23 @@ const normalizeMacroDistributions = (
   distributions: Array<MacroDistributionValue> | undefined,
 ) => distributions ?? []
 
+const getLegacyDistributionKcalDelta = (dayType?: string | null) =>
+  dayType && dayType !== 'rest' ? 300 : 0
+
+const getDistributionKcalDelta = (
+  distribution: MacroDistributionValue | null | undefined,
+) =>
+  Number.isFinite(distribution?.kcalDelta)
+    ? Number(distribution?.kcalDelta)
+    : getLegacyDistributionKcalDelta(distribution?.dayType)
+
 const ensureMacroDistributionDefaults = (
   distributions: MacroDistributionValue[],
 ) => {
   const result = distributions.map((item) => ({ ...item }))
-  const dayTypes = new Set(result.map((item) => item.dayType))
-  dayTypes.forEach((dayType) => {
-    const matches = result.filter((item) => item.dayType === dayType)
-    const selectedDefault = matches.find((item) => item.isDefault) ?? matches[0]
-    matches.forEach((item) => {
-      item.isDefault = item.id === selectedDefault?.id
-    })
+  const selectedDefault = result.find((item) => item.isDefault) ?? result[0]
+  result.forEach((item) => {
+    item.isDefault = item.id === selectedDefault?.id
   })
   return result
 }
@@ -206,7 +237,11 @@ const getMacroDistributionForDay = (
     const explicit = normalized.find((item) => item.id === explicitId)
     if (explicit) return explicit
   }
-  return normalized.find((item) => item.dayType === dayType && item.isDefault) ?? null
+  return (
+    normalized.find((item) => item.dayType === dayType && item.isDefault) ??
+    normalized.find((item) => item.isDefault) ??
+    null
+  )
 }
 
 const macroOverrideFromDistribution = (
@@ -244,6 +279,7 @@ const applyMacroOverride = (
   planOverride: { macros: MacroOverrideValue } | null,
   dayOverride: MacroOverrideValue | null,
   distributionOverride: MacroOverrideValue | null,
+  distribution: MacroDistributionValue | null,
   dayType: WizardInputs['dayType'],
   trainingType: WizardInputs['trainingType'] | null,
   goal: WizardInputs['goal'],
@@ -260,6 +296,10 @@ const applyMacroOverride = (
     goal,
     weight,
     activityDelta,
+    targetCaloriesOverride:
+      distributionOverride && outputs.kcalObjectiveBase !== undefined
+        ? outputs.kcalObjectiveBase + getDistributionKcalDelta(distribution)
+        : undefined,
   })
 }
 
@@ -376,15 +416,19 @@ router.post(
 
     const existing = normalizeMacroDistributions(plan.macroDistributions)
     const hasDefault = existing.some(
-      (item) => item.dayType === parsed.data.dayType && item.isDefault,
+      (item) => item.isDefault,
     )
     const nextDistribution: MacroDistributionValue = {
       id: randomUUID(),
       ...parsed.data,
+      kcalDelta: parsed.data.kcalDelta ?? getLegacyDistributionKcalDelta(parsed.data.dayType),
+      mealCategoryDistribution: parsed.data.mealCategoryDistribution ?? null,
+      generatedMenu: parsed.data.generatedMenu ?? null,
+      mealPreferences: parsed.data.mealPreferences ?? null,
       isDefault: parsed.data.isDefault || !hasDefault,
     }
     const next = existing.map((item) =>
-      nextDistribution.isDefault && item.dayType === nextDistribution.dayType
+      nextDistribution.isDefault
         ? { ...item, isDefault: false }
         : item,
     )
@@ -414,8 +458,17 @@ router.put(
       throw notFound('Distribucion no encontrada')
     }
     const next = existing.map((item) => {
-      if (item.id === distributionId) return { id: distributionId, ...parsed.data }
-      if (parsed.data.isDefault && item.dayType === parsed.data.dayType) {
+      if (item.id === distributionId) {
+        return {
+          id: distributionId,
+          ...parsed.data,
+          kcalDelta: parsed.data.kcalDelta ?? getLegacyDistributionKcalDelta(parsed.data.dayType),
+          mealCategoryDistribution: parsed.data.mealCategoryDistribution ?? item.mealCategoryDistribution ?? null,
+          generatedMenu: parsed.data.generatedMenu ?? item.generatedMenu ?? null,
+          mealPreferences: parsed.data.mealPreferences ?? item.mealPreferences ?? null,
+        }
+      }
+      if (parsed.data.isDefault) {
         return { ...item, isDefault: false }
       }
       return item
@@ -504,6 +557,8 @@ const overrideBodySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   overrides: dayOverrideSchema,
   meals: z.any().optional(),
+  generatedMenu: z.any().optional(),
+  generatedSelections: z.any().optional(),
   note: z.string().max(240).optional(),
 })
 
@@ -552,6 +607,7 @@ router.put(
       macroOverride,
       dayMacroOverride,
       distributionOverride,
+      macroDistribution,
       dayType,
       trainingType,
       assessment.inputs.goal,
@@ -568,6 +624,8 @@ router.put(
         overrides: parsed.data.overrides,
         computed,
         meals: parsed.data.meals,
+        generatedMenu: parsed.data.generatedMenu,
+        generatedSelections: parsed.data.generatedSelections,
         note: parsed.data.note,
       },
       { upsert: true, new: true, setDefaultsOnInsert: true },
@@ -635,6 +693,7 @@ router.get(
         macroOverride,
         dayMacroOverride,
         distributionOverride,
+        macroDistribution,
         dayType,
         trainingType,
         assessment.inputs.goal,
@@ -663,6 +722,7 @@ router.get(
       macroOverride,
       dayMacroOverride,
       distributionOverride,
+      macroDistribution,
       dayType,
       assessment.inputs.trainingType ?? null,
       assessment.inputs.goal,
@@ -686,6 +746,275 @@ router.delete(
     await PlanDayOverrideModel.deleteMany({ planId })
     await PlanModel.deleteOne({ _id: planId })
     res.json({ ok: true })
+  }),
+)
+
+const mealSuggestionSchema = z.object({
+  targetMacros: z.object({
+    protein: z.number().nonnegative(),
+    carbs: z.number().nonnegative(),
+    fat: z.number().nonnegative(),
+    kcal: z.number().nonnegative(),
+  }),
+  meals: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        macros: z
+          .object({
+            protein: z.number().nonnegative(),
+            carbs: z.number().nonnegative(),
+            fat: z.number().nonnegative(),
+          })
+          .optional(),
+        categories: z
+          .array(
+            z.object({
+              name: z.string().min(1),
+              portions: z.number().nonnegative(),
+            }),
+          )
+          .optional(),
+      }),
+    )
+    .min(1)
+    .max(6),
+  preferences: z.string().max(500).optional(),
+})
+
+const OPTIONS_PER_MEAL = 3
+
+const normalizeMealName = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+
+const generatedMenuResponseSchema = z.object({
+  meals: z.array(
+    z.object({
+      meal: z.string().min(1),
+      options: z
+        .array(
+          z.object({
+            name: z.string().min(1),
+            ingredients: z.array(
+              z.object({
+                name: z.string().min(1),
+                grams: z.number().nonnegative(),
+                protein: z.number().nonnegative(),
+                carbs: z.number().nonnegative(),
+                fat: z.number().nonnegative(),
+              }),
+            ),
+            totals: z.object({
+              protein: z.number().nonnegative(),
+              carbs: z.number().nonnegative(),
+              fat: z.number().nonnegative(),
+              kcal: z.number().nonnegative(),
+            }),
+          }),
+        )
+        .length(OPTIONS_PER_MEAL),
+    }),
+  ),
+})
+
+const MEAL_MENU_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    meals: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          meal: { type: 'string' },
+          options: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                name: { type: 'string' },
+                ingredients: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    properties: {
+                      name: { type: 'string' },
+                      grams: { type: 'number' },
+                      protein: { type: 'number' },
+                      carbs: { type: 'number' },
+                      fat: { type: 'number' },
+                    },
+                    required: ['name', 'grams', 'protein', 'carbs', 'fat'],
+                  },
+                },
+                totals: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    protein: { type: 'number' },
+                    carbs: { type: 'number' },
+                    fat: { type: 'number' },
+                    kcal: { type: 'number' },
+                  },
+                  required: ['protein', 'carbs', 'fat', 'kcal'],
+                },
+              },
+              required: ['name', 'ingredients', 'totals'],
+            },
+          },
+        },
+        required: ['meal', 'options'],
+      },
+    },
+  },
+  required: ['meals'],
+} as const
+
+router.post(
+  '/:planId/meal-suggestions',
+  asyncHandler(async (req, res) => {
+    const { planId } = req.params
+    if (!Types.ObjectId.isValid(planId)) throw badRequest('planId invalido')
+
+    const plan = await PlanModel.findById(planId)
+    if (!plan) throw notFound('Plan no encontrado')
+    const isAdmin = req.user?.role === 'admin'
+    assertMemberPlanAccess(plan, req.user?.id, isAdmin)
+
+    if (!env.anthropicApiKey) {
+      throw new ApiError(503, 'La generacion de comidas no esta configurada (falta ANTHROPIC_API_KEY).')
+    }
+
+    const parsed = mealSuggestionSchema.safeParse(req.body)
+    if (!parsed.success) throw badRequest('Validation failed', parsed.error.flatten())
+
+    const { targetMacros, meals, preferences } = parsed.data
+
+    const anthropic = new Anthropic({ apiKey: env.anthropicApiKey })
+
+    const hasComposition = meals.some(
+      (meal) => (meal.categories?.length ?? 0) > 0,
+    )
+
+    const system =
+      'Eres una nutricionista experta y cocinera con criterio gastronómico. Diseñas recetas equilibradas, realistas y apetecibles en español (España). ' +
+      `Para cada comida propones ${OPTIONS_PER_MEAL} opciones de receta DISTINTAS entre si. ` +
+      'Primero construyes un plato reconocible y culinariamente coherente; después ajustas sus cantidades en gramos para acercarlo a los macros objetivo. ' +
+      'No trates los ingredientes como piezas intercambiables elegidas solo para sumar macros. Todos deben tener sentido juntos en una receta que una persona prepararía normalmente. ' +
+      'Como norma general usa una sola proteína principal por plato. No mezcles carnes, pescados o huevos entre sí solo para cuadrar proteína (por ejemplo, pollo con huevo), salvo que la combinación sea propia y reconocible de la receta propuesta. ' +
+      'Los lácteos, legumbres, cereales y frutos secos pueden aportar proteína secundaria cuando encajen de forma natural. ' +
+      'Mantén una técnica, estilo y contexto culinario coherentes dentro de cada opción, y evita combinaciones forzadas, ingredientes redundantes o guarniciones sin relación con el plato. ' +
+      'Calcula las calorias como proteina*4 + carbohidratos*4 + grasa*9. ' +
+      (hasComposition
+        ? 'Cada comida indica los grupos de alimentos (subgrupos) y el numero de porciones que debe incluir; respeta esos grupos y porciones al elegir los ingredientes. '
+        : '') +
+      'Usa alimentos comunes y accesibles. Responde SIEMPRE en el formato JSON solicitado.'
+
+    const mealsBlock = meals
+      .map((meal) => {
+        const parts: string[] = [`- ${meal.name}`]
+        if (meal.macros) {
+          parts.push(
+            `objetivo: P ${Math.round(meal.macros.protein)} g / C ${Math.round(
+              meal.macros.carbs,
+            )} g / G ${Math.round(meal.macros.fat)} g`,
+          )
+        }
+        if (meal.categories && meal.categories.length > 0) {
+          parts.push(
+            `grupos de alimentos: ${meal.categories
+              .map((cat) => `${cat.name} (${cat.portions} porciones)`)
+              .join(', ')}`,
+          )
+        }
+        return parts.join(' | ')
+      })
+      .join('\n')
+
+    const userPrompt = [
+      `Objetivo de macros para el dia completo (referencia):`,
+      `- Proteina: ${Math.round(targetMacros.protein)} g`,
+      `- Carbohidratos: ${Math.round(targetMacros.carbs)} g`,
+      `- Grasas: ${Math.round(targetMacros.fat)} g`,
+      `- Calorias: ${Math.round(targetMacros.kcal)} kcal`,
+      '',
+      'Comidas del dia (en este orden):',
+      mealsBlock,
+      '',
+      `Para CADA comida propon exactamente ${OPTIONS_PER_MEAL} opciones de receta distintas entre si.`,
+      'Antes de devolver cada opción, comprueba que sea un plato realista, reconocible y que sus ingredientes combinen por sabor, textura y forma de preparación.',
+      'Prioriza la coherencia culinaria sobre clavar una cifra exacta: mantén los macros dentro del margen indicado ajustando cantidades, no añadiendo una segunda proteína principal sin sentido.',
+      'Usa normalmente una única proteína principal. Solo combina dos proteínas principales si esa combinación pertenece de forma natural a una receta conocida; nunca las juntes únicamente para completar macros.',
+      'Cada opcion incluye sus ingredientes (nombre y gramos), los macros de cada ingrediente y los totales de la opcion.',
+      'Los macros de cada opcion deben acercarse al objetivo de su comida (margen ~10%).',
+      hasComposition
+        ? 'Los ingredientes de cada opcion deben pertenecer a los grupos de alimentos indicados para esa comida y aproximarse a las porciones señaladas.'
+        : '',
+      preferences ? `Preferencias / restricciones del usuario: ${preferences}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n')
+
+    let response
+    try {
+      response = await anthropic.messages.create({
+        model: 'claude-opus-4-8',
+        max_tokens: 16000,
+        thinking: { type: 'adaptive' },
+        output_config: {
+          effort: 'medium',
+          format: { type: 'json_schema', schema: MEAL_MENU_SCHEMA },
+        },
+        system,
+        messages: [{ role: 'user', content: userPrompt }],
+      } as Anthropic.MessageCreateParamsNonStreaming)
+    } catch (err) {
+      console.error('Anthropic meal-suggestions error', err)
+      throw new ApiError(502, 'No se pudo generar el menu. Intenta de nuevo.')
+    }
+
+    const textBlock = response.content.find((block) => block.type === 'text')
+    if (!textBlock || textBlock.type !== 'text') {
+      throw new ApiError(502, 'Respuesta de IA vacia. Intenta de nuevo.')
+    }
+
+    let rawMenu: unknown
+    try {
+      rawMenu = JSON.parse(textBlock.text)
+    } catch {
+      throw new ApiError(502, 'No se pudo interpretar el menu generado. Intenta de nuevo.')
+    }
+
+    const parsedMenu = generatedMenuResponseSchema.safeParse(rawMenu)
+    if (!parsedMenu.success) {
+      throw new ApiError(502, 'La IA devolvio opciones de recetas incompletas. Regenera el menu.')
+    }
+
+    const unusedMeals = [...parsedMenu.data.meals]
+    const orderedMeals = meals.map((requestedMeal) => {
+      const requestedName = normalizeMealName(requestedMeal.name)
+      const matchedIndex = unusedMeals.findIndex(
+        (generatedMeal) => normalizeMealName(generatedMeal.meal) === requestedName,
+      )
+      if (matchedIndex < 0) return null
+      return unusedMeals.splice(matchedIndex, 1)[0]
+    })
+    if (orderedMeals.some((meal) => meal === null)) {
+      throw new ApiError(
+        502,
+        'La IA no genero recetas para todas las comidas del reparto. Regenera el menu.',
+      )
+    }
+
+    const menu = { meals: orderedMeals }
+    res.json({ menu })
   }),
 )
 

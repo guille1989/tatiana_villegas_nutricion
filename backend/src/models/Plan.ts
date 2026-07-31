@@ -1,4 +1,5 @@
 import { Schema, model, Types, type Document } from 'mongoose'
+import type { MealCategoryDistributionInput } from '../modules/domainTypes'
 
 export type PlanStatus = 'draft' | 'active' | 'archived'
 
@@ -15,10 +16,14 @@ export type PlanMacroOverride = {
 export type PlanMacroDistribution = {
   id: string
   name: string
-  dayType: 'rest' | 'training_type_1' | 'training_type_2' | 'training'
+  dayType?: 'rest' | 'training_type_1' | 'training_type_2' | 'training' | string | null
+  kcalDelta?: number
   carbsPerKg: number
   proteinPerKg: number
   isDefault: boolean
+  mealCategoryDistribution?: MealCategoryDistributionInput[] | null
+  generatedMenu?: unknown
+  mealPreferences?: string | null
 }
 
 export type PlanDoc = {
@@ -49,14 +54,14 @@ const macroDistributionSchema = new Schema(
   {
     id: { type: String, required: true },
     name: { type: String, required: true },
-    dayType: {
-      type: String,
-      enum: ['rest', 'training_type_1', 'training_type_2', 'training'],
-      required: true,
-    },
+    dayType: { type: String, default: null },
+    kcalDelta: { type: Number, required: true, default: 0 },
     carbsPerKg: { type: Number, required: true, min: 0 },
     proteinPerKg: { type: Number, required: true, min: 0 },
     isDefault: { type: Boolean, required: true, default: false },
+    mealCategoryDistribution: { type: Schema.Types.Mixed, default: null },
+    generatedMenu: { type: Schema.Types.Mixed, default: null },
+    mealPreferences: { type: String, default: null },
   },
   { _id: false },
 )

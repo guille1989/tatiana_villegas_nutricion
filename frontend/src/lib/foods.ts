@@ -2,6 +2,7 @@ import type { Food } from '../types'
 import foodsLocal from '../data/foods.json'
 import { searchFoodsApi } from './api'
 import { MACRO_PORTION_GRAMS } from './calc'
+import { FOOD_CATEGORY_EXCHANGES } from './mealCategoryDistribution'
 
 const localFoods: Food[] = (foodsLocal as Food[]).map((f) => ({
   ...f,
@@ -29,6 +30,70 @@ const DEFAULT_PORTION_GRAMS = 100
 
 const normalizeKey = (value?: string | null) => value?.trim().toLowerCase() ?? ''
 
+const normalizeExchangeKey = (value?: string | null) =>
+  normalizeKey(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+
+const SUBGROUP_EXCHANGE_ALIASES: Record<string, string> = {
+  'lacteos enteros': 'whole_dairy',
+  'lacteos proteicos': 'protein_dairy',
+  'lacteos semidesnatados': 'semi_dairy',
+  'lacteos desnatados': 'skim_dairy',
+  vegetales: 'vegetables',
+  fruta: 'fruit',
+  almidones: 'cereals',
+  legumbre: 'legumes',
+  azucares: 'sugars',
+  'proteicos magros': 'lean_protein',
+  'proteicos semigrasos': 'semi_fat_protein',
+  'proteicos grasos': 'fat_protein',
+  'proteico graso': 'fat_protein',
+  grasa: 'fats',
+  grasas: 'fats',
+  'frutos secos': 'fats',
+}
+
+export const getFoodExchange = (food: Food) => {
+  const categoryKey =
+    food.mealCategory ?? SUBGROUP_EXCHANGE_ALIASES[normalizeExchangeKey(food.subgrup)]
+  return FOOD_CATEGORY_EXCHANGES.find((exchange) => exchange.key === categoryKey) ?? null
+}
+
+export const getFoodCatalogGroup = (food: Food): FoodGroupFilter => {
+  const exchange = getFoodExchange(food)
+  if (exchange) {
+    if (exchange.key === 'fats') return 'grasas'
+    if (exchange.key === 'vegetables') return 'vegetales'
+    if (
+      exchange.key === 'fruit' ||
+      exchange.key === 'cereals' ||
+      exchange.key === 'legumes' ||
+      exchange.key === 'sugars'
+    ) {
+      return 'carbohidratos'
+    }
+    return 'proteinas'
+  }
+  const rawGroup = normalizeExchangeKey((food as { group?: string | null }).group)
+  if (rawGroup === 'otros') return 'extras'
+  return food.group
+}
+
+const getExchangeAnchor = (categoryKey: string): keyof typeof MACRO_PORTION_GRAMS => {
+  if (categoryKey === 'fats') return 'fat'
+  if (
+    categoryKey === 'vegetables' ||
+    categoryKey === 'fruit' ||
+    categoryKey === 'cereals' ||
+    categoryKey === 'legumes' ||
+    categoryKey === 'sugars'
+  ) {
+    return 'carbs'
+  }
+  return 'protein'
+}
+
 const getDefaultPortionGrams = (food: Food) => {
   const parsed = Number(food.default_portion_g)
   if (Number.isFinite(parsed) && parsed > 0) return parsed
@@ -51,7 +116,7 @@ const isCoreGroup = (group: FoodGroupFilter): group is Food['group'] =>
 
 const matchesGroup = (food: Food, group?: FoodGroupFilter) => {
   if (!group || group === 'all') return true
-  if (food.group === group) return true
+  if (getFoodCatalogGroup(food) === group) return true
   if (isCoreGroup(group)) return false
   return normalizeKey(food.subgrup) === normalizeKey(group)
 }
@@ -116,6 +181,17 @@ export const calcFoodMacrosFromGrams = (food: Food, grams: number) => {
 export const gramsFromPortions = (food: Food, portions: number) => {
   if (portions <= 0) return 0
   const fallback = () => portions * getDefaultPortionGrams(food)
+  const exchange = getFoodExchange(food)
+  if (exchange) {
+    const anchor = getExchangeAnchor(exchange.key)
+    const foodMacro =
+      anchor === 'protein' ? food.prot_100g : anchor === 'carbs' ? food.cho_100g : food.fat_100g
+    const exchangeMacro = exchange.macros[anchor]
+    if (foodMacro > 0 && exchangeMacro > 0) {
+      return (portions * exchangeMacro * 100) / foodMacro
+    }
+    return fallback()
+  }
   if (isNonMacroGroup(food)) return fallback()
   if (food.group === 'proteinas') {
     if (!food.prot_100g) return fallback()
@@ -130,4 +206,15 @@ export const gramsFromPortions = (food: Food, portions: number) => {
     return (portions * MACRO_PORTION_GRAMS.fat * 100) / food.fat_100g
   }
   return fallback()
+}
+
+export const calcFoodMacrosFromPortions = (food: Food, portions: number) => {
+  const exchange = getFoodExchange(food)
+  if (exchange) {
+    const protein = exchange.macros.protein * portions
+    const carbs = exchange.macros.carbs * portions
+    const fat = exchange.macros.fat * portions
+    return { protein, carbs, fat, kcal: protein * 4 + carbs * 4 + fat * 9 }
+  }
+  return calcFoodMacrosFromGrams(food, gramsFromPortions(food, portions))
 }

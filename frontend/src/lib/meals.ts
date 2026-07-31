@@ -36,6 +36,7 @@ const initTargets = (): Record<Meal["key"], MacroTargets> => ({
   lunch: emptyTargets(),
   snack2: emptyTargets(),
   dinner: emptyTargets(),
+  extras: emptyTargets(),
 });
 
 export const getMealsByCount = (count: MealCount): Meal[] =>

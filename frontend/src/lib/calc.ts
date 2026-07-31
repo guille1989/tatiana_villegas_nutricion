@@ -51,10 +51,12 @@ export const getMacroKcalBreakdown = (macros: MacroGramsValue) => getMacroKcalBr
 export const getDayTargetCalories = (
   baseTargetCalories: number,
   dayType: WizardInputs['dayType'],
+  kcalDelta?: number | null,
 ) =>
   getDayTargetCaloriesCore(
     baseTargetCalories,
     dayType as import('../../../backend/src/modules/domainTypes.ts').WizardInputs['dayType'],
+    kcalDelta,
   )
 export const toMacroPortionValue = (grams: number, macro: MacroPortionKey) => toMacroPortionValueCore(grams, macro)
 export const toMacroPortions = (macros: MacroGramsValue) => toMacroPortionsCore(macros)
@@ -67,6 +69,7 @@ export const applyMacroOverrideToOutputs = <T extends CalculationOutputs>({
   goal,
   weight,
   activityDelta = 0,
+  targetCaloriesOverride,
 }: {
   outputs: T
   overrideMacros: MacroOverrideValue
@@ -75,6 +78,7 @@ export const applyMacroOverrideToOutputs = <T extends CalculationOutputs>({
   goal: WizardInputs['goal']
   weight: number
   activityDelta?: number
+  targetCaloriesOverride?: number
 }) =>
   applyMacroOverrideToOutputsCore({
     outputs,
@@ -84,4 +88,5 @@ export const applyMacroOverrideToOutputs = <T extends CalculationOutputs>({
     goal: goal as import('../../../backend/src/modules/domainTypes.ts').WizardInputs['goal'],
     weight,
     activityDelta,
+    targetCaloriesOverride,
   })
