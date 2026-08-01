@@ -15,6 +15,7 @@ export const createApp = () => {
     "https://tatiana-villegas-nutricion.vercel.app",
     "https://tatiana-villegas-nutricion-fsew.vercel.app",
     "http://localhost:5173",
+    "https://tatiana-villegas-nutricion-fsew.vercel.app/api/plans/69e7824387e467d3486b0348/meal-suggestions",
     ...envOrigins,
   ]);
 
