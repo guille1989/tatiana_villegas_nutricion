@@ -965,9 +965,11 @@ router.post(
     let response
     try {
       response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-opus-4-8',
         max_tokens: 6000,
+        thinking: { type: 'adaptive' },
         output_config: {
+          effort: 'medium',
           format: { type: 'json_schema', schema: MEAL_MENU_SCHEMA },
         },
         system,
