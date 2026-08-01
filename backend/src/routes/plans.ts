@@ -967,9 +967,7 @@ router.post(
       response = await anthropic.messages.create({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 6000,
-        thinking: { type: 'adaptive' },
         output_config: {
-          effort: 'low',
           format: { type: 'json_schema', schema: MEAL_MENU_SCHEMA },
         },
         system,
