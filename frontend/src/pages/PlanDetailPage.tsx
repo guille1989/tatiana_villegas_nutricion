@@ -85,6 +85,7 @@ import {
   getMealsByCount,
   getWeightsByCount,
   type MealCount,
+  type MacroTargets,
 } from "../lib/meals";
 import { excelActivityOptions, trainingOptions } from "../lib/schema";
 import type {
@@ -760,6 +761,7 @@ const PlanDetailPage = () => {
       macros: byMeal[col.key] ?? { protein: 0, carbs: 0, fat: 0 },
       categories: dist
         .map((row) => ({
+          category: row.category,
           name: row.name,
           portions: row.portions?.[col.key] ?? 0,
         }))
@@ -1381,6 +1383,41 @@ const PlanDetailPage = () => {
         dailyMacros,
         mealCount ? getWeightsByCount(mealCount) : [],
       );
+  const portionBucket = (category: string): keyof MacroTargets | null => {
+    if (
+      category === "whole_dairy" ||
+      category === "protein_dairy" ||
+      category === "semi_dairy" ||
+      category === "skim_dairy" ||
+      category === "lean_protein" ||
+      category === "semi_fat_protein" ||
+      category === "fat_protein"
+    ) return "protein";
+    if (
+      category === "vegetables" ||
+      category === "fruit" ||
+      category === "cereals" ||
+      category === "legumes" ||
+      category === "sugars"
+    ) return "carbs";
+    if (category === "fats") return "fat";
+    return null;
+  };
+  const mealPortionTargets = dayMealPlan?.reduce(
+    (targets, meal) => {
+      const portions = meal.categories.reduce(
+        (summary, category) => {
+          const bucket = portionBucket(category.category);
+          if (bucket) summary[bucket] += category.portions;
+          return summary;
+        },
+        { protein: 0, carbs: 0, fat: 0 },
+      );
+      targets[meal.key as Meal["key"]] = portions;
+      return targets;
+    },
+    {} as Record<Meal["key"], MacroTargets>,
+  );
 
   useEffect(() => {
     if (!dayMealPlan) {
@@ -3173,6 +3210,7 @@ const PlanDetailPage = () => {
                     onChange={handleMealsChange}
                     onSave={handleSaveMeals}
                     mealTargets={mealTargets}
+                    mealPortionTargets={mealPortionTargets}
                     onError={(msg) => setSnackbar(msg)}
                     onCloneMeal={handleOpenClone}
                     onRepeatMeal={handleOpenRepeatMeal}
@@ -3567,6 +3605,7 @@ const PlanDetailPage = () => {
                                           void handleSaveCustomMeal(mi, mealKey, meals)
                                         }
                                         mealTargets={mealTargets}
+                                        mealPortionTargets={mealPortionTargets}
                                         onError={(msg) => setSnackbar(msg)}
                                         onCloneMeal={handleOpenClone}
                                         onRepeatMeal={handleOpenRepeatMeal}
@@ -3640,6 +3679,7 @@ const PlanDetailPage = () => {
                                     void handleSaveCustomMeal(mi, mealKey, meals)
                                   }
                                   mealTargets={mealTargets}
+                                  mealPortionTargets={mealPortionTargets}
                                   onError={(msg) => setSnackbar(msg)}
                                   onCloneMeal={handleOpenClone}
                                   onRepeatMeal={handleOpenRepeatMeal}

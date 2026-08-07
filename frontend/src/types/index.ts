@@ -49,6 +49,7 @@ export type PlanMacroDistribution = {
   isDefault: boolean
   mealCategoryDistribution?: MealCategoryDistribution[] | null
   generatedMenu?: unknown
+  activeRecipeGenerationId?: string | null
   mealPreferences?: string | null
 }
 

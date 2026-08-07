@@ -23,6 +23,7 @@ export type PlanMacroDistribution = {
   isDefault: boolean
   mealCategoryDistribution?: MealCategoryDistributionInput[] | null
   generatedMenu?: unknown
+  activeRecipeGenerationId?: Types.ObjectId | null
   mealPreferences?: string | null
 }
 
@@ -61,6 +62,7 @@ const macroDistributionSchema = new Schema(
     isDefault: { type: Boolean, required: true, default: false },
     mealCategoryDistribution: { type: Schema.Types.Mixed, default: null },
     generatedMenu: { type: Schema.Types.Mixed, default: null },
+    activeRecipeGenerationId: { type: Schema.Types.ObjectId, ref: 'RecipeGeneration', default: null },
     mealPreferences: { type: String, default: null },
   },
   { _id: false },

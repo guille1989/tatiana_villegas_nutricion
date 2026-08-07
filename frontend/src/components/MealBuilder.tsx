@@ -41,10 +41,12 @@ import type { Food, Meal, MealItem } from "../types";
 import IngredientCatalogTable from "./IngredientCatalogTable";
 
 type MealTargets = Record<Meal["key"], MacroTargets>;
+type MealPortionTargets = Record<Meal["key"], MacroTargets>;
 
 type Props = {
   meals: Meal[];
   mealTargets: MealTargets;
+  mealPortionTargets?: MealPortionTargets;
   focusedMealKey?: Meal["key"];
   onChange: (meals: Meal[]) => void;
   onSave?: (meals: Meal[]) => void;
@@ -106,6 +108,8 @@ type MacroGaugeProps = {
   consumedGrams: number;
   targetGrams: number;
   gramsPerPortion: number;
+  consumedPortions?: number;
+  targetPortions?: number;
   macroKey: MacroKey;
 };
 
@@ -162,6 +166,8 @@ const MacroGauge = ({
   consumedGrams,
   targetGrams,
   gramsPerPortion,
+  consumedPortions: consumedPortionsProp,
+  targetPortions: targetPortionsProp,
   macroKey,
 }: MacroGaugeProps) => {
   const theme = useTheme();
@@ -172,10 +178,20 @@ const MacroGauge = ({
   const safeTarget = Number.isFinite(targetGrams) ? targetGrams : 0;
   const safeConsumed = Number.isFinite(consumedGrams) ? consumedGrams : 0;
   const portionScale = gramsPerPortion > 0 ? 1 / gramsPerPortion : null;
-  const targetPortions = portionScale ? safeTarget * portionScale : 0;
-  const consumedPortions = portionScale ? safeConsumed * portionScale : 0;
-  const baseTarget = portionScale ? targetPortions : safeTarget;
-  const baseConsumed = portionScale ? consumedPortions : safeConsumed;
+  const targetPortions = Number.isFinite(targetPortionsProp)
+    ? Number(targetPortionsProp)
+    : portionScale
+      ? safeTarget * portionScale
+      : 0;
+  const consumedPortions = Number.isFinite(consumedPortionsProp)
+    ? Number(consumedPortionsProp)
+    : portionScale
+      ? safeConsumed * portionScale
+      : 0;
+  // El estado nutricional del aro sigue basado en gramos; las porciones son
+  // contadores de bloques y pueden tener equivalencias distintas por categoria.
+  const baseTarget = safeTarget;
+  const baseConsumed = safeConsumed;
   const remaining = baseTarget - baseConsumed;
   const state =
     baseTarget <= 0
@@ -187,12 +203,14 @@ const MacroGauge = ({
   const progress =
     baseTarget > 0 ? Math.min((baseConsumed / baseTarget) * 100, 100) : 0;
 
-  const round0 = (value: number) => Math.round(value);
   const normalizeNegativeZero = (value: number) =>
     Object.is(value, -0) ? 0 : value;
-  
+  const formatPortions = (value: number) => {
+    const normalized = normalizeNegativeZero(Math.round(value * 10) / 10);
+    return Number.isInteger(normalized) ? normalized.toFixed(0) : normalized.toFixed(1);
+  };
   const remainingPortions = normalizeNegativeZero(
-    round0(targetPortions - consumedPortions)
+    Math.round((targetPortions - consumedPortions) * 10) / 10
   );
 
   return (
@@ -233,7 +251,7 @@ const MacroGauge = ({
             sx={{ position: "absolute", inset: 0 }}
           >
             <Typography variant="caption" fontWeight={700}>
-              {consumedPortions.toFixed(0)} / {targetPortions.toFixed(0)}
+              {formatPortions(consumedPortions)} / {formatPortions(targetPortions)}
             </Typography>
             <Typography variant="caption" color="text.secondary">
               porciones
@@ -242,8 +260,8 @@ const MacroGauge = ({
       </Box>
         <Stack spacing={0.5} alignItems="center">
           <Typography variant="caption" color="text.secondary" textAlign="center">
-            Porciones: {consumedPortions.toFixed(0)} / {targetPortions.toFixed(0)}{" "}
-            <b>(Restan {remainingPortions.toFixed(0)})</b>
+            Porciones: {formatPortions(consumedPortions)} / {formatPortions(targetPortions)}{" "}
+            <b>(Restan {formatPortions(remainingPortions)})</b>
           </Typography>
         {/* 
           <Typography variant="caption" color="text.secondary" textAlign="center">
@@ -258,6 +276,7 @@ const MacroGauge = ({
 const MealBuilder = ({
   meals,
   mealTargets,
+  mealPortionTargets,
   focusedMealKey,
   onChange,
   onSave,
@@ -669,6 +688,8 @@ const MealBuilder = ({
   const activeTargets: MacroTargets =
     (activeMealKey && mealTargets[activeMealKey]) ??
     ({ protein: 0, carbs: 0, fat: 0 } as MacroTargets);
+  const activePortionTargets: MacroTargets | undefined =
+    activeMealKey ? mealPortionTargets?.[activeMealKey] : undefined;
   const activeTotals = draftMeal
     ? {
         ...draftMeal.totals,
@@ -680,6 +701,17 @@ const MealBuilder = ({
         fat: 0,
         kcal: 0,
       };
+  const activeConsumedPortions = (draftMeal?.items ?? []).reduce(
+    (totals, item) => {
+      if (item.mode !== "portions" || !Number.isFinite(item.amount)) return totals;
+      const portions = Number(item.amount);
+      if (item.group === "proteinas") totals.protein += portions;
+      if (item.group === "carbohidratos") totals.carbs += portions;
+      if (item.group === "grasas") totals.fat += portions;
+      return totals;
+    },
+    { protein: 0, carbs: 0, fat: 0 }
+  );
   const indirectLimit = getIndirectProteinLimit(activeTargets.protein);
   const indirectProteinUsed = calcIndirectProtein(draftMeal?.items ?? []);
   const restrictCarbCatalog =
@@ -1039,6 +1071,8 @@ const MealBuilder = ({
                 consumedGrams={activeTotals.protein}
                 targetGrams={activeTargets.protein}
                 gramsPerPortion={10}
+                consumedPortions={activeConsumedPortions.protein}
+                targetPortions={activePortionTargets?.protein}
                 macroKey="protein"
               />
               <MacroGauge
@@ -1046,6 +1080,8 @@ const MealBuilder = ({
                 consumedGrams={activeTotals.carbs}
                 targetGrams={activeTargets.carbs}
                 gramsPerPortion={15}
+                consumedPortions={activeConsumedPortions.carbs}
+                targetPortions={activePortionTargets?.carbs}
                 macroKey="carbs"
               />
               <MacroGauge
@@ -1053,6 +1089,8 @@ const MealBuilder = ({
                 consumedGrams={activeTotals.fat}
                 targetGrams={activeTargets.fat}
                 gramsPerPortion={5}
+                consumedPortions={activeConsumedPortions.fat}
+                targetPortions={activePortionTargets?.fat}
                 macroKey="fat"
               />
             </Box>

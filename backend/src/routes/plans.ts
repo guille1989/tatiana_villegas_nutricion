@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { PlanDayOverrideModel } from '../models/PlanDayOverride'
 import { PlanModel } from '../models/Plan'
 import { MessageModel } from '../models/Message'
+import { RecipeGenerationModel } from '../models/RecipeGeneration'
 import { calculateDayFromBase } from '../modules/calc/dayCalc'
 import { applyMacroOverrideToOutputs, calcKcalFromMacros } from '../modules/calc/calc'
 import { AssessmentModel } from '../models/Assessment'
@@ -181,6 +182,7 @@ type MacroDistributionValue = Omit<z.infer<typeof macroDistributionSchema>, 'day
   id: string
   dayType?: string | null
   kcalDelta?: number
+  activeRecipeGenerationId?: Types.ObjectId | null
 }
 
 const normalizeMacroOverrides = (overrides: Array<MacroOverrideEntry> | undefined) =>
@@ -465,6 +467,7 @@ router.put(
           kcalDelta: parsed.data.kcalDelta ?? getLegacyDistributionKcalDelta(parsed.data.dayType),
           mealCategoryDistribution: parsed.data.mealCategoryDistribution ?? item.mealCategoryDistribution ?? null,
           generatedMenu: parsed.data.generatedMenu ?? item.generatedMenu ?? null,
+          activeRecipeGenerationId: item.activeRecipeGenerationId ?? null,
           mealPreferences: parsed.data.mealPreferences ?? item.mealPreferences ?? null,
         }
       }
@@ -502,6 +505,7 @@ router.delete(
       { planId, 'overrides.macroDistributionId': distributionId },
       { $set: { 'overrides.macroDistributionId': null } },
     )
+    await RecipeGenerationModel.deleteMany({ planId, distributionId })
     res.json({ plan })
   }),
 )
@@ -744,6 +748,7 @@ router.delete(
     if (!isAdmin && plan.userId !== req.user?.id) throw badRequest('Acceso no permitido')
 
     await PlanDayOverrideModel.deleteMany({ planId })
+    await RecipeGenerationModel.deleteMany({ planId })
     await PlanModel.deleteOne({ _id: planId })
     res.json({ ok: true })
   }),
@@ -820,6 +825,185 @@ const generatedMenuResponseSchema = z.object({
     }),
   ),
 })
+
+const recipeGenerationSnapshotSchema = z.object({
+  dailyMacros: z.object({
+    protein: z.number().nonnegative(),
+    carbs: z.number().nonnegative(),
+    fat: z.number().nonnegative(),
+    kcal: z.number().nonnegative(),
+  }),
+  meals: mealSuggestionSchema.shape.meals,
+  preferences: z.string().max(500).nullable().optional(),
+})
+
+const saveRecipeGenerationSchema = z.object({
+  targetSnapshot: recipeGenerationSnapshotSchema,
+  menu: generatedMenuResponseSchema,
+})
+
+const renameRecipeGenerationSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+})
+
+router.post(
+  '/:planId/macro-distributions/:distributionId/recipe-generations',
+  asyncHandler(async (req, res) => {
+    const { planId, distributionId } = req.params
+    if (!Types.ObjectId.isValid(planId)) throw badRequest('planId invalido')
+    if (req.user?.role !== 'admin' || !req.user.id) throw badRequest('Acceso no permitido')
+
+    const parsed = saveRecipeGenerationSchema.safeParse(req.body)
+    if (!parsed.success) throw badRequest('Validation failed', parsed.error.flatten())
+
+    const plan = await PlanModel.findById(planId)
+    if (!plan) throw notFound('Plan no encontrado')
+    const distributions = normalizeMacroDistributions(plan.macroDistributions)
+    const distribution = distributions.find((item) => item.id === distributionId)
+    if (!distribution) throw notFound('Distribucion no encontrada')
+
+    const generation = await RecipeGenerationModel.create({
+      planId: plan._id,
+      distributionId,
+      userId: plan.userId,
+      status: 'completed',
+      targetSnapshot: parsed.data.targetSnapshot,
+      menu: parsed.data.menu,
+      provider: { name: 'anthropic', model: 'claude-opus-4-8' },
+      createdBy: req.user.id,
+      completedAt: new Date(),
+    })
+
+    const next = distributions.map((item) =>
+      item.id === distributionId
+        ? {
+            ...item,
+            generatedMenu: parsed.data.menu,
+            mealPreferences: parsed.data.targetSnapshot.preferences ?? null,
+            activeRecipeGenerationId: generation._id,
+          }
+        : item,
+    )
+    plan.set('macroDistributions', next)
+    try {
+      await plan.save()
+    } catch (err) {
+      await RecipeGenerationModel.deleteOne({ _id: generation._id })
+      throw err
+    }
+
+    res.status(201).json({ generation, plan })
+  }),
+)
+
+router.get(
+  '/:planId/macro-distributions/:distributionId/recipe-generations',
+  asyncHandler(async (req, res) => {
+    const { planId, distributionId } = req.params
+    if (!Types.ObjectId.isValid(planId)) throw badRequest('planId invalido')
+    const plan = await PlanModel.findById(planId).select('userId status macroDistributions')
+    if (!plan) throw notFound('Plan no encontrado')
+    assertMemberPlanAccess(plan, req.user?.id, req.user?.role === 'admin')
+    if (!normalizeMacroDistributions(plan.macroDistributions).some((item) => item.id === distributionId)) {
+      throw notFound('Distribucion no encontrada')
+    }
+
+    const generations = await RecipeGenerationModel.find({ planId, distributionId })
+      .sort({ createdAt: -1 })
+      .limit(20)
+    res.json({ generations })
+  }),
+)
+
+router.put(
+  '/:planId/macro-distributions/:distributionId/recipe-generations/:generationId/activate',
+  asyncHandler(async (req, res) => {
+    const { planId, distributionId, generationId } = req.params
+    if (!Types.ObjectId.isValid(planId) || !Types.ObjectId.isValid(generationId)) {
+      throw badRequest('Identificador invalido')
+    }
+    if (req.user?.role !== 'admin') throw badRequest('Acceso no permitido')
+
+    const [plan, generation] = await Promise.all([
+      PlanModel.findById(planId),
+      RecipeGenerationModel.findOne({ _id: generationId, planId, distributionId, status: 'completed' }),
+    ])
+    if (!plan) throw notFound('Plan no encontrado')
+    if (!generation) throw notFound('Generacion no encontrada')
+    const distributions = normalizeMacroDistributions(plan.macroDistributions)
+    if (!distributions.some((item) => item.id === distributionId)) {
+      throw notFound('Distribucion no encontrada')
+    }
+
+    plan.set(
+      'macroDistributions',
+      distributions.map((item) =>
+        item.id === distributionId
+          ? {
+              ...item,
+              generatedMenu: generation.menu,
+              mealPreferences:
+                (generation.targetSnapshot as { preferences?: string | null })?.preferences ?? null,
+              activeRecipeGenerationId: generation._id,
+            }
+          : item,
+      ),
+    )
+    await plan.save()
+    res.json({ plan })
+  }),
+)
+
+router.patch(
+  '/:planId/macro-distributions/:distributionId/recipe-generations/:generationId/name',
+  asyncHandler(async (req, res) => {
+    const { planId, distributionId, generationId } = req.params
+    if (!Types.ObjectId.isValid(planId) || !Types.ObjectId.isValid(generationId)) {
+      throw badRequest('Identificador invalido')
+    }
+    if (req.user?.role !== 'admin') throw badRequest('Acceso no permitido')
+    const parsed = renameRecipeGenerationSchema.safeParse(req.body)
+    if (!parsed.success) throw badRequest('Validation failed', parsed.error.flatten())
+
+    const planExists = await PlanModel.exists({ _id: planId })
+    if (!planExists) throw notFound('Plan no encontrado')
+    const generation = await RecipeGenerationModel.findOneAndUpdate(
+      { _id: generationId, planId, distributionId },
+      { $set: { name: parsed.data.name } },
+      { new: true },
+    )
+    if (!generation) throw notFound('Generacion no encontrada')
+    res.json({ generation })
+  }),
+)
+
+router.delete(
+  '/:planId/macro-distributions/:distributionId/recipe-generations/:generationId',
+  asyncHandler(async (req, res) => {
+    const { planId, distributionId, generationId } = req.params
+    if (!Types.ObjectId.isValid(planId) || !Types.ObjectId.isValid(generationId)) {
+      throw badRequest('Identificador invalido')
+    }
+    if (req.user?.role !== 'admin') throw badRequest('Acceso no permitido')
+
+    const plan = await PlanModel.findById(planId)
+    if (!plan) throw notFound('Plan no encontrado')
+    const distribution = normalizeMacroDistributions(plan.macroDistributions)
+      .find((item) => item.id === distributionId)
+    if (!distribution) throw notFound('Distribucion no encontrada')
+    if (String(distribution.activeRecipeGenerationId ?? '') === generationId) {
+      throw badRequest('No se puede eliminar la generacion activa. Activa otra primero.')
+    }
+
+    const deleted = await RecipeGenerationModel.findOneAndDelete({
+      _id: generationId,
+      planId,
+      distributionId,
+    })
+    if (!deleted) throw notFound('Generacion no encontrada')
+    res.json({ ok: true })
+  }),
+)
 
 const MEAL_MENU_SCHEMA = {
   type: 'object',

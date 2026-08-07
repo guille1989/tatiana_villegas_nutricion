@@ -62,6 +62,11 @@ import {
   getAdminOverview,
   getPlan,
   generateMealOptions,
+  listRecipeGenerations,
+  activateRecipeGeneration,
+  deleteRecipeGeneration,
+  renameRecipeGeneration,
+  saveRecipeGeneration,
   listAdminIngredients,
   listInvites,
   sendAdminMessage,
@@ -76,6 +81,7 @@ import {
   type GeneratedMealIngredient,
   type GeneratedMealOption,
   type MealPlanRequestEntry,
+  type RecipeGeneration,
 } from '../lib/api'
 import {
   applyMacroOverrideToOutputs,
@@ -718,6 +724,10 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
   const [mealPreferences, setMealPreferences] = useState('')
   const [generatingMeals, setGeneratingMeals] = useState(false)
   const [mealGenerationError, setMealGenerationError] = useState<string | null>(null)
+  const [recipeGenerations, setRecipeGenerations] = useState<RecipeGeneration[]>([])
+  const [recipeHistoryLoading, setRecipeHistoryLoading] = useState(false)
+  const [recipeHistoryActionId, setRecipeHistoryActionId] = useState<string | null>(null)
+  const [recipeHistoryError, setRecipeHistoryError] = useState<string | null>(null)
   const [recipeEditor, setRecipeEditor] = useState<RecipeEditorState | null>(null)
   const [recipeEditorSaving, setRecipeEditorSaving] = useState(false)
   const [recipeEditorError, setRecipeEditorError] = useState<string | null>(null)
@@ -1058,6 +1068,35 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
   }, [activePortionDistribution?.id, selectedRecord?.plan?.id])
 
   useEffect(() => {
+    const planId = selectedRecord?.plan?.id
+    const distributionId = activePortionDistribution?.id
+    if (!planId || !distributionId) {
+      setRecipeGenerations([])
+      return
+    }
+    let active = true
+    setRecipeHistoryLoading(true)
+    setRecipeHistoryError(null)
+    listRecipeGenerations(planId, distributionId)
+      .then((items) => {
+        if (active) setRecipeGenerations(items)
+      })
+      .catch((err) => {
+        if (active) {
+          setRecipeHistoryError(
+            err instanceof Error ? err.message : 'No se pudo cargar el historial de recetas.',
+          )
+        }
+      })
+      .finally(() => {
+        if (active) setRecipeHistoryLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [activePortionDistribution?.id, selectedRecord?.plan?.id])
+
+  useEffect(() => {
     if (trackingWindowPage > totalTrackingPages - 1) {
       setTrackingWindowPage(Math.max(0, totalTrackingPages - 1))
     }
@@ -1363,6 +1402,85 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     setActionsMenuAnchor(null)
   }
 
+  const handleActivateRecipeGeneration = async (generationId: string) => {
+    if (!selectedRecord?.plan || !activePortionDistribution) return
+    setRecipeHistoryActionId(generationId)
+    setRecipeHistoryError(null)
+    try {
+      const plan = await activateRecipeGeneration(
+        selectedRecord.plan.id,
+        activePortionDistribution.id,
+        generationId,
+      )
+      applySelectedPlanUpdate(plan)
+    } catch (err) {
+      setRecipeHistoryError(
+        err instanceof Error ? err.message : 'No se pudo recuperar esa generacion.',
+      )
+    } finally {
+      setRecipeHistoryActionId(null)
+    }
+  }
+
+  const handleDeleteRecipeGeneration = async (generationId: string) => {
+    if (!selectedRecord?.plan || !activePortionDistribution) return
+    if (!window.confirm('¿Eliminar esta generacion de recetas del historial?')) return
+    setRecipeHistoryActionId(generationId)
+    setRecipeHistoryError(null)
+    try {
+      await deleteRecipeGeneration(
+        selectedRecord.plan.id,
+        activePortionDistribution.id,
+        generationId,
+      )
+      setRecipeGenerations((items) => items.filter((item) => item._id !== generationId))
+    } catch (err) {
+      setRecipeHistoryError(
+        err instanceof Error ? err.message : 'No se pudo eliminar esa generacion.',
+      )
+    } finally {
+      setRecipeHistoryActionId(null)
+    }
+  }
+
+  const handleRenameRecipeGeneration = async (generation: RecipeGeneration) => {
+    if (!selectedRecord?.plan || !activePortionDistribution) return
+    const requestedName = window.prompt(
+      'Nombre para esta generacion de recetas:',
+      generation.name ?? '',
+    )
+    if (requestedName === null) return
+    const name = requestedName.trim()
+    if (!name) {
+      setRecipeHistoryError('El nombre no puede estar vacio.')
+      return
+    }
+    if (name.length > 80) {
+      setRecipeHistoryError('El nombre no puede superar los 80 caracteres.')
+      return
+    }
+
+    setRecipeHistoryActionId(generation._id)
+    setRecipeHistoryError(null)
+    try {
+      const updated = await renameRecipeGeneration(
+        selectedRecord.plan.id,
+        activePortionDistribution.id,
+        generation._id,
+        name,
+      )
+      setRecipeGenerations((items) =>
+        items.map((item) => (item._id === updated._id ? updated : item)),
+      )
+    } catch (err) {
+      setRecipeHistoryError(
+        err instanceof Error ? err.message : 'No se pudo renombrar la generacion.',
+      )
+    } finally {
+      setRecipeHistoryActionId(null)
+    }
+  }
+
   const handleGenerateAdminMeals = async () => {
     if (!selectedRecord?.plan || !activePortionDistribution) return
     if (!activePortionDistribution.mealCategoryDistribution?.length) {
@@ -1392,37 +1510,32 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
     setGeneratingMeals(true)
     setMealGenerationError(null)
     try {
+      const targetMacros = {
+        ...activePortionTargetMacros,
+        kcal: Math.round(
+          activePortionTargetMacros.protein * 4 +
+            activePortionTargetMacros.carbs * 4 +
+            activePortionTargetMacros.fat * 9,
+        ),
+      }
       const menu = await generateMealOptions({
         planId: selectedRecord.plan.id,
-        targetMacros: {
-          ...activePortionTargetMacros,
-          kcal: Math.round(
-            activePortionTargetMacros.protein * 4 +
-              activePortionTargetMacros.carbs * 4 +
-              activePortionTargetMacros.fat * 9,
-          ),
-        },
+        targetMacros,
         meals,
         preferences: mealPreferences.trim() || undefined,
       })
-      const plan = await updateMacroDistribution(
-        selectedRecord.plan.id,
-        activePortionDistribution.id,
-        {
-          name: activePortionDistribution.name,
-          ...(activePortionDistribution.dayType
-            ? { dayType: activePortionDistribution.dayType }
-            : {}),
-          kcalDelta: getDistributionKcalDelta(activePortionDistribution),
-          carbsPerKg: activePortionDistribution.carbsPerKg,
-          proteinPerKg: activePortionDistribution.proteinPerKg,
-          isDefault: activePortionDistribution.isDefault,
-          mealCategoryDistribution: activePortionDistribution.mealCategoryDistribution,
-          generatedMenu: menu,
-          mealPreferences: mealPreferences.trim() || null,
+      const { plan, generation } = await saveRecipeGeneration({
+        planId: selectedRecord.plan.id,
+        distributionId: activePortionDistribution.id,
+        targetSnapshot: {
+          dailyMacros: targetMacros,
+          meals,
+          preferences: mealPreferences.trim() || null,
         },
-      )
+        menu,
+      })
       applySelectedPlanUpdate(plan)
+      setRecipeGenerations((items) => [generation, ...items])
     } catch (err) {
       setMealGenerationError(
         err instanceof Error ? err.message : 'No se pudieron generar las recetas.',
@@ -3427,6 +3540,95 @@ const AdminDashboardPage = ({ mode = 'overview' }: AdminDashboardPageProps) => {
                                 {generatingMeals && <LinearProgress sx={{ borderRadius: 999 }} />}
                                 {mealGenerationError && (
                                   <Alert severity="error">{mealGenerationError}</Alert>
+                                )}
+                                {(recipeHistoryLoading || recipeGenerations.length > 0 || recipeHistoryError) && (
+                                  <Accordion disableGutters elevation={0} variant="outlined">
+                                    <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
+                                      <Typography fontWeight={800}>
+                                        Historial de recetas · {recipeGenerations.length}
+                                      </Typography>
+                                    </AccordionSummary>
+                                    <AccordionDetails>
+                                      <Stack spacing={1}>
+                                        {recipeHistoryLoading && <LinearProgress />}
+                                        {recipeHistoryError && (
+                                          <Alert severity="error">{recipeHistoryError}</Alert>
+                                        )}
+                                        {!recipeHistoryLoading && recipeGenerations.length === 1 && (
+                                          <Alert severity="info">
+                                            Esta es la primera generacion guardada. Cuando regeneres las
+                                            recetas, esta version permanecera aqui y podras recuperarla.
+                                          </Alert>
+                                        )}
+                                        {recipeGenerations.map((generation) => {
+                                          const isActive =
+                                            activePortionDistribution.activeRecipeGenerationId === generation._id
+                                          return (
+                                            <Paper
+                                              key={generation._id}
+                                              variant="outlined"
+                                              sx={{ p: 1.25, borderRadius: 2 }}
+                                            >
+                                              <Stack
+                                                direction={{ xs: 'column', sm: 'row' }}
+                                                justifyContent="space-between"
+                                                alignItems={{ xs: 'stretch', sm: 'center' }}
+                                                spacing={1}
+                                              >
+                                                <Box>
+                                                  {generation.name && (
+                                                    <Typography variant="subtitle2" fontWeight={800}>
+                                                      {generation.name}
+                                                    </Typography>
+                                                  )}
+                                                  <Stack direction="row" spacing={1} alignItems="center">
+                                                    <Typography variant="subtitle2" fontWeight={800}>
+                                                      {dayjs(generation.createdAt).format('DD/MM/YYYY HH:mm')}
+                                                    </Typography>
+                                                    {isActive && <Chip size="small" color="success" label="Activo" />}
+                                                  </Stack>
+                                                  <Typography variant="caption" color="text.secondary">
+                                                    {Math.round(generation.targetSnapshot.dailyMacros.kcal)} kcal · P{' '}
+                                                    {formatMacroGrams(generation.targetSnapshot.dailyMacros.protein)} g · HC{' '}
+                                                    {formatMacroGrams(generation.targetSnapshot.dailyMacros.carbs)} g · G{' '}
+                                                    {formatMacroGrams(generation.targetSnapshot.dailyMacros.fat)} g
+                                                  </Typography>
+                                                </Box>
+                                                <Stack direction="row" spacing={1}>
+                                                  <Button
+                                                    size="small"
+                                                    disabled={recipeHistoryActionId !== null}
+                                                    onClick={() => handleRenameRecipeGeneration(generation)}
+                                                  >
+                                                    Renombrar
+                                                  </Button>
+                                                  <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    disabled={isActive || recipeHistoryActionId !== null}
+                                                    onClick={() => handleActivateRecipeGeneration(generation._id)}
+                                                  >
+                                                    {isActive ? 'En uso' : 'Recuperar'}
+                                                  </Button>
+                                                  {!isActive && (
+                                                    <IconButton
+                                                      size="small"
+                                                      color="error"
+                                                      aria-label="Eliminar generacion"
+                                                      disabled={recipeHistoryActionId !== null}
+                                                      onClick={() => handleDeleteRecipeGeneration(generation._id)}
+                                                    >
+                                                      <DeleteOutlineRoundedIcon fontSize="small" />
+                                                    </IconButton>
+                                                  )}
+                                                </Stack>
+                                              </Stack>
+                                            </Paper>
+                                          )
+                                        })}
+                                      </Stack>
+                                    </AccordionDetails>
+                                  </Accordion>
                                 )}
                                 {!!activePortionDistribution.generatedMenu &&
                                   ((activePortionDistribution.generatedMenu as GeneratedMenu).meals ?? []).map(

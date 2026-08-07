@@ -733,10 +733,90 @@ export type GeneratedMenu = {
   meals: GeneratedMeal[]
 }
 
+export type RecipeGeneration = {
+  _id: string
+  planId: string
+  distributionId: string
+  status: 'completed' | 'failed'
+  name?: string | null
+  targetSnapshot: {
+    dailyMacros: { protein: number; carbs: number; fat: number; kcal: number }
+    meals: MealPlanRequestEntry[]
+    preferences?: string | null
+  }
+  menu: GeneratedMenu
+  provider: { name: string; model: string }
+  createdBy: string
+  createdAt: string
+  completedAt?: string | null
+}
+
 export type MealPlanRequestEntry = {
   name: string
   macros?: { protein: number; carbs: number; fat: number }
   categories?: { name: string; portions: number }[]
+}
+
+export const saveRecipeGeneration = async (payload: {
+  planId: string
+  distributionId: string
+  targetSnapshot: RecipeGeneration['targetSnapshot']
+  menu: GeneratedMenu
+}) => {
+  const { planId, distributionId, ...body } = payload
+  const { data, error } = await request<{ generation: RecipeGeneration; plan: PlanDto }>(
+    `/plans/${planId}/macro-distributions/${distributionId}/recipe-generations`,
+    { method: 'POST', body: JSON.stringify(body) },
+  )
+  if (error) throw new Error(error)
+  return { generation: data.generation, plan: mapPlan(data.plan) }
+}
+
+export const listRecipeGenerations = async (planId: string, distributionId: string) => {
+  const { data, error } = await request<{ generations: RecipeGeneration[] }>(
+    `/plans/${planId}/macro-distributions/${distributionId}/recipe-generations`,
+  )
+  if (error) throw new Error(error)
+  return data.generations ?? []
+}
+
+export const activateRecipeGeneration = async (
+  planId: string,
+  distributionId: string,
+  generationId: string,
+) => {
+  const { data, error } = await request<{ plan: PlanDto }>(
+    `/plans/${planId}/macro-distributions/${distributionId}/recipe-generations/${generationId}/activate`,
+    { method: 'PUT' },
+  )
+  if (error) throw new Error(error)
+  return mapPlan(data.plan)
+}
+
+export const renameRecipeGeneration = async (
+  planId: string,
+  distributionId: string,
+  generationId: string,
+  name: string,
+) => {
+  const { data, error } = await request<{ generation: RecipeGeneration }>(
+    `/plans/${planId}/macro-distributions/${distributionId}/recipe-generations/${generationId}/name`,
+    { method: 'PATCH', body: JSON.stringify({ name }) },
+  )
+  if (error) throw new Error(error)
+  return data.generation
+}
+
+export const deleteRecipeGeneration = async (
+  planId: string,
+  distributionId: string,
+  generationId: string,
+) => {
+  const { error } = await request<{ ok: boolean }>(
+    `/plans/${planId}/macro-distributions/${distributionId}/recipe-generations/${generationId}`,
+    { method: 'DELETE' },
+  )
+  if (error) throw new Error(error)
 }
 
 export const generateMealOptions = async (payload: {
