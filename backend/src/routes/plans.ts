@@ -966,10 +966,10 @@ router.post(
     try {
       response = await anthropic.messages.create({
         model: 'claude-opus-4-8',
-        max_tokens: 6000,
+        max_tokens: 16000,
         thinking: { type: 'adaptive' },
         output_config: {
-          effort: 'medium',
+          effort: 'low',
           format: { type: 'json_schema', schema: MEAL_MENU_SCHEMA },
         },
         system,
@@ -980,6 +980,46 @@ router.post(
       throw new ApiError(502, 'No se pudo generar el menu. Intenta de nuevo.')
     }
 
+    // Keep this as a string because older SDK typings do not include every
+    // stop reason that newer Claude models can return.
+    const stopReason = response.stop_reason as string | null
+
+    console.info('Anthropic meal-suggestions response', {
+      requestId: response._request_id,
+      stopReason,
+      usage: response.usage,
+      requestedMeals: meals.length,
+      contentTypes: response.content.map((block) => block.type),
+    })
+
+    if (
+      stopReason === 'max_tokens' ||
+      stopReason === 'model_context_window_exceeded'
+    ) {
+      console.error('Anthropic meal-suggestions truncated', {
+        requestId: response._request_id,
+        stopReason,
+        usage: response.usage,
+        requestedMeals: meals.length,
+      })
+      throw new ApiError(
+        502,
+        'La generacion alcanzo el limite de tokens y quedo incompleta. Intenta de nuevo.',
+      )
+    }
+
+    if (stopReason !== 'end_turn') {
+      console.error('Anthropic meal-suggestions unexpected stop reason', {
+        requestId: response._request_id,
+        stopReason,
+        usage: response.usage,
+      })
+      throw new ApiError(
+        502,
+        'La IA no pudo completar el menu. Intenta de nuevo.',
+      )
+    }
+
     const textBlock = response.content.find((block) => block.type === 'text')
     if (!textBlock || textBlock.type !== 'text') {
       throw new ApiError(502, 'Respuesta de IA vacia. Intenta de nuevo.')
@@ -988,7 +1028,16 @@ router.post(
     let rawMenu: unknown
     try {
       rawMenu = JSON.parse(textBlock.text)
-    } catch {
+    } catch (err) {
+      console.error('Anthropic meal-suggestions invalid JSON', {
+        error: err instanceof Error ? err.message : String(err),
+        requestId: response._request_id,
+        stopReason,
+        usage: response.usage,
+        textLength: textBlock.text.length,
+        textStart: textBlock.text.slice(0, 300),
+        textEnd: textBlock.text.slice(-500),
+      })
       throw new ApiError(502, 'No se pudo interpretar el menu generado. Intenta de nuevo.')
     }
 
