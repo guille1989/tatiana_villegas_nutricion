@@ -897,7 +897,13 @@ router.post(
 
     const { targetMacros, meals, preferences } = parsed.data
 
-    const anthropic = new Anthropic({ apiKey: env.anthropicApiKey })
+    // Retries are coordinated by the caller per meal. Disabling SDK retries
+    // prevents one Vercel invocation from silently running for several times
+    // its normal duration.
+    const anthropic = new Anthropic({
+      apiKey: env.anthropicApiKey,
+      maxRetries: 0,
+    })
 
     const hasComposition = meals.some(
       (meal) => (meal.categories?.length ?? 0) > 0,

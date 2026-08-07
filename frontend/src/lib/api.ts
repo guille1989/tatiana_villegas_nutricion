@@ -745,13 +745,59 @@ export const generateMealOptions = async (payload: {
   meals: MealPlanRequestEntry[]
   preferences?: string
 }) => {
-  const { planId, ...body } = payload
-  const { data, error } = await request<{ menu: GeneratedMenu }>(
-    `/plans/${planId}/meal-suggestions`,
-    { method: 'POST', body: JSON.stringify(body) },
+  const { planId, meals, ...sharedBody } = payload
+  const maxConcurrency = 2
+  const maxAttempts = 3
+  const generatedMeals: Array<GeneratedMeal | undefined> = new Array(meals.length)
+  let nextMealIndex = 0
+
+  const wait = (milliseconds: number) =>
+    new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds))
+
+  const generateSingleMeal = async (meal: MealPlanRequestEntry) => {
+    let lastError = 'No se pudo generar la comida.'
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const { data, error } = await request<{ menu: GeneratedMenu }>(
+        `/plans/${planId}/meal-suggestions`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ ...sharedBody, meals: [meal] }),
+        },
+      )
+
+      const generatedMeal = data.menu?.meals?.[0]
+      if (!error && generatedMeal) return generatedMeal
+
+      lastError = error || `La IA no devolvio recetas para ${meal.name}.`
+      if (attempt < maxAttempts) {
+        // Exponential backoff with a little jitter prevents simultaneous
+        // retries from repeatedly hitting the provider at the same time.
+        const delay = 1000 * 2 ** (attempt - 1) + Math.round(Math.random() * 500)
+        await wait(delay)
+      }
+    }
+
+    throw new Error(`${meal.name}: ${lastError}`)
+  }
+
+  const worker = async () => {
+    while (true) {
+      const mealIndex = nextMealIndex
+      nextMealIndex += 1
+      if (mealIndex >= meals.length) return
+      generatedMeals[mealIndex] = await generateSingleMeal(meals[mealIndex])
+    }
+  }
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(maxConcurrency, meals.length) },
+      () => worker(),
+    ),
   )
-  if (error) throw new Error(error)
-  return data.menu
+
+  return { meals: generatedMeals as GeneratedMeal[] }
 }
 
 export const getDay = async (planId: string, date: string) => {
